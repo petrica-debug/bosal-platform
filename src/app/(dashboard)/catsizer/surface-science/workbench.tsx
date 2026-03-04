@@ -121,6 +121,9 @@ export function SurfaceScienceWorkbench() {
   // Selected TOF entry
   const [selectedTOFId, setSelectedTOFId] = useState<string>(TOF_DATABASE[0]?.id ?? "");
 
+  // Active tab
+  const [activeTab, setActiveTab] = useState("characterize");
+
   // Results
   const [dispResult, setDispResult] = useState<DispersionResult | null>(null);
   const [activityProfile, setActivityProfile] = useState<ActivityPoint[]>([]);
@@ -167,20 +170,49 @@ export function SurfaceScienceWorkbench() {
     setWashcoatLoading(p.composition.washcoatLoading_g_L);
     setWashcoatThickness(p.composition.washcoatThickness_um);
 
+    // Determine metal from profile (compute locally — state is async)
+    let metal: typeof primaryMetal = "Pt";
     const phase = p.composition.activePhase.toLowerCase();
-    if (phase.includes("rh")) setPrimaryMetal("Rh");
-    else if (phase.includes("pd")) setPrimaryMetal("Pd");
-    else if (phase.includes("pt")) setPrimaryMetal("Pt");
-    else if (phase.includes("ni")) setPrimaryMetal("Ni");
-    else if (phase.includes("cu")) setPrimaryMetal("Cu");
-    else if (phase.includes("fe")) setPrimaryMetal("Fe");
+    if (phase.includes("rh")) metal = "Rh";
+    else if (phase.includes("pd")) metal = "Pd";
+    else if (phase.includes("pt")) metal = "Pt";
+    else if (phase.includes("ni")) metal = "Ni";
+    else if (phase.includes("cu")) metal = "Cu";
+    else if (phase.includes("fe")) metal = "Fe";
+    setPrimaryMetal(metal);
 
-    // Select first applicable TOF entry
+    // Select first applicable TOF entry using the local metal value
     const applicableTOF = TOF_DATABASE.find((t) =>
       t.catalystTypes.includes(p.catalystType) &&
-      t.metal === primaryMetal
+      t.metal === metal
     );
     if (applicableTOF) setSelectedTOFId(applicableTOF.id);
+
+    // Auto-calculate dispersion with the loaded values
+    const data: ChemisorptionData = {
+      probeGas: p.chemisorption.probeGas,
+      uptake_umol_g: p.chemisorption.uptake_umol_gCat,
+      pgmLoading_wt_percent: p.composition.pgm_wt_percent,
+      primaryMetal: metal,
+      measurementTemp_C: p.chemisorption.measurementTemp_C,
+    };
+    const result = calculateDispersion(data);
+    setDispResult(result);
+
+    // Generate activity profile
+    const tofEntry = applicableTOF ?? TOF_DATABASE.find((t) => t.catalystTypes.includes(p.catalystType));
+    if (tofEntry) {
+      const profile = generateActivityProfile(
+        tofEntry, result, catalystVolume,
+        p.composition.washcoatLoading_g_L,
+        pollutantFlow, p.composition.washcoatThickness_um,
+        1e-6, [100, 650], 50
+      );
+      setActivityProfile(profile);
+    }
+
+    // Switch to characterization tab to show results
+    setActiveTab("characterize");
   };
 
   // TOF vs Temperature data for all entries
@@ -222,7 +254,7 @@ export function SurfaceScienceWorkbench() {
 
   return (
     <div className="grid gap-6">
-      <Tabs defaultValue="characterize">
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="flex-wrap">
           <TabsTrigger value="characterize">Characterization</TabsTrigger>
           <TabsTrigger value="tof-db">TOF Database</TabsTrigger>
