@@ -88,6 +88,7 @@ import { washcoatThicknessSweep, WASHCOAT_DOC_DEFAULT } from "@/lib/catsizer/was
 import { filterCatalog, STANDARD_CELL_CONFIGS, type SubstrateCatalogEntry } from "@/lib/catsizer/substrate-catalog";
 import { INJECTOR_PRESETS, assessSpraySystem, type InjectorSpec, type MixingPipeConfig, type SpraySystemResult } from "@/lib/catsizer/spray-model";
 import { generateDosingMap, determineAlphaStrategy, type DosingMap } from "@/lib/catsizer/adblue-dosing";
+import { PGM_FORMULATIONS, recommendTechnology, conversionTemperatureSweep, findLightOff, type PGMFormulation, type TechnologyRecommendation, type ConversionPoint } from "@/lib/catsizer/catalyst-technology";
 
 const STEPS = [
   "Engine Input",
@@ -212,6 +213,9 @@ export function DepollutionCalculator() {
   const [sprayResult, setSprayResult] = useState<SpraySystemResult | null>(null);
   const [dosingMap, setDosingMap] = useState<DosingMap | null>(null);
   const [catalogFilter, setCatalogFilter] = useState<{ type: string; vehicleClass: string }>({ type: "all", vehicleClass: "all" });
+  const [techRecs, setTechRecs] = useState<TechnologyRecommendation[]>([]);
+  const [conversionCurves, setConversionCurves] = useState<Record<string, ConversionPoint[]>>({});
+  const [selectedFormulations, setSelectedFormulations] = useState<Record<string, string>>({});
 
   const { setValue } = useForm<EngineInputs>({ defaultValues: DEFAULT_ENGINE });
 
@@ -242,6 +246,48 @@ export function DepollutionCalculator() {
       const rfqResult = generateRFQ(engineInputs, chain, standard, aging, scrConfig);
       setRfq(rfqResult);
 
+      // Technology recommendations and conversion curves
+      const recs: TechnologyRecommendation[] = [];
+      const curves: Record<string, ConversionPoint[]> = {};
+      const enabledChain = chain.filter((c) => c.enabled);
+
+      for (const element of enabledChain) {
+        const rec = recommendTechnology(element.type, engineInputs, standard);
+        recs.push(rec);
+
+        // Use selected formulation or recommended
+        const formId = selectedFormulations[element.type];
+        const formulation = formId
+          ? PGM_FORMULATIONS.find((f) => f.id === formId) ?? rec.recommended
+          : rec.recommended;
+
+        // Find the sized catalyst for this type
+        const sized = base.catalysts.find((c) => c.type === element.type);
+        if (sized && (element.type === "DOC" || element.type === "TWC" || element.type === "SCR" || element.type === "ASC")) {
+          const T_K = engineInputs.exhaustTemp_C + 273.15;
+          const rho = 101325 / (287 * T_K);
+          const Q_m3_s = (engineInputs.exhaustFlowRate_kg_h / 3600) / rho;
+          const composition: Record<string, number> = {
+            CO: engineInputs.CO_ppm * 1e-6,
+            HC: engineInputs.HC_ppm * 1e-6,
+            NO: engineInputs.NOx_ppm * (1 - engineInputs.NO2_fraction) * 1e-6,
+            NO2: engineInputs.NOx_ppm * engineInputs.NO2_fraction * 1e-6,
+            O2: engineInputs.O2_percent * 0.01,
+            H2O: engineInputs.H2O_percent * 0.01,
+            NH3: element.type === "SCR" || element.type === "ASC" ? engineInputs.NOx_ppm * 1e-6 * 1.0 : 0,
+          };
+
+          const sweep = conversionTemperatureSweep(
+            element.type, sized.selectedVolume_L, 2.8, Q_m3_s,
+            composition, formulation, [100, 550], 30
+          );
+          curves[element.type] = sweep;
+        }
+      }
+
+      setTechRecs(recs);
+      setConversionCurves(curves);
+
       // Spray & dosing analysis (if SCR is in chain)
       if (chain.some((c) => c.enabled && c.type === "SCR")) {
         const spray = assessSpraySystem(injector, pipe, engineInputs.exhaustTemp_C, engineInputs.exhaustFlowRate_kg_h, 1.0);
@@ -253,7 +299,7 @@ export function DepollutionCalculator() {
       setCalculating(false);
       setStep(4);
     }, 150);
-  }, [engineInputs, chain, standard, aging, scrConfig, injector, pipe]);
+  }, [engineInputs, chain, standard, aging, scrConfig, injector, pipe, selectedFormulations]);
 
   const washcoatSweep = useMemo(() => {
     const T_K = engineInputs.exhaustTemp_C + 273.15;
@@ -519,6 +565,103 @@ export function DepollutionCalculator() {
               </CardContent>
             </Card>
           )}
+
+          {/* Per-Catalyst Technology Configuration */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Beaker className="h-5 w-5" /> Catalyst Technology & PGM Configuration
+              </CardTitle>
+              <CardDescription>Select washcoat chemistry, PGM formulation, and loading per catalyst element</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {chain.filter((c) => c.enabled).map((element) => {
+                  const candidates = PGM_FORMULATIONS.filter((f) => f.catalystTypes.includes(element.type));
+                  const selected = selectedFormulations[element.type] ?? candidates[0]?.id ?? "";
+                  const formulation = candidates.find((f) => f.id === selected) ?? candidates[0];
+
+                  return (
+                    <div key={element.type} className="rounded-lg border p-4">
+                      <div className="flex items-center gap-3 mb-3">
+                        <Badge className={
+                          element.type === "DOC" ? "bg-[#1A4F6E] text-white" :
+                          element.type === "DPF" ? "bg-[#5C4028] text-white" :
+                          element.type === "SCR" ? "bg-[#1A5E42] text-white" :
+                          element.type === "ASC" ? "bg-[#4E356E] text-white" :
+                          "bg-[#C44536] text-white"
+                        }>{element.type}</Badge>
+                        <span className="text-sm font-medium">{formulation?.name ?? "Select formulation"}</span>
+                      </div>
+
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <div>
+                          <Label className="text-xs">Formulation</Label>
+                          <Select
+                            value={selected}
+                            onValueChange={(v) => setSelectedFormulations((p) => ({ ...p, [element.type]: v }))}
+                          >
+                            <SelectTrigger className="text-xs"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              {candidates.map((f) => (
+                                <SelectItem key={f.id} value={f.id} className="text-xs">
+                                  {f.name} — {f.totalPGM_g_ft3} g/ft³
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        {formulation && (
+                          <>
+                            <div className="text-xs space-y-1">
+                              <Label className="text-xs">PGM Loading</Label>
+                              <div className="grid grid-cols-3 gap-1">
+                                <div className="rounded border px-2 py-1 text-center">
+                                  <p className="text-muted-foreground text-[10px]">Pt</p>
+                                  <p className="font-mono font-bold">{formulation.metals.Pt_g_ft3}</p>
+                                </div>
+                                <div className="rounded border px-2 py-1 text-center">
+                                  <p className="text-muted-foreground text-[10px]">Pd</p>
+                                  <p className="font-mono font-bold">{formulation.metals.Pd_g_ft3}</p>
+                                </div>
+                                <div className="rounded border px-2 py-1 text-center">
+                                  <p className="text-muted-foreground text-[10px]">Rh</p>
+                                  <p className="font-mono font-bold">{formulation.metals.Rh_g_ft3}</p>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="text-xs">
+                              <Label className="text-xs">Washcoat</Label>
+                              <p className="text-muted-foreground">{formulation.washcoatComposition}</p>
+                              <p className="font-mono mt-1">{formulation.washcoatLoading_g_L} g/L — {formulation.washcoatThickness_um} µm</p>
+                            </div>
+
+                            <div className="text-xs">
+                              <Label className="text-xs">Light-Off (T₅₀)</Label>
+                              <div className="flex gap-3 mt-1">
+                                {formulation.lightOff_CO_C > 0 && <span>CO: <span className="font-mono">{formulation.lightOff_CO_C}°C</span></span>}
+                                {formulation.lightOff_HC_C > 0 && <span>HC: <span className="font-mono">{formulation.lightOff_HC_C}°C</span></span>}
+                                {formulation.lightOff_NO_C > 0 && <span>NOₓ: <span className="font-mono">{formulation.lightOff_NO_C}°C</span></span>}
+                              </div>
+                              <div className="flex gap-2 mt-1">
+                                <Badge variant="outline" className="text-[10px]">S-tol: {formulation.sulfurTolerance}</Badge>
+                                <Badge variant="outline" className="text-[10px]">Durability: {formulation.thermalDurability}</Badge>
+                              </div>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                      {formulation && (
+                        <p className="text-xs text-muted-foreground mt-2 italic">{formulation.description}</p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
 
           {/* Spray / Injector Configuration */}
           {chain.some((c) => c.enabled && c.type === "SCR") && (
@@ -810,6 +953,8 @@ export function DepollutionCalculator() {
               {dosingMap && <TabsTrigger value="adblue">AdBlue Dosing</TabsTrigger>}
               {sprayResult && <TabsTrigger value="spray">Spray & NH₃</TabsTrigger>}
               <TabsTrigger value="layout">System Layout</TabsTrigger>
+              <TabsTrigger value="lightoff">Light-Off Curves</TabsTrigger>
+              {techRecs.length > 0 && <TabsTrigger value="technology">Technology</TabsTrigger>}
             </TabsList>
 
             {/* ---- CATALYST SIZING TAB ---- */}
@@ -1714,6 +1859,247 @@ export function DepollutionCalculator() {
                 </CardContent>
               </Card>
             </TabsContent>
+
+            {/* ---- LIGHT-OFF CURVES TAB ---- */}
+            <TabsContent value="lightoff" className="mt-4">
+              <div className="grid gap-6">
+                {Object.entries(conversionCurves).map(([catType, points]) => {
+                  const formId = selectedFormulations[catType] ?? PGM_FORMULATIONS.find((f) => f.catalystTypes.includes(catType as CatalystType))?.id;
+                  const formulation = PGM_FORMULATIONS.find((f) => f.id === formId);
+                  const lightOffCO = findLightOff(points, "CO");
+                  const lightOffHC = findLightOff(points, "HC");
+                  const lightOffNOx = findLightOff(points, "NOx");
+
+                  const colors: Record<string, string> = {
+                    DOC: "#1A4F6E", SCR: "#1A5E42", TWC: "#C44536", ASC: "#4E356E",
+                  };
+                  const baseColor = colors[catType] ?? "#1A4F6E";
+
+                  return (
+                    <Card key={catType}>
+                      <CardHeader>
+                        <CardTitle className="text-base flex items-center gap-2">
+                          <Badge style={{ backgroundColor: baseColor, color: "white" }}>{catType}</Badge>
+                          CO / HC / NOₓ Conversion vs. Temperature
+                          {formulation && <span className="text-xs text-muted-foreground font-normal ml-2">— {formulation.name}</span>}
+                        </CardTitle>
+                        <CardDescription>
+                          Kinetics-based light-off curves using {formulation?.washcoatType ?? "standard"} washcoat at {formulation?.totalPGM_g_ft3 ?? 0} g/ft³ PGM
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <ResponsiveContainer width="100%" height={320}>
+                          <LineChart data={points}>
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis dataKey="temperature_C" label={{ value: "Temperature [°C]", position: "insideBottom", offset: -5 }} />
+                            <YAxis domain={[0, 100]} label={{ value: "Conversion [%]", angle: -90, position: "insideLeft" }} />
+                            <Tooltip formatter={(v: number) => `${v.toFixed(1)}%`} />
+                            <Legend />
+                            {catType !== "SCR" && catType !== "ASC" && (
+                              <>
+                                <Line type="monotone" dataKey="CO_conversion" stroke="#E63946" strokeWidth={2.5} dot={false} name="CO" />
+                                <Line type="monotone" dataKey="HC_conversion" stroke="#E6A23C" strokeWidth={2.5} dot={false} name="HC" />
+                              </>
+                            )}
+                            <Line type="monotone" dataKey="NOx_conversion" stroke="#2A9D8F" strokeWidth={2.5} dot={false} name="NOₓ" />
+                            {catType === "DOC" && (
+                              <Line type="monotone" dataKey="NO2_make" stroke="#6A4A8A" strokeWidth={1.5} dot={false} name="NO₂ Make" strokeDasharray="5 3" />
+                            )}
+                          </LineChart>
+                        </ResponsiveContainer>
+
+                        {/* Light-off temperatures */}
+                        <div className="mt-4 grid grid-cols-3 gap-3 text-sm">
+                          {catType !== "SCR" && catType !== "ASC" && (
+                            <>
+                              <div className="rounded-lg border-l-4 border-l-[#E63946] p-3">
+                                <p className="text-xs text-muted-foreground">CO Light-Off (T₅₀)</p>
+                                <p className="font-mono font-bold text-lg">{lightOffCO.toFixed(0)}°C</p>
+                              </div>
+                              <div className="rounded-lg border-l-4 border-l-[#E6A23C] p-3">
+                                <p className="text-xs text-muted-foreground">HC Light-Off (T₅₀)</p>
+                                <p className="font-mono font-bold text-lg">{lightOffHC.toFixed(0)}°C</p>
+                              </div>
+                            </>
+                          )}
+                          <div className="rounded-lg border-l-4 border-l-[#2A9D8F] p-3">
+                            <p className="text-xs text-muted-foreground">NOₓ Light-Off (T₅₀)</p>
+                            <p className="font-mono font-bold text-lg">{lightOffNOx.toFixed(0)}°C</p>
+                          </div>
+                        </div>
+
+                        {/* Operating point indicator */}
+                        <div className="mt-3 rounded-lg bg-muted/50 p-3 text-sm">
+                          <p className="font-medium">Operating Point: {engineInputs.exhaustTemp_C}°C</p>
+                          <div className="flex gap-4 mt-1 text-muted-foreground">
+                            {points.length > 0 && (() => {
+                              const opPt = points.reduce((best, p) =>
+                                Math.abs(p.temperature_C - engineInputs.exhaustTemp_C) < Math.abs(best.temperature_C - engineInputs.exhaustTemp_C) ? p : best
+                              );
+                              return (
+                                <>
+                                  {catType !== "SCR" && catType !== "ASC" && (
+                                    <>
+                                      <span>CO: <span className="font-mono font-bold">{opPt.CO_conversion.toFixed(1)}%</span></span>
+                                      <span>HC: <span className="font-mono font-bold">{opPt.HC_conversion.toFixed(1)}%</span></span>
+                                    </>
+                                  )}
+                                  <span>NOₓ: <span className="font-mono font-bold">{opPt.NOx_conversion.toFixed(1)}%</span></span>
+                                </>
+                              );
+                            })()}
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+
+                {Object.keys(conversionCurves).length === 0 && (
+                  <Card>
+                    <CardContent className="flex items-center justify-center py-12 text-muted-foreground">
+                      <p>No conversion data available. DPF filtration is not temperature-dependent in the same way.</p>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+            </TabsContent>
+
+            {/* ---- TECHNOLOGY RECOMMENDATION TAB ---- */}
+            {techRecs.length > 0 && (
+              <TabsContent value="technology" className="mt-4">
+                <div className="grid gap-6">
+                  {techRecs.map((rec) => {
+                    const colors: Record<string, string> = {
+                      DOC: "#1A4F6E", DPF: "#5C4028", SCR: "#1A5E42", ASC: "#4E356E", TWC: "#C44536",
+                    };
+                    const color = colors[rec.catalystType] ?? "#1A4F6E";
+
+                    return (
+                      <Card key={rec.catalystType} className="border-l-4" style={{ borderLeftColor: color }}>
+                        <CardHeader>
+                          <CardTitle className="text-base flex items-center gap-2">
+                            <Badge style={{ backgroundColor: color, color: "white" }}>{rec.catalystType}</Badge>
+                            Recommended: {rec.recommended.name}
+                          </CardTitle>
+                          <CardDescription>{rec.recommended.description}</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="grid gap-4 md:grid-cols-3">
+                            {/* PGM Breakdown */}
+                            <div className="rounded-lg border p-4">
+                              <h4 className="text-sm font-semibold mb-2">PGM Formulation</h4>
+                              <div className="space-y-2">
+                                <div className="flex justify-between text-sm">
+                                  <span>Pt</span>
+                                  <span className="font-mono font-bold">{rec.recommended.metals.Pt_g_ft3} g/ft³</span>
+                                </div>
+                                <div className="flex justify-between text-sm">
+                                  <span>Pd</span>
+                                  <span className="font-mono font-bold">{rec.recommended.metals.Pd_g_ft3} g/ft³</span>
+                                </div>
+                                <div className="flex justify-between text-sm">
+                                  <span>Rh</span>
+                                  <span className="font-mono font-bold">{rec.recommended.metals.Rh_g_ft3} g/ft³</span>
+                                </div>
+                                <div className="border-t pt-2 flex justify-between text-sm font-bold">
+                                  <span>Total</span>
+                                  <span className="font-mono">{rec.recommended.totalPGM_g_ft3} g/ft³</span>
+                                </div>
+                                <p className="text-xs text-muted-foreground">Ratio: {rec.recommended.ratio} (Pt:Pd:Rh)</p>
+                              </div>
+                            </div>
+
+                            {/* Washcoat */}
+                            <div className="rounded-lg border p-4">
+                              <h4 className="text-sm font-semibold mb-2">Washcoat Technology</h4>
+                              <div className="space-y-2 text-sm">
+                                <div className="flex justify-between">
+                                  <span>Type</span>
+                                  <span className="font-medium">{rec.recommended.washcoatType}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span>Loading</span>
+                                  <span className="font-mono">{rec.recommended.washcoatLoading_g_L} g/L</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span>Thickness</span>
+                                  <span className="font-mono">{rec.recommended.washcoatThickness_um} µm</span>
+                                </div>
+                                <p className="text-xs text-muted-foreground mt-2">{rec.recommended.washcoatComposition}</p>
+                              </div>
+                            </div>
+
+                            {/* Performance */}
+                            <div className="rounded-lg border p-4">
+                              <h4 className="text-sm font-semibold mb-2">Performance</h4>
+                              <div className="space-y-2 text-sm">
+                                {rec.recommended.lightOff_CO_C > 0 && (
+                                  <div className="flex justify-between">
+                                    <span>CO T₅₀</span>
+                                    <span className="font-mono">{rec.recommended.lightOff_CO_C}°C</span>
+                                  </div>
+                                )}
+                                {rec.recommended.lightOff_HC_C > 0 && (
+                                  <div className="flex justify-between">
+                                    <span>HC T₅₀</span>
+                                    <span className="font-mono">{rec.recommended.lightOff_HC_C}°C</span>
+                                  </div>
+                                )}
+                                {rec.recommended.lightOff_NO_C > 0 && (
+                                  <div className="flex justify-between">
+                                    <span>NOₓ T₅₀</span>
+                                    <span className="font-mono">{rec.recommended.lightOff_NO_C}°C</span>
+                                  </div>
+                                )}
+                                <div className="flex justify-between">
+                                  <span>Max Temp</span>
+                                  <span className="font-mono">{rec.recommended.maxOperatingTemp_C}°C</span>
+                                </div>
+                                <div className="flex gap-2 mt-2">
+                                  <Badge variant="outline" className="text-[10px]">S: {rec.recommended.sulfurTolerance}</Badge>
+                                  <Badge variant="outline" className="text-[10px]">{rec.recommended.thermalDurability}</Badge>
+                                  <Badge variant="outline" className="text-[10px]">Cost: {rec.recommended.costIndex}×</Badge>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Reasoning */}
+                          <div className="mt-4 rounded-lg bg-muted/50 p-3">
+                            <h4 className="text-sm font-semibold mb-1">Selection Reasoning</h4>
+                            <ul className="space-y-1">
+                              {rec.reasoning.map((r, i) => (
+                                <li key={i} className="text-xs text-muted-foreground flex items-start gap-2">
+                                  <span className="mt-0.5">{r.startsWith("⚠") ? "⚠" : "•"}</span>
+                                  <span>{r.replace(/^⚠\s*/, "")}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+
+                          {/* Alternatives */}
+                          {rec.alternatives.length > 0 && (
+                            <div className="mt-3">
+                              <h4 className="text-xs font-semibold text-muted-foreground mb-2">Alternative Formulations</h4>
+                              <div className="flex flex-wrap gap-2">
+                                {rec.alternatives.map((alt) => (
+                                  <Badge key={alt.id} variant="outline" className="text-xs cursor-pointer hover:bg-accent"
+                                    onClick={() => setSelectedFormulations((p) => ({ ...p, [rec.catalystType]: alt.id }))}
+                                  >
+                                    {alt.name} ({alt.totalPGM_g_ft3} g/ft³)
+                                  </Badge>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </div>
+              </TabsContent>
+            )}
           </Tabs>
 
           {/* Recommendations */}

@@ -12,6 +12,7 @@ export * from "./scr-dosing";
 export * from "./substrate-catalog";
 export * from "./spray-model";
 export * from "./adblue-dosing";
+export * from "./catalyst-technology";
 export * from "./depollution-engine";
 export * from "./reformer-engine";
 export * from "./rfq-generator";
