@@ -50,7 +50,8 @@ async function main() {
   await linkToOrg(supabase, userId);
 }
 
-async function linkToOrg(supabase: ReturnType<typeof createClient>, userId: string) {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function linkToOrg(supabase: any, userId: string) {
   // Update user profile with current org
   console.log("Setting current organization on profile...");
   const { error: profileError } = await supabase

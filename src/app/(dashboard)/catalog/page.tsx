@@ -1,42 +1,50 @@
+import { createClient } from "@/lib/supabase/server";
 import { Badge } from "@/components/ui/badge";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { CatalogTable } from "./catalog-table";
 
-export default function CatalogPage() {
+export default async function CatalogPage() {
+  const supabase = await createClient();
+
+  const [partsRes, categoriesRes] = await Promise.all([
+    supabase
+      .from("parts")
+      .select(
+        `
+        *,
+        part_categories ( id, name, slug ),
+        cross_references ( id, reference_type, reference_number, brand ),
+        fitments ( id, position, verified, vehicles ( id, year, make, model, engine, trim ) )
+      `
+      )
+      .is("deleted_at", null)
+      .order("part_number", { ascending: true }),
+    supabase
+      .from("part_categories")
+      .select("id, name, slug")
+      .is("deleted_at", null)
+      .order("sort_order", { ascending: true }),
+  ]);
+
+  const parts = partsRes.data ?? [];
+  const categories = categoriesRes.data ?? [];
+
   return (
     <div className="flex flex-col gap-6 p-6">
-      <div className="flex items-center gap-3">
-        <h1 className="text-3xl font-bold tracking-tight">
-          Intelligent SKU &amp; Catalog Engine
-        </h1>
-        <Badge>F-01</Badge>
-        <Badge variant="default">P0</Badge>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <h1 className="text-3xl font-bold tracking-tight">
+            Bosal Catalog
+          </h1>
+          <Badge>F-01</Badge>
+          <Badge variant="secondary">{parts.length} parts</Badge>
+        </div>
       </div>
       <p className="text-muted-foreground max-w-2xl">
-        Fitment database, supersession chains, cross-references, and
-        AI-assisted gap detection for 50,000+ SKUs.
+        Real Bosal exhaust catalog with fitment data, OEM cross-references,
+        and supersession chains across Volkswagen, Audi, Porsche, and
+        Mercedes-Benz platforms.
       </p>
-      <Card>
-        <CardHeader>
-          <CardTitle>Intelligent SKU &amp; Catalog Engine</CardTitle>
-          <CardDescription>
-            This module is under active development.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-            <p className="text-lg font-medium">In Development</p>
-            <p className="text-sm">
-              This feature is being built in Phase 1 — Foundation.
-            </p>
-          </div>
-        </CardContent>
-      </Card>
+      <CatalogTable parts={parts} categories={categories} />
     </div>
   );
 }
