@@ -21,6 +21,9 @@ import {
   Ship,
   Tractor,
   Car,
+  Atom,
+  Microscope,
+  FlaskConical,
 } from "lucide-react";
 import { ExhaustSystemDiagram } from "@/components/diagrams/exhaust-system-diagram";
 import { SOFCSystemDiagram } from "@/components/diagrams/sofc-system-diagram";
@@ -57,7 +60,7 @@ export default function CatSizerPage() {
             and RFQ-grade output for OEM specifications.
           </p>
           <div className="flex flex-wrap gap-2 mt-5">
-            {["Thermodynamics", "Reaction Kinetics", "Mass Transfer", "Catalyst Aging", "RFQ Output"].map((tag) => (
+            {["Thermodynamics", "Reaction Kinetics", "Mass Transfer", "Catalyst Aging", "Surface Science", "TOF Sizing", "RFQ Output"].map((tag) => (
               <span key={tag} className="rounded-full border border-white/20 bg-white/5 px-3 py-1 text-xs text-white/70">
                 {tag}
               </span>
@@ -180,6 +183,45 @@ export default function CatSizerPage() {
           </Card>
         </Link>
       </div>
+
+      {/* Surface Science Workbench Card */}
+      <Link href="/catsizer/surface-science" className="group">
+        <Card className="border-2 transition-all duration-300 group-hover:border-[#6B3FA0] group-hover:shadow-lg group-hover:shadow-[#6B3FA0]/5">
+          <CardContent className="p-6">
+            <div className="flex items-start gap-6">
+              <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-gradient-to-br from-[#6B3FA0] to-[#2C1654] text-white shadow-md shrink-0">
+                <Atom className="h-7 w-7" />
+              </div>
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-1">
+                  <h3 className="text-lg font-bold">Surface Science Workbench</h3>
+                  <Badge className="bg-[#6B3FA0]/10 text-[#6B3FA0] border-[#6B3FA0]/20">New</Badge>
+                  <ArrowRight className="h-4 w-4 opacity-0 transition-all group-hover:opacity-100 group-hover:translate-x-1" />
+                </div>
+                <p className="text-sm text-muted-foreground mb-3">
+                  First-principles catalyst sizing from chemisorption data. Connect lab characterization
+                  (CO/H₂ uptake, BET, dispersion) to turnover frequency and required catalyst volume.
+                </p>
+                <div className="grid grid-cols-3 gap-3">
+                  {[
+                    { icon: Microscope, label: "Chemisorption", desc: "Dispersion, metallic SA, particle size" },
+                    { icon: FlaskConical, label: "TOF Database", desc: "16 literature entries, Arrhenius extrapolation" },
+                    { icon: Beaker, label: "Activity Profiles", desc: "Conversion vs T, regime maps, reactor profiles" },
+                  ].map(({ icon: Icon, label, desc }) => (
+                    <div key={label} className="rounded-lg border bg-card p-2.5">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Icon className="h-3.5 w-3.5 text-[#6B3FA0]" />
+                        <span className="text-xs font-semibold">{label}</span>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground leading-tight">{desc}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </Link>
 
       {/* 3D System Visualizations */}
       <div>

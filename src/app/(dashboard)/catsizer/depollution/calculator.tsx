@@ -89,6 +89,8 @@ import { filterCatalog, STANDARD_CELL_CONFIGS, type SubstrateCatalogEntry } from
 import { INJECTOR_PRESETS, assessSpraySystem, type InjectorSpec, type MixingPipeConfig, type SpraySystemResult } from "@/lib/catsizer/spray-model";
 import { generateDosingMap, determineAlphaStrategy, type DosingMap } from "@/lib/catsizer/adblue-dosing";
 import { PGM_FORMULATIONS, recommendTechnology, conversionTemperatureSweep, findLightOff, type PGMFormulation, type TechnologyRecommendation, type ConversionPoint } from "@/lib/catsizer/catalyst-technology";
+import { CATALYST_PROFILES_DB, type DetailedCatalystProfile } from "@/lib/catsizer/catalyst-profiles";
+import { calculateExhaustMolarFlows, sizeCatalystSystemFromTOF, generateConversionProfile, generateReactorProfile, type TOFSystemSizingResult, type ConversionProfilePoint, type ReactorPositionPoint } from "@/lib/catsizer/tof-sizing-engine";
 
 const STEPS = [
   "Engine Input",
@@ -216,6 +218,9 @@ export function DepollutionCalculator() {
   const [techRecs, setTechRecs] = useState<TechnologyRecommendation[]>([]);
   const [conversionCurves, setConversionCurves] = useState<Record<string, ConversionPoint[]>>({});
   const [selectedFormulations, setSelectedFormulations] = useState<Record<string, string>>({});
+  const [tofSizingResults, setTofSizingResults] = useState<TOFSystemSizingResult[]>([]);
+  const [conversionProfiles, setConversionProfiles] = useState<Record<string, ConversionProfilePoint[]>>({});
+  const [reactorProfiles, setReactorProfiles] = useState<Record<string, ReactorPositionPoint[]>>({});
 
   const { setValue } = useForm<EngineInputs>({ defaultValues: DEFAULT_ENGINE });
 
@@ -287,6 +292,36 @@ export function DepollutionCalculator() {
 
       setTechRecs(recs);
       setConversionCurves(curves);
+
+      // TOF-based surface science sizing
+      const tofResults: TOFSystemSizingResult[] = [];
+      const cProfiles: Record<string, ConversionProfilePoint[]> = {};
+      const rProfiles: Record<string, ReactorPositionPoint[]> = {};
+
+      for (const element of enabledChain) {
+        const catType = element.type;
+        const profiles = CATALYST_PROFILES_DB.filter((p) => p.catalystType === catType);
+        if (profiles.length > 0) {
+          try {
+            const tofResult = sizeCatalystSystemFromTOF(catType, engineInputs, profiles[0].id);
+            tofResults.push(tofResult);
+
+            const sized = base.catalysts.find((c) => c.type === catType);
+            if (sized) {
+              const flows = calculateExhaustMolarFlows(engineInputs);
+              cProfiles[catType] = generateConversionProfile(
+                profiles[0], sized.selectedVolume_L, flows, [100, 650], 50
+              );
+              rProfiles[catType] = generateReactorProfile(
+                profiles[0], sized.length_mm, sized.diameter_mm, flows, engineInputs.exhaustTemp_C, 30
+              );
+            }
+          } catch { /* profile not available for this type */ }
+        }
+      }
+      setTofSizingResults(tofResults);
+      setConversionProfiles(cProfiles);
+      setReactorProfiles(rProfiles);
 
       // Spray & dosing analysis (if SCR is in chain)
       if (chain.some((c) => c.enabled && c.type === "SCR")) {
@@ -955,6 +990,7 @@ export function DepollutionCalculator() {
               <TabsTrigger value="layout">System Layout</TabsTrigger>
               <TabsTrigger value="lightoff">Light-Off Curves</TabsTrigger>
               {techRecs.length > 0 && <TabsTrigger value="technology">Technology</TabsTrigger>}
+              {tofSizingResults.length > 0 && <TabsTrigger value="surface">Surface Science</TabsTrigger>}
             </TabsList>
 
             {/* ---- CATALYST SIZING TAB ---- */}
@@ -2097,6 +2133,380 @@ export function DepollutionCalculator() {
                       </Card>
                     );
                   })}
+                </div>
+              </TabsContent>
+            )}
+
+            {/* ---- SURFACE SCIENCE TAB ---- */}
+            {tofSizingResults.length > 0 && (
+              <TabsContent value="surface" className="mt-4">
+                <div className="grid gap-6">
+                  {/* Sizing Comparison: TOF vs GHSV */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <Beaker className="h-4 w-4 text-primary" />
+                        First-Principles Sizing: TOF vs Empirical GHSV
+                      </CardTitle>
+                      <CardDescription>
+                        Catalyst volume derived from chemisorption data, dispersion, and turnover frequency — compared against the traditional GHSV method
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="rounded-md border overflow-x-auto">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Catalyst</TableHead>
+                              <TableHead>Profile</TableHead>
+                              <TableHead>Dispersion</TableHead>
+                              <TableHead>Particle Size</TableHead>
+                              <TableHead>Metallic SA</TableHead>
+                              <TableHead>Limiting Species</TableHead>
+                              <TableHead>TOF @ T</TableHead>
+                              <TableHead>V (TOF)</TableHead>
+                              <TableHead>V (GHSV)</TableHead>
+                              <TableHead>Ratio</TableHead>
+                              <TableHead>Confidence</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {tofSizingResults.map((r) => (
+                              <TableRow key={r.catalystType}>
+                                <TableCell className="font-semibold">{r.catalystType}</TableCell>
+                                <TableCell className="text-xs max-w-[140px] truncate">{r.profile.name}</TableCell>
+                                <TableCell className="font-mono">{(r.dispersion.dispersion * 100).toFixed(1)}%</TableCell>
+                                <TableCell className="font-mono">{r.dispersion.particleSize_nm.toFixed(1)} nm</TableCell>
+                                <TableCell className="font-mono">{r.dispersion.metallicSurfaceArea_m2_gPGM.toFixed(0)} m²/g</TableCell>
+                                <TableCell>{r.limitingSpecies}</TableCell>
+                                <TableCell className="font-mono">
+                                  {r.speciesSizing.find((s) => s.species === r.limitingSpecies)?.TOF_at_T.toFixed(2) ?? "—"} s⁻¹
+                                </TableCell>
+                                <TableCell className="font-mono font-semibold">{r.requiredVolume_TOF_L.toFixed(2)} L</TableCell>
+                                <TableCell className="font-mono">{r.requiredVolume_GHSV_L.toFixed(2)} L</TableCell>
+                                <TableCell className="font-mono">{r.volumeRatio.toFixed(2)}×</TableCell>
+                                <TableCell>
+                                  <Badge variant={r.confidence === "high" ? "default" : r.confidence === "moderate" ? "secondary" : "destructive"}>
+                                    {r.confidence}
+                                  </Badge>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Per-Species Molecular Analysis */}
+                  {tofSizingResults.map((r) => (
+                    <Card key={`species-${r.catalystType}`}>
+                      <CardHeader>
+                        <CardTitle className="text-base">{r.catalystType} — Molecular-Level Sizing</CardTitle>
+                        <CardDescription>
+                          Chemisorption: {r.profile.chemisorption.probeGas} uptake = {r.profile.chemisorption.uptake_umol_gCat} µmol/g | BET = {r.profile.physical.BET_m2_g} m²/g | Particle = {r.dispersion.particleSize_nm.toFixed(1)} nm
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-4">
+                          <div className="rounded-lg border p-3 bg-muted/30">
+                            <p className="text-xs text-muted-foreground">Surface Sites / g_cat</p>
+                            <p className="text-lg font-mono font-semibold">{r.dispersion.surfaceSites_per_gCat.toExponential(2)}</p>
+                          </div>
+                          <div className="rounded-lg border p-3 bg-muted/30">
+                            <p className="text-xs text-muted-foreground">PGM Required</p>
+                            <p className="text-lg font-mono font-semibold">{r.totalPGM_g.toFixed(2)} g</p>
+                          </div>
+                          <div className="rounded-lg border p-3 bg-muted/30">
+                            <p className="text-xs text-muted-foreground">Site Utilization</p>
+                            <p className="text-lg font-mono font-semibold">{r.siteUtilization_percent.toFixed(1)}%</p>
+                          </div>
+                          <div className="rounded-lg border p-3 bg-muted/30">
+                            <p className="text-xs text-muted-foreground">Operating T</p>
+                            <p className="text-lg font-mono font-semibold">{r.operatingTemp_C}°C</p>
+                          </div>
+                        </div>
+
+                        <div className="rounded-md border overflow-x-auto">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Species</TableHead>
+                                <TableHead>Inlet [ppm]</TableHead>
+                                <TableHead>Flow [mol/s]</TableHead>
+                                <TableHead>Target Conv.</TableHead>
+                                <TableHead>TOF @ {r.operatingTemp_C}°C [s⁻¹]</TableHead>
+                                <TableHead>Required Sites</TableHead>
+                                <TableHead>Molecules/s</TableHead>
+                                <TableHead>Required PGM [g]</TableHead>
+                                <TableHead>Required Volume [L]</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {r.speciesSizing.map((s) => (
+                                <TableRow key={s.species} className={s.species === r.limitingSpecies ? "bg-primary/5 font-semibold" : ""}>
+                                  <TableCell>{s.species} {s.species === r.limitingSpecies && <Badge variant="outline" className="ml-1 text-[10px]">limiting</Badge>}</TableCell>
+                                  <TableCell className="font-mono">{s.inletConcentration_ppm}</TableCell>
+                                  <TableCell className="font-mono">{s.molarFlow_mol_s.toExponential(3)}</TableCell>
+                                  <TableCell className="font-mono">{(s.targetConversion * 100).toFixed(0)}%</TableCell>
+                                  <TableCell className="font-mono">{s.TOF_at_T.toFixed(3)}</TableCell>
+                                  <TableCell className="font-mono">{s.requiredSites.toExponential(2)}</TableCell>
+                                  <TableCell className="font-mono">{s.molecules_per_second.toExponential(2)}</TableCell>
+                                  <TableCell className="font-mono">{s.requiredPGM_g.toFixed(3)}</TableCell>
+                                  <TableCell className="font-mono">{s.requiredVolume_L.toFixed(3)}</TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+
+                        {r.notes.length > 0 && (
+                          <div className="mt-3 flex flex-col gap-1">
+                            {r.notes.map((n, i) => (
+                              <div key={i} className="flex items-start gap-2 text-xs text-muted-foreground">
+                                <Info className="mt-0.5 h-3 w-3 shrink-0" />
+                                <span>{n}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  ))}
+
+                  {/* Catalyst Characterization Profiles */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-base">Catalyst Characterization Data</CardTitle>
+                      <CardDescription>Laboratory characterization data from the profiles used in sizing</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid gap-4 md:grid-cols-2">
+                        {tofSizingResults.map((r) => {
+                          const p = r.profile;
+                          return (
+                            <div key={p.id} className="rounded-lg border p-4">
+                              <div className="flex items-center gap-2 mb-3">
+                                <Badge style={{ backgroundColor: ({ DOC: "#1A4F6E", TWC: "#C44536", SCR: "#1A5E42", ASC: "#4E356E", DPF: "#5C4028" } as Record<string, string>)[r.catalystType] ?? "#666", color: "white" }}>
+                                  {r.catalystType}
+                                </Badge>
+                                <span className="font-semibold text-sm">{p.name}</span>
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                                <span className="text-muted-foreground">Support</span>
+                                <span className="font-mono">{p.composition.support}</span>
+                                <span className="text-muted-foreground">Active Phase</span>
+                                <span className="font-mono">{p.composition.activePhase}</span>
+                                <span className="text-muted-foreground">BET Surface Area</span>
+                                <span className="font-mono">{p.physical.BET_m2_g} m²/g</span>
+                                <span className="text-muted-foreground">Pore Volume</span>
+                                <span className="font-mono">{p.physical.poreVolume_cm3_g} cm³/g</span>
+                                <span className="text-muted-foreground">Avg Pore Size</span>
+                                <span className="font-mono">{p.physical.avgPoreSize_nm} nm</span>
+                                <span className="text-muted-foreground">Washcoat Loading</span>
+                                <span className="font-mono">{p.composition.washcoatLoading_g_L} g/L</span>
+                                <span className="text-muted-foreground">Washcoat Thickness</span>
+                                <span className="font-mono">{p.composition.washcoatThickness_um} µm</span>
+                                <span className="text-muted-foreground">{p.chemisorption.probeGas} Chemisorption</span>
+                                <span className="font-mono">{p.chemisorption.uptake_umol_gCat} µmol/g</span>
+                                <span className="text-muted-foreground">PGM Dispersion</span>
+                                <span className="font-mono">{p.chemisorption.dispersion_percent}%</span>
+                                <span className="text-muted-foreground">Metallic SA</span>
+                                <span className="font-mono">{p.chemisorption.metallicSA_m2_gPGM} m²/g_PGM</span>
+                                <span className="text-muted-foreground">Avg Particle Size</span>
+                                <span className="font-mono">{p.chemisorption.avgParticleSize_nm} nm</span>
+                                {p.composition.totalPGM_g_ft3 > 0 && (
+                                  <>
+                                    <span className="text-muted-foreground">Total PGM</span>
+                                    <span className="font-mono">{p.composition.totalPGM_g_ft3} g/ft³</span>
+                                    <span className="text-muted-foreground">Pt / Pd / Rh</span>
+                                    <span className="font-mono">{p.composition.Pt_g_ft3} / {p.composition.Pd_g_ft3} / {p.composition.Rh_g_ft3}</span>
+                                  </>
+                                )}
+                                {p.composition.OSC_umol_g && (
+                                  <>
+                                    <span className="text-muted-foreground">OSC</span>
+                                    <span className="font-mono">{p.composition.OSC_umol_g} µmol O₂/g</span>
+                                  </>
+                                )}
+                              </div>
+
+                              {/* Activity data */}
+                              <div className="mt-3 pt-3 border-t">
+                                <p className="text-xs font-semibold mb-2">Activity Data (TOF)</p>
+                                <div className="space-y-1">
+                                  {p.activity.reactions.map((rx, i) => (
+                                    <div key={i} className="grid grid-cols-2 gap-x-4 text-xs">
+                                      <span className="text-muted-foreground">{rx.name}</span>
+                                      <span className="font-mono">TOF = {rx.TOF_ref} s⁻¹ @ {rx.T_ref_C}°C (Ea = {rx.Ea_kJ_mol} kJ/mol)</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+
+                              {/* Thermal stability */}
+                              <div className="mt-3 pt-3 border-t">
+                                <p className="text-xs font-semibold mb-1">Thermal Stability</p>
+                                <div className="grid grid-cols-2 gap-x-4 text-xs">
+                                  <span className="text-muted-foreground">Max Operating T</span>
+                                  <span className="font-mono">{p.thermalStability.maxOperatingTemp_C}°C</span>
+                                  <span className="text-muted-foreground">Sintering Onset</span>
+                                  <span className="font-mono">{p.thermalStability.sinteringOnsetTemp_C}°C</span>
+                                  <span className="text-muted-foreground">Activity Retention (aged)</span>
+                                  <span className="font-mono">{p.thermalStability.activityRetention_percent}%</span>
+                                </div>
+                              </div>
+
+                              <p className="mt-3 text-xs text-muted-foreground italic">{p.notes}</p>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Conversion vs Temperature from TOF */}
+                  {Object.keys(conversionProfiles).length > 0 && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-base">Conversion vs Temperature (TOF-Based Kinetics)</CardTitle>
+                        <CardDescription>
+                          Light-off curves generated from turnover frequency, dispersion, and effectiveness factor — not empirical correlations
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="grid gap-6 md:grid-cols-2">
+                          {Object.entries(conversionProfiles).map(([catType, points]) => {
+                            const species = points.length > 0 ? Object.keys(points[0].species) : [];
+                            const chartData = points.map((pt) => {
+                              const row: Record<string, number> = { T: pt.temperature_C };
+                              for (const sp of species) {
+                                row[sp] = pt.species[sp]?.conversion_percent ?? 0;
+                              }
+                              return row;
+                            });
+                            const speciesColors: Record<string, string> = { CO: "#E74C3C", HC: "#F39C12", NOx: "#3498DB" };
+                            return (
+                              <div key={catType}>
+                                <h4 className="text-sm font-semibold mb-2">{catType} — Conversion vs T</h4>
+                                <ResponsiveContainer width="100%" height={280}>
+                                  <LineChart data={chartData}>
+                                    <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                                    <XAxis dataKey="T" label={{ value: "Temperature [°C]", position: "insideBottom", offset: -5 }} />
+                                    <YAxis domain={[0, 100]} label={{ value: "Conversion [%]", angle: -90, position: "insideLeft" }} />
+                                    <Tooltip formatter={(v: number) => `${v.toFixed(1)}%`} />
+                                    <Legend />
+                                    {species.map((sp) => (
+                                      <Line key={sp} type="monotone" dataKey={sp} stroke={speciesColors[sp] ?? "#999"} strokeWidth={2} dot={false} />
+                                    ))}
+                                  </LineChart>
+                                </ResponsiveContainer>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Reactor Species Profiles */}
+                  {Object.keys(reactorProfiles).length > 0 && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-base">Species Profiles Along Reactor</CardTitle>
+                        <CardDescription>
+                          Concentration decay along the catalyst length — shows where conversion happens and identifies diffusion-limited zones
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="grid gap-6 md:grid-cols-2">
+                          {Object.entries(reactorProfiles).map(([catType, points]) => {
+                            const species = points.length > 0 ? Object.keys(points[0].species) : [];
+                            const chartData = points.map((pt) => {
+                              const row: Record<string, number> = { z: pt.position_mm, T: pt.temperature_C };
+                              for (const sp of species) {
+                                row[`${sp}_ppm`] = pt.species[sp]?.concentration_ppm ?? 0;
+                                row[`${sp}_conv`] = pt.species[sp]?.conversion_percent ?? 0;
+                              }
+                              return row;
+                            });
+                            const speciesColors: Record<string, string> = { CO: "#E74C3C", HC: "#F39C12", NOx: "#3498DB" };
+                            return (
+                              <div key={catType}>
+                                <h4 className="text-sm font-semibold mb-2">{catType} — Concentration Along Reactor</h4>
+                                <ResponsiveContainer width="100%" height={280}>
+                                  <LineChart data={chartData}>
+                                    <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                                    <XAxis dataKey="z" label={{ value: "Position [mm]", position: "insideBottom", offset: -5 }} />
+                                    <YAxis label={{ value: "Concentration [ppm]", angle: -90, position: "insideLeft" }} />
+                                    <Tooltip />
+                                    <Legend />
+                                    {species.map((sp) => (
+                                      <Line key={sp} type="monotone" dataKey={`${sp}_ppm`} name={`${sp} [ppm]`} stroke={speciesColors[sp] ?? "#999"} strokeWidth={2} dot={false} />
+                                    ))}
+                                    <Line type="monotone" dataKey="T" name="Temperature [°C]" stroke="#999" strokeWidth={1} strokeDasharray="5 5" dot={false} />
+                                  </LineChart>
+                                </ResponsiveContainer>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* TOF Temperature Dependence */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-base">Turnover Frequency vs Temperature</CardTitle>
+                      <CardDescription>
+                        Arrhenius plot showing how TOF varies with temperature for each reaction — the fundamental measure of catalytic activity
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      {(() => {
+                        const allReactions: Array<{ label: string; catType: string; tofRef: number; tRefC: number; eaKJ: number }> = [];
+                        for (const r of tofSizingResults) {
+                          for (const rx of r.profile.activity.reactions) {
+                            allReactions.push({
+                              label: `${r.catalystType}: ${rx.name}`,
+                              catType: r.catalystType,
+                              tofRef: rx.TOF_ref,
+                              tRefC: rx.T_ref_C,
+                              eaKJ: rx.Ea_kJ_mol,
+                            });
+                          }
+                        }
+                        const temps = Array.from({ length: 40 }, (_, i) => 100 + i * 15);
+                        const chartData = temps.map((T) => {
+                          const row: Record<string, number> = { T };
+                          for (const rx of allReactions) {
+                            const T_K = T + 273.15;
+                            const T_ref_K = rx.tRefC + 273.15;
+                            const tof = rx.tofRef * Math.exp((-rx.eaKJ * 1000 / 8.314) * (1 / T_K - 1 / T_ref_K));
+                            row[rx.label] = Math.max(1e-6, tof);
+                          }
+                          return row;
+                        });
+                        const colors = ["#E74C3C", "#3498DB", "#2ECC71", "#F39C12", "#9B59B6", "#1ABC9C", "#E67E22", "#34495E"];
+                        return (
+                          <ResponsiveContainer width="100%" height={350}>
+                            <LineChart data={chartData}>
+                              <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                              <XAxis dataKey="T" label={{ value: "Temperature [°C]", position: "insideBottom", offset: -5 }} />
+                              <YAxis scale="log" domain={["auto", "auto"]} label={{ value: "TOF [s⁻¹]", angle: -90, position: "insideLeft" }} tickFormatter={(v: number) => v >= 1 ? v.toFixed(0) : v.toExponential(0)} />
+                              <Tooltip formatter={(v: number) => v.toFixed(4)} />
+                              <Legend wrapperStyle={{ fontSize: "11px" }} />
+                              {allReactions.map((rx, i) => (
+                                <Line key={rx.label} type="monotone" dataKey={rx.label} stroke={colors[i % colors.length]} strokeWidth={2} dot={false} />
+                              ))}
+                            </LineChart>
+                          </ResponsiveContainer>
+                        );
+                      })()}
+                    </CardContent>
+                  </Card>
                 </div>
               </TabsContent>
             )}
