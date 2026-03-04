@@ -74,11 +74,27 @@ export interface EmissionLimits {
   HC_g_Nm3?: number;
 }
 
+export interface WashcoatConfig {
+  thickness_um: number;
+  density_kg_m3: number;
+  porosity: number;
+  tortuosity: number;
+  meanPoreDiameter_nm: number;
+  BET_surfaceArea_m2_g: number;
+  pgmLoading_g_ft3: number;
+  pgmDispersion: number;
+  pgmRatio?: { Pt: number; Pd: number; Rh: number };
+}
+
+export type SCRCatalystType = "Cu-CHA" | "Cu-BEA" | "Fe-ZSM5" | "V2O5-WO3/TiO2";
+
 export interface CatalystChainElement {
   type: CatalystType;
   enabled: boolean;
   ghsvOverride?: number;
   substrate?: Partial<SubstrateParams>;
+  washcoat?: Partial<WashcoatConfig>;
+  scrCatalystType?: SCRCatalystType;
 }
 
 export interface CatalystSizingResult {
@@ -220,6 +236,267 @@ export interface ReformerSizingResult {
   SOFC_fuelFlow_Nm3_h: number;
   SOFC_estimatedPower_kW: number;
   systemEfficiency_percent: number;
+  warnings: string[];
+}
+
+// ============================================================
+// WASHCOAT & KINETICS RESULTS
+// ============================================================
+
+export interface WashcoatAnalysis {
+  effectiveDiffusivity_m2_s: number;
+  thieleModulus: number;
+  effectivenessFactor: number;
+  regime: "kinetic" | "transitional" | "diffusion_limited";
+  washcoatUtilization_percent: number;
+}
+
+export interface KineticsResult {
+  CO_conversion_percent: number;
+  HC_conversion_percent: number;
+  NOx_conversion_percent: number;
+  NH3_slip_ppm: number;
+  NO2_NOx_outlet: number;
+}
+
+// ============================================================
+// DEACTIVATION & AGING
+// ============================================================
+
+export interface AgingConfig {
+  targetLife_hours: number;
+  maxOperatingTemp_C: number;
+  fuelSulfur_ppm: number;
+  oilConsumption_g_kWh: number;
+  oilPhosphorus_ppm: number;
+  oilAsh_percent: number;
+}
+
+export interface AgingResult {
+  overallActivity: number;
+  sulfurActivity: number;
+  phosphorusActivity: number;
+  thermalActivity: number;
+  chemicalActivity: number;
+  endOfLife_hours: number;
+  warrantyMargin_percent: number;
+  agedConversion_percent: number;
+  warnings: string[];
+}
+
+// ============================================================
+// DPF ASSESSMENT
+// ============================================================
+
+export interface DPFConfig {
+  material: "cordierite" | "silicon_carbide" | "aluminum_titanate";
+  cellDensity_cpsi: number;
+  wallThickness_mm: number;
+  wallPorosity: number;
+  meanPoreSize_um: number;
+  hasCatalyticCoating: boolean;
+  pgmLoading_g_ft3: number;
+}
+
+export interface DPFResult {
+  sootLoading_g_L: number;
+  filtrationEfficiency_percent: number;
+  backpressure_kPa: number;
+  passiveRegenRate_g_h: number;
+  passiveRegenBalancePoint_C: number;
+  activeRegenPeakTemp_C: number;
+  activeRegenDuration_min: number;
+  fuelPenalty_percent: number;
+  thermalRunawayRisk: boolean;
+  ashLoading_g_L: number;
+  ashCapacityRemaining_percent: number;
+  overallStatus: "normal" | "regen_needed" | "maintenance" | "critical";
+  warnings: string[];
+}
+
+// ============================================================
+// SCR SYSTEM
+// ============================================================
+
+export interface SCRConfig {
+  catalystType: SCRCatalystType;
+  targetDeNOx: number;
+  maxNH3Slip_ppm: number;
+  mixerLength_mm: number;
+  pipeDiameter_mm: number;
+  hasStaticMixer: boolean;
+  hasSwirl: boolean;
+  hasHydrolysisCatalyst: boolean;
+}
+
+export interface SCRResult {
+  optimalANR: number;
+  systemDeNOx_percent: number;
+  NH3_slip_ppm: number;
+  DEF_consumption_L_h: number;
+  DEF_consumption_L_100km: number;
+  specificDEF_percent_fuel: number;
+  ureaDecomposition_percent: number;
+  depositRisk: "low" | "moderate" | "high";
+  nh3Storage_g_L: number;
+  mixerUniformity: number;
+  warnings: string[];
+}
+
+// ============================================================
+// RFQ (Request for Quotation) OUTPUT
+// ============================================================
+
+export type TestCycle =
+  | "WHTC"    // World Harmonized Transient Cycle
+  | "WHSC"    // World Harmonized Stationary Cycle
+  | "ESC"     // European Stationary Cycle
+  | "ETC"     // European Transient Cycle
+  | "FTP"     // Federal Test Procedure
+  | "SET"     // Supplemental Emission Test
+  | "NRTC"    // Non-Road Transient Cycle
+  | "ISO_8178"; // ISO 8178 (gensets)
+
+export interface SubstrateSpec {
+  supplier: "Corning" | "NGK" | "Ibiden" | "Continental" | "Other";
+  partNumber?: string;
+  material: SubstrateMaterial;
+  cellDensity_cpsi: number;
+  wallThickness_mil: number;
+  diameter_mm: number;
+  length_mm: number;
+  volume_L: number;
+  OFA_percent: number;
+  GSA_m2_L: number;
+  hydraulicDiameter_mm: number;
+  thermalShockResistance_C: number;
+  maxOperatingTemp_C: number;
+}
+
+export interface WashcoatSpec {
+  type: string;
+  composition: string;
+  loading_g_L: number;
+  thickness_um: number;
+  BET_m2_g: number;
+  poreDiameter_nm: number;
+  oxygenStorageCapacity_umol_g?: number;
+}
+
+export interface PGMSpec {
+  totalLoading_g_ft3: number;
+  totalLoading_g_L: number;
+  Pt_g_ft3: number;
+  Pd_g_ft3: number;
+  Rh_g_ft3: number;
+  Pt_Pd_ratio: string;
+  dispersion_percent: number;
+  estimatedCost_USD_per_unit: number;
+}
+
+export interface AgingSpec {
+  protocol: string;
+  temperature_C: number;
+  duration_hours: number;
+  equivalentMiles: number;
+  equivalentHours: number;
+  fuelSulfur_ppm: number;
+  oilAsh_percent: number;
+  agedConversionTarget_percent: number;
+}
+
+export interface WarrantySpec {
+  warrantyPeriod_years: number;
+  warrantyMiles: number;
+  warrantyHours: number;
+  fullUsefulLife_years: number;
+  fullUsefulLife_miles: number;
+  fullUsefulLife_hours: number;
+  defectWarranty_years: number;
+  performanceWarranty_years: number;
+}
+
+export interface TestCycleResult {
+  cycle: TestCycle;
+  NOx_g_kWh: number;
+  PM_g_kWh: number;
+  CO_g_kWh: number;
+  HC_g_kWh: number;
+  NH3_ppm: number;
+  N2O_g_kWh: number;
+  compliant: boolean;
+}
+
+export interface RFQCatalystItem {
+  position: number;
+  type: CatalystType;
+  substrate: SubstrateSpec;
+  washcoat: WashcoatSpec;
+  pgm?: PGMSpec;
+  canningDiameter_mm: number;
+  canningLength_mm: number;
+  canningMaterial: string;
+  matMaterial: string;
+  totalWeight_kg: number;
+  GHSV_design_h: number;
+  pressureDrop_kPa_clean: number;
+  pressureDrop_kPa_aged: number;
+  lightOffTemp_C_fresh: number;
+  lightOffTemp_C_aged: number;
+  freshConversion_percent: Record<string, number>;
+  agedConversion_percent: Record<string, number>;
+  washcoatAnalysis: WashcoatAnalysis;
+}
+
+export interface RFQOutput {
+  projectInfo: {
+    rfqNumber: string;
+    date: string;
+    customer: string;
+    engineModel: string;
+    application: Application;
+    emissionStandard: EmissionStandard;
+    annualVolume?: number;
+  };
+
+  engineData: EngineInputs;
+
+  aftertreatmentSystem: {
+    architecture: string;
+    catalysts: RFQCatalystItem[];
+    totalSystemLength_mm: number;
+    totalSystemWeight_kg: number;
+    totalPressureDrop_kPa: number;
+    maxBackpressure_kPa: number;
+  };
+
+  dpfAssessment?: DPFResult;
+  scrSystem?: SCRResult;
+
+  aging: {
+    protocol: AgingSpec;
+    results: AgingResult;
+  };
+
+  compliance: {
+    standard: EmissionStandard;
+    testCycles: TestCycleResult[];
+    overallCompliant: boolean;
+  };
+
+  warranty: WarrantySpec;
+
+  costEstimate: {
+    substrateCost_USD: number;
+    washcoatCost_USD: number;
+    pgmCost_USD: number;
+    canningCost_USD: number;
+    assemblyCost_USD: number;
+    totalPerUnit_USD: number;
+    pgmSensitivity: Array<{ pgmPrice_USD_oz: number; unitCost_USD: number }>;
+  };
+
+  recommendations: string[];
   warnings: string[];
 }
 
