@@ -85,6 +85,9 @@ import {
 import { sizeDepollutionSystem } from "@/lib/catsizer/depollution-engine";
 import { generateRFQ } from "@/lib/catsizer/rfq-generator";
 import { washcoatThicknessSweep, WASHCOAT_DOC_DEFAULT } from "@/lib/catsizer/washcoat";
+import { filterCatalog, STANDARD_CELL_CONFIGS, type SubstrateCatalogEntry } from "@/lib/catsizer/substrate-catalog";
+import { INJECTOR_PRESETS, assessSpraySystem, type InjectorSpec, type MixingPipeConfig, type SpraySystemResult } from "@/lib/catsizer/spray-model";
+import { generateDosingMap, determineAlphaStrategy, type DosingMap } from "@/lib/catsizer/adblue-dosing";
 
 const STEPS = [
   "Engine Input",
@@ -183,6 +186,17 @@ function NumField({
   );
 }
 
+const DEFAULT_PIPE: MixingPipeConfig = {
+  pipeDiameter_mm: 150,
+  pipeLength_mm: 600,
+  injectorToSCR_mm: 500,
+  hasStaticMixer: true,
+  mixerType: "blade",
+  mixerPosition_mm: 200,
+  hasSwirlFlap: false,
+  pipeAngle_deg: 0,
+};
+
 export function DepollutionCalculator() {
   const [step, setStep] = useState(0);
   const [engineInputs, setEngineInputs] = useState<EngineInputs>(DEFAULT_ENGINE);
@@ -193,6 +207,11 @@ export function DepollutionCalculator() {
   const [rfq, setRfq] = useState<RFQOutput | null>(null);
   const [baseResult, setBaseResult] = useState<DepollutionSizingResult | null>(null);
   const [calculating, setCalculating] = useState(false);
+  const [injector, setInjector] = useState<InjectorSpec>(INJECTOR_PRESETS.bosch_denoxtronic_6_5);
+  const [pipe, setPipe] = useState<MixingPipeConfig>(DEFAULT_PIPE);
+  const [sprayResult, setSprayResult] = useState<SpraySystemResult | null>(null);
+  const [dosingMap, setDosingMap] = useState<DosingMap | null>(null);
+  const [catalogFilter, setCatalogFilter] = useState<{ type: string; vehicleClass: string }>({ type: "", vehicleClass: "" });
 
   const { setValue } = useForm<EngineInputs>({ defaultValues: DEFAULT_ENGINE });
 
@@ -222,10 +241,19 @@ export function DepollutionCalculator() {
       setBaseResult(base);
       const rfqResult = generateRFQ(engineInputs, chain, standard, aging, scrConfig);
       setRfq(rfqResult);
+
+      // Spray & dosing analysis (if SCR is in chain)
+      if (chain.some((c) => c.enabled && c.type === "SCR")) {
+        const spray = assessSpraySystem(injector, pipe, engineInputs.exhaustTemp_C, engineInputs.exhaustFlowRate_kg_h, 1.0);
+        setSprayResult(spray);
+        const dm = generateDosingMap(engineInputs.NOx_ppm, engineInputs.exhaustFlowRate_kg_h, 1.0);
+        setDosingMap(dm);
+      }
+
       setCalculating(false);
       setStep(4);
     }, 150);
-  }, [engineInputs, chain, standard, aging, scrConfig]);
+  }, [engineInputs, chain, standard, aging, scrConfig, injector, pipe]);
 
   const washcoatSweep = useMemo(() => {
     const T_K = engineInputs.exhaustTemp_C + 273.15;
@@ -492,6 +520,123 @@ export function DepollutionCalculator() {
             </Card>
           )}
 
+          {/* Spray / Injector Configuration */}
+          {chain.some((c) => c.enabled && c.type === "SCR") && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Thermometer className="h-5 w-5" /> Spray Injector & Mixing Pipe
+                </CardTitle>
+                <CardDescription>Configure the DEF injector and mixing section geometry for NH₃ uniformity analysis</CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <Label>Injector Preset</Label>
+                  <Select
+                    value={Object.entries(INJECTOR_PRESETS).find(([, v]) => v.SMD_um === injector.SMD_um && v.type === injector.type)?.[0] ?? "bosch_denoxtronic_6_5"}
+                    onValueChange={(v) => setInjector(INJECTOR_PRESETS[v])}
+                  >
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="bosch_denoxtronic_6_5">Bosch Denoxtronic 6.5 (multi-hole, 70 µm SMD)</SelectItem>
+                      <SelectItem value="continental_aquablue">Continental AquaBlue (air-assisted, 40 µm SMD)</SelectItem>
+                      <SelectItem value="grundfos_nxs">Grundfos NXS (pressure-swirl, 55 µm SMD)</SelectItem>
+                      <SelectItem value="generic_single_hole">Generic Single-Hole (90 µm SMD)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <NumField label="Spray Angle" value={injector.sprayAngle_deg} unit="°" onChange={(v) => setInjector((p) => ({ ...p, sprayAngle_deg: v }))} />
+                <NumField label="Inj. Pressure" value={injector.injectionPressure_bar} unit="bar" onChange={(v) => setInjector((p) => ({ ...p, injectionPressure_bar: v }))} />
+                <NumField label="Droplet SMD" value={injector.SMD_um} unit="µm" onChange={(v) => setInjector((p) => ({ ...p, SMD_um: v }))} />
+                <NumField label="Inj → SCR dist." value={pipe.injectorToSCR_mm} unit="mm" onChange={(v) => setPipe((p) => ({ ...p, injectorToSCR_mm: v }))} />
+                <NumField label="Pipe Diameter" value={pipe.pipeDiameter_mm} unit="mm" onChange={(v) => setPipe((p) => ({ ...p, pipeDiameter_mm: v }))} />
+                <div>
+                  <Label>Mixer Type</Label>
+                  <Select value={pipe.mixerType ?? "blade"} onValueChange={(v) => setPipe((p) => ({ ...p, hasStaticMixer: v !== "none", mixerType: v as MixingPipeConfig["mixerType"] }))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="blade">Blade Mixer</SelectItem>
+                      <SelectItem value="swirl">Swirl Mixer</SelectItem>
+                      <SelectItem value="tab">Tab Mixer</SelectItem>
+                      <SelectItem value="none">No Mixer</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <NumField label="Mount Angle" value={injector.mountAngle_deg} unit="°" onChange={(v) => setInjector((p) => ({ ...p, mountAngle_deg: v }))} />
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Substrate Catalog Browser */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Commercial Substrate Catalog</CardTitle>
+              <CardDescription>Browse available substrates from Corning, NGK, Ibiden, Continental</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-wrap gap-3 mb-4">
+                <Select value={catalogFilter.type} onValueChange={(v) => setCatalogFilter((p) => ({ ...p, type: v }))}>
+                  <SelectTrigger className="w-40"><SelectValue placeholder="All types" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Types</SelectItem>
+                    <SelectItem value="DOC">DOC</SelectItem>
+                    <SelectItem value="DPF">DPF</SelectItem>
+                    <SelectItem value="SCR">SCR</SelectItem>
+                    <SelectItem value="TWC">TWC</SelectItem>
+                    <SelectItem value="ASC">ASC</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={catalogFilter.vehicleClass} onValueChange={(v) => setCatalogFilter((p) => ({ ...p, vehicleClass: v }))}>
+                  <SelectTrigger className="w-44"><SelectValue placeholder="All classes" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Classes</SelectItem>
+                    <SelectItem value="light_duty">Light-Duty</SelectItem>
+                    <SelectItem value="medium_duty">Medium-Duty</SelectItem>
+                    <SelectItem value="heavy_duty">Heavy-Duty</SelectItem>
+                    <SelectItem value="genset">Genset</SelectItem>
+                    <SelectItem value="marine">Marine</SelectItem>
+                    <SelectItem value="off_highway">Off-Highway</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="rounded-md border max-h-72 overflow-y-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>ID</TableHead>
+                      <TableHead>Supplier</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Material</TableHead>
+                      <TableHead>Ø × L [mm]</TableHead>
+                      <TableHead>Cell/Wall</TableHead>
+                      <TableHead>Vol [L]</TableHead>
+                      <TableHead>OFA [%]</TableHead>
+                      <TableHead>GSA [m²/L]</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filterCatalog(
+                      catalogFilter.type && catalogFilter.type !== "all" ? catalogFilter.type : undefined,
+                      catalogFilter.vehicleClass && catalogFilter.vehicleClass !== "all" ? catalogFilter.vehicleClass : undefined
+                    ).slice(0, 15).map((s) => (
+                      <TableRow key={s.id} className="text-xs">
+                        <TableCell className="font-mono">{s.id}</TableCell>
+                        <TableCell>{s.supplier}</TableCell>
+                        <TableCell>{s.application.join("/")}</TableCell>
+                        <TableCell>{s.material}</TableCell>
+                        <TableCell className="font-mono">{s.diameter_mm} × {s.length_mm}</TableCell>
+                        <TableCell className="font-mono">{s.cellDensity_cpsi}/{s.wallThickness_mil}</TableCell>
+                        <TableCell className="font-mono">{s.volume_L.toFixed(1)}</TableCell>
+                        <TableCell className="font-mono">{(s.OFA * 100).toFixed(1)}</TableCell>
+                        <TableCell className="font-mono">{s.GSA_m2_L.toFixed(1)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+
           {engineInputs.engineType === "natural_gas" && (
             <Card className="border-amber-500/50 bg-amber-500/5">
               <CardContent className="flex items-center gap-3 pt-6">
@@ -662,6 +807,9 @@ export function DepollutionCalculator() {
               <TabsTrigger value="compliance">Compliance</TabsTrigger>
               <TabsTrigger value="cost">Cost & PGM</TabsTrigger>
               <TabsTrigger value="pressure">Pressure Drop</TabsTrigger>
+              {dosingMap && <TabsTrigger value="adblue">AdBlue Dosing</TabsTrigger>}
+              {sprayResult && <TabsTrigger value="spray">Spray & NH₃</TabsTrigger>}
+              <TabsTrigger value="layout">System Layout</TabsTrigger>
             </TabsList>
 
             {/* ---- CATALYST SIZING TAB ---- */}
@@ -1263,6 +1411,306 @@ export function DepollutionCalculator() {
                       <Bar dataKey="aged" fill="hsl(var(--destructive))" radius={[4, 4, 0, 0]} name="Aged" />
                     </BarChart>
                   </ResponsiveContainer>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* ---- ADBLUE DOSING TAB ---- */}
+            {dosingMap && (
+              <TabsContent value="adblue" className="mt-4">
+                <div className="grid gap-6 md:grid-cols-2">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <Droplets className="h-5 w-5" /> DEF Dosing Rate vs. Temperature
+                      </CardTitle>
+                      <CardDescription>
+                        AdBlue injection rate at {engineInputs.NOx_ppm} ppm NOₓ, {engineInputs.exhaustFlowRate_kg_h} kg/h exhaust flow
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <ResponsiveContainer width="100%" height={300}>
+                        <LineChart data={dosingMap.points.map((p) => ({
+                          temp: p.temperature_C,
+                          DEF: p.DEF_rate_mL_min,
+                          DeNOx: p.expectedDeNOx_percent,
+                        }))}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="temp" label={{ value: "Exhaust Temp [°C]", position: "insideBottom", offset: -5 }} />
+                          <YAxis yAxisId="left" label={{ value: "DEF [mL/min]", angle: -90, position: "insideLeft" }} />
+                          <YAxis yAxisId="right" orientation="right" domain={[0, 100]} label={{ value: "DeNOₓ [%]", angle: 90, position: "insideRight" }} />
+                          <Tooltip />
+                          <Legend />
+                          <Line yAxisId="left" type="monotone" dataKey="DEF" stroke="hsl(var(--chart-1))" strokeWidth={2} dot={false} name="DEF Rate [mL/min]" />
+                          <Line yAxisId="right" type="monotone" dataKey="DeNOx" stroke="hsl(var(--chart-2))" strokeWidth={2} dot={false} name="Expected DeNOₓ [%]" />
+                        </LineChart>
+                      </ResponsiveContainer>
+                      <div className="mt-3 grid grid-cols-3 gap-3 text-sm">
+                        <div className="rounded-lg border p-2 text-center">
+                          <p className="text-muted-foreground">Min Dosing Temp</p>
+                          <p className="font-mono font-bold">{dosingMap.minDosingTemp_C}°C</p>
+                        </div>
+                        <div className="rounded-lg border p-2 text-center">
+                          <p className="text-muted-foreground">Max Efficiency</p>
+                          <p className="font-mono font-bold">{dosingMap.maxEfficiencyTemp_C}°C</p>
+                        </div>
+                        <div className="rounded-lg border p-2 text-center">
+                          <p className="text-muted-foreground">DEF at Rated</p>
+                          <p className="font-mono font-bold">{dosingMap.totalDEF_L_h_at_rated.toFixed(2)} L/h</p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-base">Alpha (ANR) Dosing Strategy</CardTitle>
+                      <CardDescription>Temperature-dependent NH₃/NOₓ ratio map</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <ResponsiveContainer width="100%" height={300}>
+                        <LineChart data={(() => {
+                          const pts = [];
+                          for (let t = 150; t <= 550; t += 10) {
+                            const s = determineAlphaStrategy(t, engineInputs.NOx_ppm);
+                            pts.push({ temp: t, alpha: s.recommendedAlpha, mode: s.mode });
+                          }
+                          return pts;
+                        })()}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="temp" label={{ value: "Exhaust Temp [°C]", position: "insideBottom", offset: -5 }} />
+                          <YAxis domain={[0, 1.2]} label={{ value: "Alpha (ANR)", angle: -90, position: "insideLeft" }} />
+                          <Tooltip formatter={(v: number) => v.toFixed(3)} />
+                          <Line type="monotone" dataKey="alpha" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} name="Alpha" />
+                        </LineChart>
+                      </ResponsiveContainer>
+                      <div className="mt-3 rounded-lg bg-muted/50 p-3 text-sm">
+                        <p className="font-medium">Current Operating Point: {engineInputs.exhaustTemp_C}°C</p>
+                        {(() => {
+                          const s = determineAlphaStrategy(engineInputs.exhaustTemp_C, engineInputs.NOx_ppm);
+                          return (
+                            <div className="mt-1 text-muted-foreground">
+                              <p>Mode: <Badge variant="outline">{s.mode}</Badge> — Alpha: <span className="font-mono">{s.recommendedAlpha.toFixed(3)}</span></p>
+                              {s.inhibitReasons.length > 0 && (
+                                <div className="mt-1 text-amber-600">{s.inhibitReasons.join("; ")}</div>
+                              )}
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              </TabsContent>
+            )}
+
+            {/* ---- SPRAY & NH₃ UNIFORMITY TAB ---- */}
+            {sprayResult && (
+              <TabsContent value="spray" className="mt-4">
+                <div className="grid gap-6 md:grid-cols-2">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-base">Spray & Evaporation Assessment</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid gap-3">
+                        {[
+                          ["Spray Penetration", `${sprayResult.sprayPenetration_mm.toFixed(0)} mm`],
+                          ["Evaporation Time", `${sprayResult.evaporation.evaporationTime_ms.toFixed(1)} ms`],
+                          ["Evap. Distance", `${sprayResult.evaporation.evaporationDistance_mm.toFixed(0)} mm`],
+                          ["Evap. Complete", sprayResult.evaporation.evaporationComplete ? "Yes" : `No (${sprayResult.evaporation.residualDropletSize_um.toFixed(0)} µm residual)`],
+                          ["Residence Time", `${sprayResult.residenceTime_ms.toFixed(1)} ms`],
+                          ["Wall Film Risk", sprayResult.wallFilmRisk],
+                          ["Deposit Risk", sprayResult.depositFormationRisk],
+                          ["Overall Rating", sprayResult.overallRating],
+                        ].map(([label, value]) => (
+                          <div key={label} className="flex items-center justify-between rounded-lg border p-3">
+                            <span className="text-sm">{label}</span>
+                            <Badge variant={
+                              value === "high" || value === "poor" ? "destructive" :
+                              value === "moderate" || value === "marginal" ? "secondary" : "default"
+                            }>{value}</Badge>
+                          </div>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-base">NH₃ Uniformity at SCR Face</CardTitle>
+                      <CardDescription>
+                        UI = {(sprayResult.uniformity.uniformityIndex * 100).toFixed(1)}% — Injector → SCR: {pipe.injectorToSCR_mm} mm
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      {/* Heatmap visualization */}
+                      <div className="flex flex-col items-center gap-2">
+                        <div
+                          className="grid gap-px rounded-full overflow-hidden border-2 border-muted"
+                          style={{
+                            gridTemplateColumns: `repeat(${sprayResult.uniformity.concentrationMap.length}, 1fr)`,
+                            width: 220,
+                            height: 220,
+                          }}
+                        >
+                          {sprayResult.uniformity.concentrationMap.flatMap((row, i) =>
+                            row.map((v, j) => {
+                              const r = Math.sqrt(
+                                (i - row.length / 2) ** 2 + (j - row.length / 2) ** 2
+                              );
+                              const isInCircle = r < row.length / 2;
+                              const intensity = Math.min(1, Math.max(0, v));
+                              const hue = 200 - intensity * 160;
+                              return (
+                                <div
+                                  key={`${i}-${j}`}
+                                  style={{
+                                    backgroundColor: isInCircle
+                                      ? `hsl(${hue}, 80%, ${50 + (1 - intensity) * 30}%)`
+                                      : "transparent",
+                                  }}
+                                />
+                              );
+                            })
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <div className="h-3 w-3 rounded" style={{ backgroundColor: "hsl(200, 80%, 70%)" }} /> Low
+                          <div className="h-3 w-3 rounded" style={{ backgroundColor: "hsl(120, 80%, 50%)" }} /> Medium
+                          <div className="h-3 w-3 rounded" style={{ backgroundColor: "hsl(40, 80%, 50%)" }} /> High
+                        </div>
+                      </div>
+
+                      <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                        <div className="rounded-lg border p-2 text-center">
+                          <p className="text-muted-foreground">Peak/Mean</p>
+                          <p className="font-mono font-bold">{sprayResult.uniformity.peakToMean.toFixed(2)}</p>
+                        </div>
+                        <div className="rounded-lg border p-2 text-center">
+                          <p className="text-muted-foreground">Alpha Std Dev</p>
+                          <p className="font-mono font-bold">{sprayResult.uniformity.alphaStdDev.toFixed(3)}</p>
+                        </div>
+                        <div className="rounded-lg border p-2 text-center">
+                          <p className="text-muted-foreground">Min Local α</p>
+                          <p className="font-mono font-bold">{sprayResult.uniformity.minLocalAlpha.toFixed(2)}</p>
+                        </div>
+                        <div className="rounded-lg border p-2 text-center">
+                          <p className="text-muted-foreground">Max Local α</p>
+                          <p className="font-mono font-bold">{sprayResult.uniformity.maxLocalAlpha.toFixed(2)}</p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              </TabsContent>
+            )}
+
+            {/* ---- SYSTEM LAYOUT TAB ---- */}
+            <TabsContent value="layout" className="mt-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Aftertreatment System Layout</CardTitle>
+                  <CardDescription>Schematic view with dimensions, temperatures, and flow direction</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto">
+                    <div className="flex items-center gap-1 min-w-[700px] py-8">
+                      {/* Engine */}
+                      <div className="flex flex-col items-center">
+                        <div className="rounded-lg border-2 border-dashed bg-muted/50 px-4 py-6 text-center">
+                          <p className="text-xs font-bold">ENGINE</p>
+                          <p className="text-xs text-muted-foreground">{engineInputs.displacement_L}L {engineInputs.engineType}</p>
+                          <p className="text-xs text-muted-foreground">{engineInputs.ratedPower_kW} kW</p>
+                        </div>
+                        <p className="mt-1 text-xs font-mono text-amber-600">{engineInputs.exhaustTemp_C}°C</p>
+                      </div>
+
+                      {/* Flow arrow */}
+                      <div className="flex items-center">
+                        <div className="h-0.5 w-8 bg-muted-foreground" />
+                        <ChevronRight className="h-4 w-4 -ml-1 text-muted-foreground" />
+                      </div>
+
+                      {/* Catalyst elements */}
+                      {rfq.aftertreatmentSystem.catalysts.map((cat, idx) => {
+                        const tempDrop = cat.type === "DOC" ? 30 : cat.type === "DPF" ? -10 : cat.type === "SCR" ? -5 : 0;
+                        const cumTemp = engineInputs.exhaustTemp_C + rfq.aftertreatmentSystem.catalysts.slice(0, idx + 1).reduce((s, c) => {
+                          return s + (c.type === "DOC" ? 30 : c.type === "DPF" ? -10 : c.type === "SCR" ? -5 : 0);
+                        }, 0);
+                        const widthScale = Math.max(60, Math.min(120, cat.substrate.diameter_mm / 3));
+                        const heightScale = Math.max(50, Math.min(100, cat.substrate.length_mm / 3));
+
+                        return (
+                          <div key={cat.position} className="flex items-center">
+                            {/* Mixing pipe (before SCR, show injector) */}
+                            {cat.type === "SCR" && (
+                              <div className="flex flex-col items-center mx-1">
+                                <div className="text-xs text-blue-500 font-medium">DEF ↓</div>
+                                <div className="h-8 w-0.5 bg-blue-400" />
+                                <div className="h-0.5 w-12 bg-muted-foreground" />
+                                <p className="text-xs text-muted-foreground">{pipe.injectorToSCR_mm}mm</p>
+                              </div>
+                            )}
+
+                            <div className="flex flex-col items-center">
+                              <div
+                                className="rounded-md border-2 border-primary bg-primary/5 flex flex-col items-center justify-center text-center"
+                                style={{ width: widthScale, minHeight: heightScale }}
+                              >
+                                <p className="text-xs font-bold">{cat.type}</p>
+                                <p className="text-[10px] text-muted-foreground">{cat.substrate.diameter_mm}×{cat.substrate.length_mm}</p>
+                                <p className="text-[10px] text-muted-foreground">{cat.substrate.cellDensity_cpsi}/{cat.substrate.wallThickness_mil}</p>
+                                <p className="text-[10px] font-mono">{cat.substrate.volume_L.toFixed(1)}L</p>
+                              </div>
+                              <p className="mt-1 text-xs font-mono text-amber-600">{cumTemp}°C</p>
+                              <p className="text-[10px] text-muted-foreground">ΔP {cat.pressureDrop_kPa_clean.toFixed(2)} kPa</p>
+                            </div>
+
+                            {idx < rfq.aftertreatmentSystem.catalysts.length - 1 && (
+                              <div className="flex items-center">
+                                <div className="h-0.5 w-6 bg-muted-foreground" />
+                                <ChevronRight className="h-4 w-4 -ml-1 text-muted-foreground" />
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+
+                      {/* Tailpipe */}
+                      <div className="flex items-center">
+                        <div className="h-0.5 w-8 bg-muted-foreground" />
+                        <ChevronRight className="h-4 w-4 -ml-1 text-muted-foreground" />
+                      </div>
+                      <div className="flex flex-col items-center">
+                        <div className="rounded-lg border-2 border-dashed bg-green-500/10 px-4 py-6 text-center">
+                          <p className="text-xs font-bold text-green-600">TAILPIPE</p>
+                          <p className="text-xs text-muted-foreground">ΔP: {rfq.aftertreatmentSystem.totalPressureDrop_kPa.toFixed(2)} kPa</p>
+                          <p className="text-xs text-muted-foreground">{rfq.aftertreatmentSystem.totalSystemWeight_kg.toFixed(1)} kg</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* System dimensions summary */}
+                  <div className="mt-4 grid grid-cols-4 gap-3 text-sm">
+                    <div className="rounded-lg border p-2 text-center">
+                      <p className="text-muted-foreground">Total Length</p>
+                      <p className="font-mono font-bold">{rfq.aftertreatmentSystem.totalSystemLength_mm} mm</p>
+                    </div>
+                    <div className="rounded-lg border p-2 text-center">
+                      <p className="text-muted-foreground">Max Diameter</p>
+                      <p className="font-mono font-bold">{Math.max(...rfq.aftertreatmentSystem.catalysts.map((c) => c.canningDiameter_mm))} mm</p>
+                    </div>
+                    <div className="rounded-lg border p-2 text-center">
+                      <p className="text-muted-foreground">Total Weight</p>
+                      <p className="font-mono font-bold">{rfq.aftertreatmentSystem.totalSystemWeight_kg.toFixed(1)} kg</p>
+                    </div>
+                    <div className="rounded-lg border p-2 text-center">
+                      <p className="text-muted-foreground">Architecture</p>
+                      <p className="font-mono font-bold text-xs">{rfq.aftertreatmentSystem.architecture}</p>
+                    </div>
+                  </div>
                 </CardContent>
               </Card>
             </TabsContent>

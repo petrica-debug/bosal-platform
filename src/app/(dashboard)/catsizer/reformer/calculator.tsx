@@ -618,6 +618,8 @@ export function ReformerCalculator() {
               <TabsTrigger value="beds">Catalyst Beds</TabsTrigger>
               <TabsTrigger value="heat">Heat Balance</TabsTrigger>
               <TabsTrigger value="carbon">Carbon Boundary</TabsTrigger>
+              <TabsTrigger value="conversion">CO/CH₄ Conversion</TabsTrigger>
+              <TabsTrigger value="h2prod">H₂ Production</TabsTrigger>
             </TabsList>
 
             {/* Reformate composition */}
@@ -1109,6 +1111,128 @@ export function ReformerCalculator() {
                   </ResponsiveContainer>
                 </CardContent>
               </Card>
+            </TabsContent>
+
+            {/* CO/CH₄ Conversion vs Temperature */}
+            <TabsContent value="conversion" className="mt-4">
+              <div className="grid gap-6 md:grid-cols-2">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">CH₄ Conversion vs. Temperature</CardTitle>
+                    <CardDescription>
+                      Equilibrium CH₄ conversion at S/C = {inputs.steamToCarbonRatio}, P = {inputs.fuelPressure_kPa} kPa
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <ResponsiveContainer width="100%" height={300}>
+                      <LineChart data={equilibriumData}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="temp_C" label={{ value: "Temperature [°C]", position: "insideBottom", offset: -5 }} />
+                        <YAxis domain={[0, 100]} label={{ value: "CH₄ Conversion [%]", angle: -90, position: "insideLeft" }} />
+                        <Tooltip formatter={(v: number) => `${v.toFixed(1)}%`} />
+                        <Line type="monotone" dataKey="conversion" stroke="hsl(var(--chart-1))" strokeWidth={2.5} dot={false} name="CH₄ Conversion" />
+                      </LineChart>
+                    </ResponsiveContainer>
+                    <div className="mt-3 rounded-lg bg-muted/50 p-3 text-sm">
+                      <p>At reformer outlet ({result.reformerOutletTemp_C}°C): <span className="font-mono font-bold">{result.CH4_conversion_percent.toFixed(1)}%</span> CH₄ conversion</p>
+                      <p className="text-muted-foreground mt-1">Higher temperature → higher conversion (endothermic SMR). Above 800°C, conversion exceeds 95% at S/C ≥ 2.5.</p>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">CO vs. CO₂ Selectivity</CardTitle>
+                    <CardDescription>WGS equilibrium shifts CO/CO₂ ratio with temperature</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <ResponsiveContainer width="100%" height={300}>
+                      <LineChart data={equilibriumData}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="temp_C" label={{ value: "Temperature [°C]", position: "insideBottom", offset: -5 }} />
+                        <YAxis label={{ value: "mol%", angle: -90, position: "insideLeft" }} />
+                        <Tooltip formatter={(v: number) => `${v.toFixed(2)} mol%`} />
+                        <Legend />
+                        <Line type="monotone" dataKey="CO" stroke="hsl(var(--chart-2))" strokeWidth={2} dot={false} name="CO" />
+                        <Line type="monotone" dataKey="CO2" stroke="hsl(var(--chart-3))" strokeWidth={2} dot={false} name="CO₂" />
+                        <Line type="monotone" dataKey="CH4" stroke="hsl(var(--chart-4))" strokeWidth={2} dot={false} name="CH₄ (residual)" />
+                      </LineChart>
+                    </ResponsiveContainer>
+                    <div className="mt-3 rounded-lg bg-muted/50 p-3 text-sm">
+                      <p className="text-muted-foreground">
+                        At low T: WGS favors CO₂ + H₂ (more H₂, less CO).
+                        At high T: WGS reverses, more CO in reformate.
+                        CH₄/CO ratio = <span className="font-mono font-bold">{result.CH4_CO_ratio.toFixed(2)}</span> at outlet.
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </TabsContent>
+
+            {/* H₂ Production */}
+            <TabsContent value="h2prod" className="mt-4">
+              <div className="grid gap-6 md:grid-cols-2">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">H₂ Production vs. Temperature</CardTitle>
+                    <CardDescription>Equilibrium H₂ yield across temperature range</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <ResponsiveContainer width="100%" height={300}>
+                      <LineChart data={equilibriumData}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="temp_C" label={{ value: "Temperature [°C]", position: "insideBottom", offset: -5 }} />
+                        <YAxis label={{ value: "H₂ [mol%]", angle: -90, position: "insideLeft" }} />
+                        <Tooltip formatter={(v: number) => `${v.toFixed(2)} mol%`} />
+                        <Line type="monotone" dataKey="H2" stroke="hsl(var(--chart-1))" strokeWidth={2.5} dot={false} name="H₂" />
+                        <Line type="monotone" dataKey="H2O" stroke="hsl(var(--chart-5))" strokeWidth={1.5} dot={false} name="H₂O" strokeDasharray="5 5" />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">H₂ Production Summary</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid gap-3">
+                      {[
+                        ["H₂ Production Rate", `${result.H2_production_Nm3_h.toFixed(2)} Nm³/h`],
+                        ["H₂ Yield", `${result.H2_yield_mol_per_mol_CH4.toFixed(2)} mol H₂ / mol CH₄`],
+                        ["Theoretical Max (SMR+WGS)", "4.0 mol H₂ / mol CH₄"],
+                        ["Yield Efficiency", `${(result.H2_yield_mol_per_mol_CH4 / 4.0 * 100).toFixed(1)}%`],
+                        ["H₂/CO Ratio", result.H2_CO_ratio.toFixed(2)],
+                        ["CH₄ Conversion", `${result.CH4_conversion_percent.toFixed(1)}%`],
+                        ["SOFC Estimated Power", `${result.SOFC_estimatedPower_kW.toFixed(1)} kW`],
+                        ["System Efficiency (LHV)", `${result.systemEfficiency_percent.toFixed(1)}%`],
+                      ].map(([label, value]) => (
+                        <div key={label} className="flex items-center justify-between rounded-lg border p-3">
+                          <span className="text-sm">{label}</span>
+                          <span className="font-mono font-medium">{value}</span>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="mt-4 rounded-lg border-2 border-primary/20 bg-primary/5 p-4">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold">Net H₂ to SOFC</span>
+                        <span className="text-2xl font-bold font-mono">{result.H2_production_Nm3_h.toFixed(2)} Nm³/h</span>
+                      </div>
+                      <div className="mt-1 h-2 rounded-full bg-muted overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-primary"
+                          style={{ width: `${Math.min(100, result.H2_yield_mol_per_mol_CH4 / 4.0 * 100)}%` }}
+                        />
+                      </div>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {(result.H2_yield_mol_per_mol_CH4 / 4.0 * 100).toFixed(0)}% of theoretical maximum yield
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
             </TabsContent>
           </Tabs>
 
