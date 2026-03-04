@@ -57,9 +57,10 @@ function sizeCatalystBed(
   T_inlet_K: number,
   T_outlet_K: number,
   P_kPa: number,
-  composition: Record<string, number>
+  composition: Record<string, number>,
+  catalystKeyOverride?: string
 ): CatalystBedResult {
-  const catKey = stage === "main_reformer" ? "SMR_Ni" : stage;
+  const catKey = catalystKeyOverride ?? (stage === "main_reformer" ? "SMR_Ni" : stage);
   const catProps = REFORMER_CATALYSTS[catKey] ?? REFORMER_CATALYSTS.SMR_Ni;
   const ghsvRange = REFORMER_GHSV[catKey] ?? REFORMER_GHSV.SMR_Ni;
 
@@ -117,7 +118,17 @@ function sizeCatalystBed(
 // MAIN REFORMER SIZING FUNCTION
 // ============================================================
 
-export function sizeReformerSystem(inputs: FuelInputs): ReformerSizingResult {
+export interface ReformerCatalystSelections {
+  mainReformer?: string;
+  preReformer?: string;
+  htWGS?: string;
+  ltWGS?: string;
+}
+
+export function sizeReformerSystem(
+  inputs: FuelInputs,
+  catalystSelections?: ReformerCatalystSelections
+): ReformerSizingResult {
   const warnings: string[] = [];
 
   // H₂S check
@@ -234,7 +245,8 @@ export function sizeReformerSystem(inputs: FuelInputs): ReformerSizingResult {
         UNITS.C_to_K(450),
         UNITS.C_to_K(500),
         inputs.fuelPressure_kPa,
-        feedComp
+        feedComp,
+        catalystSelections?.preReformer
       )
     );
   }
@@ -254,7 +266,8 @@ export function sizeReformerSystem(inputs: FuelInputs): ReformerSizingResult {
       UNITS.C_to_K(reformerInletTemp_C),
       T_outlet_K,
       inputs.fuelPressure_kPa,
-      feedComp
+      feedComp,
+      catalystSelections?.mainReformer
     )
   );
 
@@ -272,7 +285,8 @@ export function sizeReformerSystem(inputs: FuelInputs): ReformerSizingResult {
         UNITS.C_to_K(350),
         UNITS.C_to_K(420),
         inputs.fuelPressure_kPa,
-        wgsInletComp
+        wgsInletComp,
+        catalystSelections?.htWGS
       )
     );
 
@@ -288,7 +302,8 @@ export function sizeReformerSystem(inputs: FuelInputs): ReformerSizingResult {
           UNITS.C_to_K(200),
           UNITS.C_to_K(250),
           inputs.fuelPressure_kPa,
-          wgsInletComp
+          wgsInletComp,
+          catalystSelections?.ltWGS
         )
       );
     }

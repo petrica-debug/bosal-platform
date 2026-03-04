@@ -70,8 +70,8 @@ import type {
   FuelInputs,
   ReformerSizingResult,
 } from "@/lib/catsizer/types";
-import { FUEL_PRESETS } from "@/lib/catsizer/constants";
-import { sizeReformerSystem } from "@/lib/catsizer/reformer-engine";
+import { FUEL_PRESETS, REFORMER_CATALYSTS, REFORMER_GHSV } from "@/lib/catsizer/constants";
+import { sizeReformerSystem, type ReformerCatalystSelections } from "@/lib/catsizer/reformer-engine";
 import { equilibriumSweep } from "@/lib/catsizer/thermodynamics";
 import { reformerFeedComposition } from "@/lib/catsizer/gas-properties";
 import { UNITS } from "@/lib/catsizer/units";
@@ -139,6 +139,14 @@ export function ReformerCalculator() {
   const [reactorProfile, setReactorProfile] = useState<ReactorProfilePoint[]>([]);
   const [calculating, setCalculating] = useState(false);
 
+  // Catalyst selections
+  const [catalystSelections, setCatalystSelections] = useState<ReformerCatalystSelections>({
+    mainReformer: "SMR_Ni",
+    preReformer: "pre_reformer",
+    htWGS: "HT_WGS",
+    ltWGS: "LT_WGS",
+  });
+
   // SOFC materials config
   const [sofcMaterials, setSofcMaterials] = useState<SOFCMaterials>(SOFC_MATERIALS_DEFAULT);
   const [cellArea, setCellArea] = useState(100);
@@ -160,7 +168,7 @@ export function ReformerCalculator() {
     setCalculating(true);
     setTimeout(() => {
       // 1. Reformer sizing
-      const res = sizeReformerSystem(inputs);
+      const res = sizeReformerSystem(inputs, catalystSelections);
       setResult(res);
 
       // 2. SOFC stack sizing
@@ -208,7 +216,7 @@ export function ReformerCalculator() {
       setCalculating(false);
       setStep(4);
     }, 150);
-  }, [inputs, sofcMaterials, cellArea]);
+  }, [inputs, sofcMaterials, cellArea, catalystSelections]);
 
   // Equilibrium sweep data
   const equilibriumData = useMemo(() => {
@@ -439,36 +447,153 @@ export function ReformerCalculator() {
             <Card>
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
-                  <Thermometer className="h-4 w-4 text-red-500" /> Reformer Catalyst
+                  <Thermometer className="h-4 w-4 text-red-500" /> Catalyst Selection
                 </CardTitle>
+                <CardDescription>Select a catalyst for each reactor stage</CardDescription>
               </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="rounded-lg border p-3 space-y-2">
-                  <p className="text-xs font-semibold">Catalyst Selection Guide</p>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    {[
-                      { cat: "Ni/α-Al₂O₃", use: "Industrial SMR", ghsv: "2,000–10,000", cost: "Low", note: "H₂S < 0.1 ppm" },
-                      { cat: "Rh/CeZrO₂", use: "Compact SOFC", ghsv: "10,000–50,000", cost: "High", note: "10× smaller beds" },
-                      { cat: "Ni-Ru/MgAl₂O₄", use: "Pre-reformer", ghsv: "2,000–5,000", cost: "Medium", note: "C₂+ cracking" },
-                      { cat: "Fe₂O₃-Cr₂O₃", use: "HT-WGS", ghsv: "1,000–5,000", cost: "Low", note: "320–500°C" },
-                      { cat: "CuO-ZnO/Al₂O₃", use: "LT-WGS", ghsv: "2,000–8,000", cost: "Low", note: "180–300°C, S < 0.1 ppm" },
-                    ].map((c) => (
-                      <div key={c.cat} className="rounded border p-2">
-                        <p className="font-semibold">{c.cat}</p>
-                        <p className="text-muted-foreground">{c.use}</p>
-                        <p className="text-muted-foreground">GHSV: {c.ghsv} h⁻¹</p>
-                        <p className="text-muted-foreground">Cost: {c.cost} | {c.note}</p>
-                      </div>
-                    ))}
+              <CardContent className="space-y-4">
+                {/* Main Reformer Catalyst */}
+                <div>
+                  <Label className="text-xs font-semibold mb-1.5 block">Main Reformer</Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(inputs.reformingStrategy === "SMR" || inputs.reformingStrategy === "internal"
+                      ? [
+                          { key: "SMR_Ni", label: "Ni/α-Al₂O₃", desc: "Industrial standard", temp: "700–900°C", cost: "Low" },
+                          { key: "SMR_PM", label: "Pd-Rh/CeO₂", desc: "Compact / mobile SOFC", temp: "600–850°C", cost: "High" },
+                        ]
+                      : inputs.reformingStrategy === "POX"
+                        ? [
+                            { key: "POX", label: "Rh/Al₂O₃", desc: "Partial oxidation", temp: "800–1100°C", cost: "High" },
+                          ]
+                        : [
+                            { key: "ATR", label: "Ni-Rh/MgAl₂O₄", desc: "Autothermal reforming", temp: "700–1000°C", cost: "Medium" },
+                          ]
+                    ).map((c) => {
+                      const ghsv = REFORMER_GHSV[c.key];
+                      const cat = REFORMER_CATALYSTS[c.key];
+                      const selected = catalystSelections.mainReformer === c.key;
+                      return (
+                        <button key={c.key} onClick={() => setCatalystSelections((p) => ({ ...p, mainReformer: c.key }))}
+                          className={`rounded-lg border-2 p-2.5 text-left transition-all text-xs ${
+                            selected ? "border-primary bg-primary/5 ring-1 ring-primary/30" : "border-border hover:border-primary/50"
+                          }`}>
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="font-bold">{c.label}</span>
+                            {selected && <Badge className="text-[10px] h-4 px-1.5">Selected</Badge>}
+                          </div>
+                          <p className="text-muted-foreground">{c.desc}</p>
+                          <p className="text-muted-foreground">{c.temp}</p>
+                          {ghsv && <p className="text-muted-foreground">GHSV: {ghsv.min.toLocaleString()}–{ghsv.max.toLocaleString()} h⁻¹ (typ. {ghsv.typical.toLocaleString()})</p>}
+                          {cat && <p className="text-muted-foreground">ρ_bulk: {cat.bulkDensity_kg_L} kg/L | d_p: {cat.particleDiameter_mm} mm | ε: {cat.voidFraction}</p>}
+                          <p className="text-muted-foreground">Cost: {c.cost}</p>
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
 
-                <div className="rounded-lg border bg-amber-500/5 border-amber-500/30 p-3 text-xs">
-                  <p className="font-semibold flex items-center gap-1"><Shield className="h-3 w-3" /> Desulfurization</p>
-                  <p className="text-muted-foreground mt-1">
-                    ZnO bed: ZnO + H₂S → ZnS + H₂O. Capacity: ~20 wt% S. Operating: 300–400°C.
-                    Required when H₂S &gt; 0.1 ppm (Ni catalyst) or &gt; 1 ppm (PGM catalyst).
+                {/* Pre-reformer */}
+                {(inputs.C2H6_percent + inputs.C3H8_percent > 1) && (
+                  <div>
+                    <Label className="text-xs font-semibold mb-1.5 block">Pre-Reformer (C₂+ cracking)</Label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        { key: "pre_reformer", label: "Ni/CaAl₂O₄", desc: "Adiabatic pre-reformer", temp: "400–550°C" },
+                      ].map((c) => {
+                        const ghsv = REFORMER_GHSV[c.key];
+                        const cat = REFORMER_CATALYSTS[c.key];
+                        const selected = catalystSelections.preReformer === c.key;
+                        return (
+                          <button key={c.key} onClick={() => setCatalystSelections((p) => ({ ...p, preReformer: c.key }))}
+                            className={`rounded-lg border-2 p-2.5 text-left transition-all text-xs ${
+                              selected ? "border-primary bg-primary/5 ring-1 ring-primary/30" : "border-border hover:border-primary/50"
+                            }`}>
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="font-bold">{c.label}</span>
+                              {selected && <Badge className="text-[10px] h-4 px-1.5">Selected</Badge>}
+                            </div>
+                            <p className="text-muted-foreground">{c.desc} | {c.temp}</p>
+                            {ghsv && <p className="text-muted-foreground">GHSV: {ghsv.min.toLocaleString()}–{ghsv.max.toLocaleString()} h⁻¹</p>}
+                            {cat && <p className="text-muted-foreground">ρ: {cat.bulkDensity_kg_L} kg/L | d_p: {cat.particleDiameter_mm} mm</p>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* WGS Catalysts */}
+                {inputs.reformingStrategy !== "internal" && (
+                  <div>
+                    <Label className="text-xs font-semibold mb-1.5 block">Water-Gas Shift</Label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        { key: "HT_WGS", label: "Fe₂O₃-Cr₂O₃", desc: "HT-WGS", temp: "320–500°C", field: "htWGS" as const },
+                        { key: "LT_WGS", label: "CuO-ZnO/Al₂O₃", desc: "LT-WGS", temp: "180–300°C", field: "ltWGS" as const },
+                      ].map((c) => {
+                        const ghsv = REFORMER_GHSV[c.key];
+                        const cat = REFORMER_CATALYSTS[c.key];
+                        const selected = catalystSelections[c.field] === c.key;
+                        return (
+                          <button key={c.key} onClick={() => setCatalystSelections((p) => ({ ...p, [c.field]: c.key }))}
+                            className={`rounded-lg border-2 p-2.5 text-left transition-all text-xs ${
+                              selected ? "border-primary bg-primary/5 ring-1 ring-primary/30" : "border-border hover:border-primary/50"
+                            }`}>
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="font-bold">{c.label}</span>
+                              {selected && <Badge className="text-[10px] h-4 px-1.5">Selected</Badge>}
+                            </div>
+                            <p className="text-muted-foreground">{c.desc} | {c.temp}</p>
+                            {ghsv && <p className="text-muted-foreground">GHSV: {ghsv.min.toLocaleString()}–{ghsv.max.toLocaleString()} h⁻¹</p>}
+                            {cat && <p className="text-muted-foreground">ρ: {cat.bulkDensity_kg_L} kg/L | d_p: {cat.particleDiameter_mm} mm | ε: {cat.voidFraction}</p>}
+                            <p className="text-muted-foreground">S sensitivity: {c.key === "LT_WGS" ? "< 0.1 ppm" : "< 10 ppm"}</p>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Desulfurizer info */}
+                <div className={`rounded-lg border p-2.5 text-xs ${inputs.H2S_ppm > 1 ? "border-amber-500/50 bg-amber-500/5" : "bg-muted/30"}`}>
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <Shield className="h-3 w-3" />
+                    <span className="font-semibold">Desulfurizer — ZnO</span>
+                    <Badge variant={inputs.H2S_ppm > 1 ? "destructive" : "secondary"} className="text-[10px] h-4 px-1.5 ml-auto">
+                      {inputs.H2S_ppm > 1 ? "Required" : "Not needed"}
+                    </Badge>
+                  </div>
+                  <p className="text-muted-foreground">
+                    ZnO + H₂S → ZnS + H₂O | Capacity: ~20 wt% S | 300–400°C | Auto-sized when H₂S &gt; 1 ppm
                   </p>
+                </div>
+
+                {/* Selected summary */}
+                <div className="rounded-lg border-2 border-primary/20 bg-primary/5 p-3">
+                  <p className="text-xs font-semibold mb-2">Selected Catalyst Chain</p>
+                  <div className="flex items-center gap-1.5 flex-wrap text-xs">
+                    {inputs.H2S_ppm > 1 && (
+                      <><Badge variant="outline" className="bg-amber-500/10">ZnO Desulf.</Badge><ChevronRight className="h-3 w-3 text-muted-foreground" /></>
+                    )}
+                    {(inputs.C2H6_percent + inputs.C3H8_percent > 1) && (
+                      <><Badge variant="outline">{REFORMER_CATALYSTS[catalystSelections.preReformer ?? "pre_reformer"]?.name ?? "Pre-ref"}</Badge><ChevronRight className="h-3 w-3 text-muted-foreground" /></>
+                    )}
+                    <Badge className="bg-primary/20 text-primary border-primary/30">{REFORMER_CATALYSTS[catalystSelections.mainReformer ?? "SMR_Ni"]?.name ?? "Main"}</Badge>
+                    {inputs.reformingStrategy !== "internal" && (
+                      <>
+                        <ChevronRight className="h-3 w-3 text-muted-foreground" />
+                        <Badge variant="outline">{REFORMER_CATALYSTS[catalystSelections.htWGS ?? "HT_WGS"]?.name ?? "HT-WGS"}</Badge>
+                        {(!inputs.targetCH4_CO_ratio || inputs.targetCH4_CO_ratio < 0.5) && (
+                          <>
+                            <ChevronRight className="h-3 w-3 text-muted-foreground" />
+                            <Badge variant="outline">{REFORMER_CATALYSTS[catalystSelections.ltWGS ?? "LT_WGS"]?.name ?? "LT-WGS"}</Badge>
+                          </>
+                        )}
+                      </>
+                    )}
+                    <ChevronRight className="h-3 w-3 text-muted-foreground" />
+                    <Badge className="bg-emerald-500/20 text-emerald-700 border-emerald-500/30">SOFC Stack</Badge>
+                  </div>
                 </div>
               </CardContent>
             </Card>
