@@ -187,7 +187,10 @@ export type CatalystBedStage =
   | "main_reformer"
   | "HT_WGS"
   | "LT_WGS"
-  | "desulfurizer";
+  | "desulfurizer"
+  | "SMR"
+  | "POX"
+  | "ATR";
 
 export interface CatalystBedResult {
   stage: CatalystBedStage;

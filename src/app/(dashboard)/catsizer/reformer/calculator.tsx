@@ -36,7 +36,16 @@ import {
   Loader2,
   Flame,
   Snowflake,
-  ShieldAlert,
+  Zap,
+  Thermometer,
+  Activity,
+  Info,
+  Battery,
+  Gauge,
+  Droplets,
+  Shield,
+  TrendingUp,
+  BarChart3,
 } from "lucide-react";
 import {
   LineChart,
@@ -53,6 +62,9 @@ import {
   ScatterChart,
   Scatter,
   ZAxis,
+  Area,
+  AreaChart,
+  ComposedChart,
 } from "recharts";
 import type {
   FuelInputs,
@@ -63,10 +75,25 @@ import { sizeReformerSystem } from "@/lib/catsizer/reformer-engine";
 import { equilibriumSweep } from "@/lib/catsizer/thermodynamics";
 import { reformerFeedComposition } from "@/lib/catsizer/gas-properties";
 import { UNITS } from "@/lib/catsizer/units";
+import {
+  sizeSOFCStack,
+  polarizationCurve,
+  sofcParametricSweep,
+  systemHeatIntegration,
+  reformerReactorProfile,
+  SOFC_MATERIALS_DEFAULT,
+  type SOFCStackResult,
+  type SOFCStackConfig,
+  type HeatIntegrationResult,
+  type ReactorProfilePoint,
+  type SOFCMaterials,
+} from "@/lib/catsizer/sofc-model";
 
 const STEPS = [
   "Fuel Input",
-  "SOFC & Reformer",
+  "Reformer Design",
+  "SOFC Stack",
+  "Calculate",
   "Results",
 ] as const;
 
@@ -90,134 +117,187 @@ const DEFAULT_FUEL: FuelInputs = {
   oxygenToCarbonRatio: 0,
 };
 
+function NumField({ label, value, unit, onChange, step }: {
+  label: string; value: number; unit?: string; onChange: (v: number) => void; step?: string;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <Label className="w-40 shrink-0 text-sm">{label}</Label>
+      <Input type="number" step={step ?? "any"} value={value}
+        onChange={(e) => onChange(parseFloat(e.target.value) || 0)} className="font-mono" />
+      {unit && <span className="w-16 shrink-0 text-xs text-muted-foreground">{unit}</span>}
+    </div>
+  );
+}
+
 export function ReformerCalculator() {
   const [step, setStep] = useState(0);
   const [inputs, setInputs] = useState<FuelInputs>(DEFAULT_FUEL);
   const [result, setResult] = useState<ReformerSizingResult | null>(null);
+  const [sofcResult, setSofcResult] = useState<SOFCStackResult | null>(null);
+  const [heatResult, setHeatResult] = useState<HeatIntegrationResult | null>(null);
+  const [reactorProfile, setReactorProfile] = useState<ReactorProfilePoint[]>([]);
   const [calculating, setCalculating] = useState(false);
 
-  const fuelSum = useMemo(
-    () =>
-      inputs.CH4_percent +
-      inputs.C2H6_percent +
-      inputs.C3H8_percent +
-      inputs.CO2_percent +
-      inputs.N2_percent,
-    [inputs]
-  );
+  // SOFC materials config
+  const [sofcMaterials, setSofcMaterials] = useState<SOFCMaterials>(SOFC_MATERIALS_DEFAULT);
+  const [cellArea, setCellArea] = useState(100);
+
+  const fuelSum = useMemo(() =>
+    inputs.CH4_percent + inputs.C2H6_percent + inputs.C3H8_percent +
+    inputs.CO2_percent + inputs.N2_percent, [inputs]);
+
+  const update = (field: keyof FuelInputs, value: string | number) => {
+    setInputs((prev) => ({ ...prev, [field]: value }));
+  };
 
   const applyPreset = (index: number) => {
     const preset = FUEL_PRESETS[index];
     setInputs((prev) => ({ ...prev, ...preset.inputs }));
   };
 
-  const update = (field: keyof FuelInputs, value: string | number) => {
-    setInputs((prev) => ({ ...prev, [field]: value }));
-  };
-
   const calculate = useCallback(() => {
     setCalculating(true);
     setTimeout(() => {
+      // 1. Reformer sizing
       const res = sizeReformerSystem(inputs);
       setResult(res);
-      setCalculating(false);
-      setStep(2);
-    }, 100);
-  }, [inputs]);
 
+      // 2. SOFC stack sizing
+      const reformateComp: Record<string, number> = {
+        H2: res.reformateComposition.H2_percent / 100,
+        CO: res.reformateComposition.CO_percent / 100,
+        CO2: res.reformateComposition.CO2_percent / 100,
+        CH4: res.reformateComposition.CH4_percent / 100,
+        H2O: res.reformateComposition.H2O_percent / 100,
+        N2: res.reformateComposition.N2_percent / 100,
+      };
+
+      const stackConfig: SOFCStackConfig = {
+        cellActiveArea_cm2: cellArea,
+        operatingTemp_C: inputs.SOFC_operatingTemp_C,
+        operatingPressure_atm: inputs.fuelPressure_kPa / 101.325,
+        currentDensity_A_cm2: inputs.SOFC_currentDensity_A_cm2,
+        fuelUtilization: inputs.SOFC_fuelUtilization,
+        materials: sofcMaterials,
+      };
+
+      const sofc = sizeSOFCStack(inputs.SOFC_power_kW, reformateComp, stackConfig);
+      setSofcResult(sofc);
+
+      // 3. Heat integration
+      const heat = systemHeatIntegration(
+        res.reformerHeatDuty_kW, res.WGS_heatRelease_kW,
+        sofc.heatGeneration_kW, sofc.targetPower_kW,
+        res.reformerOutletTemp_C, inputs.SOFC_operatingTemp_C,
+        inputs.fuelFlowRate_Nm3_h, inputs.steamToCarbonRatio
+      );
+      setHeatResult(heat);
+
+      // 4. Reactor profile
+      const mainBed = res.catalystBeds.find((b) =>
+        b.stage === "main_reformer" || b.stage === "SMR" || b.stage === "ATR" || b.stage === "POX"
+      );
+      const ghsv = mainBed?.GHSV ?? 5000;
+      const profile = reformerReactorProfile(
+        res.reformerInletTemp_C, res.reformerOutletTemp_C,
+        inputs.fuelPressure_kPa, inputs.steamToCarbonRatio, ghsv, 40
+      );
+      setReactorProfile(profile);
+
+      setCalculating(false);
+      setStep(4);
+    }, 150);
+  }, [inputs, sofcMaterials, cellArea]);
+
+  // Equilibrium sweep data
   const equilibriumData = useMemo(() => {
     if (!result) return [];
     const feed = reformerFeedComposition({
-      CH4_percent: inputs.CH4_percent,
-      C2H6_percent: inputs.C2H6_percent,
-      C3H8_percent: inputs.C3H8_percent,
-      CO2_percent: inputs.CO2_percent,
-      N2_percent: inputs.N2_percent,
-      steamToCarbonRatio: inputs.steamToCarbonRatio,
+      CH4_percent: inputs.CH4_percent, C2H6_percent: inputs.C2H6_percent,
+      C3H8_percent: inputs.C3H8_percent, CO2_percent: inputs.CO2_percent,
+      N2_percent: inputs.N2_percent, steamToCarbonRatio: inputs.steamToCarbonRatio,
       oxygenToCarbonRatio: inputs.oxygenToCarbonRatio,
     });
-
-    const sweep = equilibriumSweep(
-      UNITS.C_to_K(400),
-      UNITS.C_to_K(1000),
-      30,
-      inputs.fuelPressure_kPa,
-      feed
-    );
-
-    return sweep.map((pt) => ({
-      temp_C: Math.round(UNITS.K_to_C(pt.temperature_K)),
-      H2: parseFloat(((pt.composition.H2 ?? 0) * 100).toFixed(2)),
-      CO: parseFloat(((pt.composition.CO ?? 0) * 100).toFixed(2)),
-      CO2: parseFloat(((pt.composition.CO2 ?? 0) * 100).toFixed(2)),
-      CH4: parseFloat(((pt.composition.CH4 ?? 0) * 100).toFixed(2)),
-      H2O: parseFloat(((pt.composition.H2O ?? 0) * 100).toFixed(2)),
-      CH4_CO: parseFloat(pt.CH4_CO_ratio.toFixed(3)),
-      conversion: parseFloat((pt.CH4_conversion * 100).toFixed(1)),
-    }));
+    return equilibriumSweep(UNITS.C_to_K(400), UNITS.C_to_K(1000), 40, inputs.fuelPressure_kPa, feed)
+      .map((pt) => ({
+        temp_C: Math.round(UNITS.K_to_C(pt.temperature_K)),
+        H2: +((pt.composition.H2 ?? 0) * 100).toFixed(2),
+        CO: +((pt.composition.CO ?? 0) * 100).toFixed(2),
+        CO2: +((pt.composition.CO2 ?? 0) * 100).toFixed(2),
+        CH4: +((pt.composition.CH4 ?? 0) * 100).toFixed(2),
+        H2O: +((pt.composition.H2O ?? 0) * 100).toFixed(2),
+        CH4_CO: +pt.CH4_CO_ratio.toFixed(3),
+        conversion: +(pt.CH4_conversion * 100).toFixed(1),
+      }));
   }, [result, inputs]);
 
+  // Carbon boundary
   const carbonBoundaryData = useMemo(() => {
     const points: { SC: number; temp_C: number; safe: number }[] = [];
     for (let sc = 0.5; sc <= 5.0; sc += 0.25) {
       for (let t = 400; t <= 1000; t += 25) {
         const minSC = Math.max(0.5, 3.0 - t / 400);
-        points.push({
-          SC: sc,
-          temp_C: t,
-          safe: sc >= minSC ? 1 : 0,
-        });
+        points.push({ SC: sc, temp_C: t, safe: sc >= minSC ? 1 : 0 });
       }
     }
     return points;
   }, []);
 
+  // S/C sensitivity sweep
+  const scSensitivity = useMemo(() => {
+    if (!result) return [];
+    const points: Array<{ SC: number; conversion: number; H2_yield: number; carbonRisk: string }> = [];
+    for (let sc = 1.0; sc <= 5.0; sc += 0.25) {
+      const tempInputs = { ...inputs, steamToCarbonRatio: sc };
+      try {
+        const r = sizeReformerSystem(tempInputs);
+        points.push({
+          SC: sc,
+          conversion: r.CH4_conversion_percent,
+          H2_yield: r.H2_yield_mol_per_mol_CH4,
+          carbonRisk: r.carbonFormationRisk,
+        });
+      } catch { /* skip */ }
+    }
+    return points;
+  }, [result, inputs]);
+
   return (
     <div className="flex flex-col gap-6">
       {/* Step indicator */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1 overflow-x-auto pb-1">
         {STEPS.map((s, i) => (
-          <div key={s} className="flex items-center gap-2">
-            <button
-              onClick={() => (i <= step ? setStep(i) : undefined)}
-              className={`flex h-8 items-center gap-2 rounded-full px-4 text-sm font-medium transition-colors ${
-                i === step
-                  ? "bg-primary text-primary-foreground"
-                  : i < step
-                    ? "bg-primary/20 text-primary cursor-pointer"
+          <div key={s} className="flex items-center gap-1">
+            <button onClick={() => (i <= step ? setStep(i) : undefined)}
+              className={`flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-medium transition-colors whitespace-nowrap ${
+                i === step ? "bg-primary text-primary-foreground"
+                  : i < step ? "bg-primary/20 text-primary cursor-pointer"
                     : "bg-muted text-muted-foreground"
-              }`}
-            >
+              }`}>
               {i + 1}. {s}
             </button>
-            {i < STEPS.length - 1 && (
-              <ChevronRight className="h-4 w-4 text-muted-foreground" />
-            )}
+            {i < STEPS.length - 1 && <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />}
           </div>
         ))}
       </div>
 
-      {/* Step 1: Fuel Input */}
+      {/* ================================================================ */}
+      {/* STEP 1: FUEL INPUT */}
+      {/* ================================================================ */}
       {step === 0 && (
         <div className="flex flex-col gap-6">
           <Card>
             <CardHeader>
-              <CardTitle>Fuel Presets</CardTitle>
-              <CardDescription>
-                Select a fuel type or enter custom composition below
-              </CardDescription>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Droplets className="h-4 w-4 text-primary" /> Fuel Presets
+              </CardTitle>
+              <CardDescription>Select a fuel type or enter custom composition</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="flex flex-wrap gap-2">
                 {FUEL_PRESETS.map((p, i) => (
-                  <Button
-                    key={i}
-                    variant="outline"
-                    size="sm"
-                    onClick={() => applyPreset(i)}
-                  >
-                    {p.name}
-                  </Button>
+                  <Button key={i} variant="outline" size="sm" onClick={() => applyPreset(i)}>{p.name}</Button>
                 ))}
               </div>
             </CardContent>
@@ -226,588 +306,544 @@ export function ReformerCalculator() {
           <div className="grid gap-6 md:grid-cols-2">
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">
-                  Fuel Composition [mol%]
-                </CardTitle>
+                <CardTitle className="text-base">Fuel Composition [mol%]</CardTitle>
                 <CardDescription>
-                  Sum:{" "}
-                  <span
-                    className={
-                      Math.abs(fuelSum - 100) > 0.5
-                        ? "text-red-500 font-bold"
-                        : "text-green-500"
-                    }
-                  >
-                    {fuelSum.toFixed(1)}%
-                  </span>
+                  Sum: <span className={Math.abs(fuelSum - 100) > 0.5 ? "text-red-500 font-bold" : "text-green-500"}>{fuelSum.toFixed(1)}%</span>
                 </CardDescription>
               </CardHeader>
-              <CardContent className="grid gap-4">
-                {[
+              <CardContent className="space-y-3">
+                {([
                   ["CH4_percent", "CH₄ (Methane)", "%"],
                   ["C2H6_percent", "C₂H₆ (Ethane)", "%"],
                   ["C3H8_percent", "C₃H₈ (Propane)", "%"],
                   ["CO2_percent", "CO₂", "%"],
                   ["N2_percent", "N₂", "%"],
                   ["H2S_ppm", "H₂S", "ppm"],
-                ].map(([field, label, unit]) => (
-                  <div key={field} className="flex items-center gap-2">
-                    <Label className="w-32 shrink-0">{label}</Label>
-                    <Input
-                      type="number"
-                      step="any"
-                      value={inputs[field as keyof FuelInputs] as number}
-                      onChange={(e) =>
-                        update(
-                          field as keyof FuelInputs,
-                          parseFloat(e.target.value) || 0
-                        )
-                      }
-                    />
-                    <span className="w-12 text-sm text-muted-foreground">
-                      {unit}
-                    </span>
-                  </div>
+                ] as const).map(([field, label, unit]) => (
+                  <NumField key={field} label={label} value={inputs[field] as number} unit={unit}
+                    onChange={(v) => update(field, v)} />
                 ))}
                 {inputs.H2S_ppm > 1 && (
                   <div className="flex items-center gap-2 rounded-lg border border-amber-500/50 bg-amber-500/5 p-3">
                     <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
-                    <p className="text-sm">
-                      H₂S &gt; 1 ppm: desulfurization bed (ZnO) required
-                      upstream. Will be auto-sized.
-                    </p>
+                    <p className="text-xs">H₂S &gt; 1 ppm: ZnO desulfurization bed required upstream. Will be auto-sized.</p>
                   </div>
                 )}
               </CardContent>
             </Card>
 
             <Card>
-              <CardHeader>
-                <CardTitle className="text-base">
-                  Flow Conditions
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="grid gap-4">
-                <div>
-                  <Label>Fuel Type</Label>
-                  <Select
-                    value={inputs.fuelType}
-                    onValueChange={(v) => update("fuelType", v)}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
+              <CardHeader><CardTitle className="text-base">Flow Conditions</CardTitle></CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <Label className="w-40 shrink-0 text-sm">Fuel Type</Label>
+                  <Select value={inputs.fuelType} onValueChange={(v) => update("fuelType", v)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="pipeline_natural_gas">
-                        Pipeline Natural Gas
-                      </SelectItem>
+                      <SelectItem value="pipeline_natural_gas">Pipeline Natural Gas</SelectItem>
                       <SelectItem value="biogas">Biogas</SelectItem>
-                      <SelectItem value="landfill_gas">
-                        Landfill Gas
-                      </SelectItem>
-                      <SelectItem value="pure_methane">
-                        Pure Methane
-                      </SelectItem>
-                      <SelectItem value="associated_gas">
-                        Associated Gas
-                      </SelectItem>
+                      <SelectItem value="landfill_gas">Landfill Gas</SelectItem>
+                      <SelectItem value="pure_methane">Pure Methane</SelectItem>
+                      <SelectItem value="associated_gas">Associated Gas</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
-                {[
-                  ["fuelFlowRate_Nm3_h", "Fuel Flow Rate", "Nm³/h"],
-                  ["fuelPressure_kPa", "Fuel Pressure", "kPa"],
-                  ["fuelTemp_C", "Fuel Temperature", "°C"],
-                ].map(([field, label, unit]) => (
-                  <div key={field} className="flex items-center gap-2">
-                    <Label className="w-32 shrink-0">{label}</Label>
-                    <Input
-                      type="number"
-                      step="any"
-                      value={inputs[field as keyof FuelInputs] as number}
-                      onChange={(e) =>
-                        update(
-                          field as keyof FuelInputs,
-                          parseFloat(e.target.value) || 0
-                        )
-                      }
-                    />
-                    <span className="w-14 text-sm text-muted-foreground">
-                      {unit}
-                    </span>
+                <NumField label="Fuel Flow Rate" value={inputs.fuelFlowRate_Nm3_h} unit="Nm³/h" onChange={(v) => update("fuelFlowRate_Nm3_h", v)} />
+                <NumField label="Fuel Pressure" value={inputs.fuelPressure_kPa} unit="kPa" onChange={(v) => update("fuelPressure_kPa", v)} />
+                <NumField label="Fuel Temperature" value={inputs.fuelTemp_C} unit="°C" onChange={(v) => update("fuelTemp_C", v)} />
+
+                {/* Fuel energy summary */}
+                <div className="rounded-lg border bg-muted/30 p-3 mt-2">
+                  <p className="text-xs font-semibold mb-1">Fuel Energy (LHV)</p>
+                  <div className="grid grid-cols-2 gap-x-4 text-xs">
+                    <span className="text-muted-foreground">CH₄ flow</span>
+                    <span className="font-mono">{(inputs.fuelFlowRate_Nm3_h * inputs.CH4_percent / 100).toFixed(2)} Nm³/h</span>
+                    <span className="text-muted-foreground">LHV input</span>
+                    <span className="font-mono">{(inputs.fuelFlowRate_Nm3_h * inputs.CH4_percent / 100 * 35.8).toFixed(0)} MJ/h</span>
+                    <span className="text-muted-foreground">Thermal input</span>
+                    <span className="font-mono">{(inputs.fuelFlowRate_Nm3_h * inputs.CH4_percent / 100 * 35.8 / 3.6).toFixed(1)} kW</span>
                   </div>
-                ))}
+                </div>
               </CardContent>
             </Card>
           </div>
 
           <div className="flex justify-end">
-            <Button onClick={() => setStep(1)}>
-              Next: SOFC & Reformer <ChevronRight className="ml-2 h-4 w-4" />
-            </Button>
+            <Button onClick={() => setStep(1)}>Next: Reformer Design <ChevronRight className="ml-2 h-4 w-4" /></Button>
           </div>
         </div>
       )}
 
-      {/* Step 2: SOFC & Reformer Config */}
+      {/* ================================================================ */}
+      {/* STEP 2: REFORMER DESIGN */}
+      {/* ================================================================ */}
       {step === 1 && (
         <div className="flex flex-col gap-6">
           <div className="grid gap-6 md:grid-cols-2">
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">
-                  SOFC Target Parameters
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Flame className="h-4 w-4 text-orange-500" /> Reforming Strategy
                 </CardTitle>
               </CardHeader>
-              <CardContent className="grid gap-4">
-                {[
-                  ["SOFC_power_kW", "Target Power", "kW"],
-                  ["SOFC_fuelUtilization", "Fuel Utilization", "(0–1)"],
-                  ["SOFC_operatingTemp_C", "Stack Temperature", "°C"],
-                  ["SOFC_currentDensity_A_cm2", "Current Density", "A/cm²"],
-                ].map(([field, label, unit]) => (
-                  <div key={field} className="flex items-center gap-2">
-                    <Label className="w-36 shrink-0">{label}</Label>
-                    <Input
-                      type="number"
-                      step="any"
-                      value={inputs[field as keyof FuelInputs] as number}
-                      onChange={(e) =>
-                        update(
-                          field as keyof FuelInputs,
-                          parseFloat(e.target.value) || 0
-                        )
-                      }
-                    />
-                    <span className="w-14 text-sm text-muted-foreground">
-                      {unit}
-                    </span>
-                  </div>
-                ))}
+              <CardContent className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <Label className="w-40 shrink-0 text-sm">Strategy</Label>
+                  <Select value={inputs.reformingStrategy} onValueChange={(v) => update("reformingStrategy", v)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="SMR">SMR — Steam Methane Reforming</SelectItem>
+                      <SelectItem value="POX">POX — Partial Oxidation</SelectItem>
+                      <SelectItem value="ATR">ATR — Autothermal Reforming</SelectItem>
+                      <SelectItem value="internal">Internal Reforming (at SOFC)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <NumField label="S/C Ratio" value={inputs.steamToCarbonRatio} unit="mol/mol" onChange={(v) => update("steamToCarbonRatio", v)} step="0.1" />
+                {(inputs.reformingStrategy === "POX" || inputs.reformingStrategy === "ATR") && (
+                  <NumField label="O/C Ratio" value={inputs.oxygenToCarbonRatio ?? 0} unit="mol/mol" onChange={(v) => update("oxygenToCarbonRatio", v)} step="0.05" />
+                )}
+                <NumField label="Target CH₄/CO" value={inputs.targetCH4_CO_ratio ?? 0} unit="ratio" onChange={(v) => update("targetCH4_CO_ratio", v)} step="0.1" />
+
+                {/* Strategy explanation */}
+                <div className="rounded-lg border bg-muted/30 p-3 text-xs space-y-2">
+                  {inputs.reformingStrategy === "SMR" && (
+                    <>
+                      <p className="font-semibold">CH₄ + H₂O ⇌ CO + 3H₂ &nbsp;&nbsp; ΔH° = +206 kJ/mol</p>
+                      <p className="text-muted-foreground">Endothermic. Requires external heat (SOFC exhaust or burner). Highest H₂ yield (theoretical 4.0 mol H₂/mol CH₄ with WGS). Ni/Al₂O₃ catalyst, 700–900°C.</p>
+                      <p className="text-muted-foreground">Typical GHSV: 2,000–10,000 h⁻¹ (Ni), 10,000–50,000 h⁻¹ (PGM).</p>
+                    </>
+                  )}
+                  {inputs.reformingStrategy === "POX" && (
+                    <>
+                      <p className="font-semibold">CH₄ + ½O₂ → CO + 2H₂ &nbsp;&nbsp; ΔH° = −36 kJ/mol</p>
+                      <p className="text-muted-foreground">Mildly exothermic. Self-heating, fast startup. Lower H₂ yield. Requires O/C = 0.5–0.6. Risk of hot spots.</p>
+                    </>
+                  )}
+                  {inputs.reformingStrategy === "ATR" && (
+                    <>
+                      <p className="font-semibold">CH₄ + xO₂ + yH₂O → CO + zH₂ &nbsp;&nbsp; ΔH° ≈ 0</p>
+                      <p className="text-muted-foreground">Combines SMR + POX for near-neutral heat balance. S/C = 1–2, O/C = 0.3–0.5. Good for mobile/APU applications.</p>
+                    </>
+                  )}
+                  {inputs.reformingStrategy === "internal" && (
+                    <>
+                      <p className="font-semibold">Direct reforming on Ni-YSZ SOFC anode</p>
+                      <p className="text-muted-foreground">Simplest system. Endothermic reforming absorbs SOFC waste heat. Risk: thermal gradients, carbon deposition on anode. Requires S/C ≥ 2.0.</p>
+                    </>
+                  )}
+                </div>
               </CardContent>
             </Card>
 
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">
-                  Reforming Strategy
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Thermometer className="h-4 w-4 text-red-500" /> Reformer Catalyst
                 </CardTitle>
               </CardHeader>
-              <CardContent className="grid gap-4">
-                <div>
-                  <Label>Strategy</Label>
-                  <Select
-                    value={inputs.reformingStrategy}
-                    onValueChange={(v) => update("reformingStrategy", v)}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="SMR">
-                        SMR — Steam Methane Reforming
-                      </SelectItem>
-                      <SelectItem value="POX">
-                        POX — Partial Oxidation
-                      </SelectItem>
-                      <SelectItem value="ATR">
-                        ATR — Autothermal Reforming
-                      </SelectItem>
-                      <SelectItem value="internal">
-                        Internal Reforming (at SOFC)
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Label className="w-36 shrink-0">S/C Ratio</Label>
-                  <Input
-                    type="number"
-                    step="0.1"
-                    value={inputs.steamToCarbonRatio}
-                    onChange={(e) =>
-                      update(
-                        "steamToCarbonRatio",
-                        parseFloat(e.target.value) || 0
-                      )
-                    }
-                  />
-                  <span className="w-14 text-sm text-muted-foreground">
-                    mol/mol
-                  </span>
-                </div>
-                {(inputs.reformingStrategy === "POX" ||
-                  inputs.reformingStrategy === "ATR") && (
-                  <div className="flex items-center gap-2">
-                    <Label className="w-36 shrink-0">O/C Ratio</Label>
-                    <Input
-                      type="number"
-                      step="0.05"
-                      value={inputs.oxygenToCarbonRatio ?? 0}
-                      onChange={(e) =>
-                        update(
-                          "oxygenToCarbonRatio",
-                          parseFloat(e.target.value) || 0
-                        )
-                      }
-                    />
-                    <span className="w-14 text-sm text-muted-foreground">
-                      mol/mol
-                    </span>
+              <CardContent className="space-y-3">
+                <div className="rounded-lg border p-3 space-y-2">
+                  <p className="text-xs font-semibold">Catalyst Selection Guide</p>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    {[
+                      { cat: "Ni/α-Al₂O₃", use: "Industrial SMR", ghsv: "2,000–10,000", cost: "Low", note: "H₂S < 0.1 ppm" },
+                      { cat: "Rh/CeZrO₂", use: "Compact SOFC", ghsv: "10,000–50,000", cost: "High", note: "10× smaller beds" },
+                      { cat: "Ni-Ru/MgAl₂O₄", use: "Pre-reformer", ghsv: "2,000–5,000", cost: "Medium", note: "C₂+ cracking" },
+                      { cat: "Fe₂O₃-Cr₂O₃", use: "HT-WGS", ghsv: "1,000–5,000", cost: "Low", note: "320–500°C" },
+                      { cat: "CuO-ZnO/Al₂O₃", use: "LT-WGS", ghsv: "2,000–8,000", cost: "Low", note: "180–300°C, S < 0.1 ppm" },
+                    ].map((c) => (
+                      <div key={c.cat} className="rounded border p-2">
+                        <p className="font-semibold">{c.cat}</p>
+                        <p className="text-muted-foreground">{c.use}</p>
+                        <p className="text-muted-foreground">GHSV: {c.ghsv} h⁻¹</p>
+                        <p className="text-muted-foreground">Cost: {c.cost} | {c.note}</p>
+                      </div>
+                    ))}
                   </div>
-                )}
-                <div className="flex items-center gap-2">
-                  <Label className="w-36 shrink-0">Target CH₄/CO</Label>
-                  <Input
-                    type="number"
-                    step="0.1"
-                    value={inputs.targetCH4_CO_ratio ?? ""}
-                    placeholder="Auto"
-                    onChange={(e) =>
-                      update(
-                        "targetCH4_CO_ratio",
-                        e.target.value ? parseFloat(e.target.value) : 0
-                      )
-                    }
-                  />
-                  <span className="w-14 text-sm text-muted-foreground">
-                    ratio
-                  </span>
                 </div>
 
-                <div className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
-                  {inputs.reformingStrategy === "SMR" && (
-                    <p>
-                      <strong>SMR:</strong> CH₄ + H₂O ⇌ CO + 3H₂ (endothermic,
-                      +206 kJ/mol). Requires external heat. Highest H₂ yield.
-                    </p>
-                  )}
-                  {inputs.reformingStrategy === "POX" && (
-                    <p>
-                      <strong>POX:</strong> CH₄ + ½O₂ → CO + 2H₂ (exothermic,
-                      −36 kJ/mol). Self-heating but lower H₂ yield. Requires O/C
-                      ratio 0.5–0.6.
-                    </p>
-                  )}
-                  {inputs.reformingStrategy === "ATR" && (
-                    <p>
-                      <strong>ATR:</strong> Combines SMR + POX for near-neutral
-                      heat balance. S/C=1–2, O/C=0.3–0.5.
-                    </p>
-                  )}
-                  {inputs.reformingStrategy === "internal" && (
-                    <p>
-                      <strong>Internal:</strong> Reforming occurs directly on the
-                      SOFC Ni-YSZ anode. Simplest system but risk of thermal
-                      gradients and carbon deposition.
-                    </p>
-                  )}
+                <div className="rounded-lg border bg-amber-500/5 border-amber-500/30 p-3 text-xs">
+                  <p className="font-semibold flex items-center gap-1"><Shield className="h-3 w-3" /> Desulfurization</p>
+                  <p className="text-muted-foreground mt-1">
+                    ZnO bed: ZnO + H₂S → ZnS + H₂O. Capacity: ~20 wt% S. Operating: 300–400°C.
+                    Required when H₂S &gt; 0.1 ppm (Ni catalyst) or &gt; 1 ppm (PGM catalyst).
+                  </p>
                 </div>
               </CardContent>
             </Card>
           </div>
 
           <div className="flex justify-between">
-            <Button variant="outline" onClick={() => setStep(0)}>
-              <ChevronLeft className="mr-2 h-4 w-4" /> Back
-            </Button>
+            <Button variant="outline" onClick={() => setStep(0)}><ChevronLeft className="mr-2 h-4 w-4" /> Back</Button>
+            <Button onClick={() => setStep(2)}>Next: SOFC Stack <ChevronRight className="ml-2 h-4 w-4" /></Button>
+          </div>
+        </div>
+      )}
+
+      {/* ================================================================ */}
+      {/* STEP 3: SOFC STACK CONFIGURATION */}
+      {/* ================================================================ */}
+      {step === 2 && (
+        <div className="flex flex-col gap-6">
+          <div className="grid gap-6 md:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Battery className="h-4 w-4 text-primary" /> SOFC Operating Parameters
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <NumField label="Target Power" value={inputs.SOFC_power_kW} unit="kW" onChange={(v) => update("SOFC_power_kW", v)} />
+                <NumField label="Fuel Utilization (Uf)" value={inputs.SOFC_fuelUtilization} unit="(0–1)" onChange={(v) => update("SOFC_fuelUtilization", v)} step="0.05" />
+                <NumField label="Stack Temperature" value={inputs.SOFC_operatingTemp_C} unit="°C" onChange={(v) => update("SOFC_operatingTemp_C", v)} />
+                <NumField label="Current Density" value={inputs.SOFC_currentDensity_A_cm2} unit="A/cm²" onChange={(v) => update("SOFC_currentDensity_A_cm2", v)} step="0.05" />
+                <NumField label="Cell Active Area" value={cellArea} unit="cm²" onChange={setCellArea} />
+
+                <div className="rounded-lg border bg-muted/30 p-3 text-xs space-y-1">
+                  <p className="font-semibold">Design Guidelines</p>
+                  <p className="text-muted-foreground">Uf = 0.70–0.85 typical. Higher Uf → more power but risk of fuel starvation at anode.</p>
+                  <p className="text-muted-foreground">j = 0.3–0.7 A/cm² typical. Higher j → more power density but lower voltage efficiency.</p>
+                  <p className="text-muted-foreground">T = 700–850°C for anode-supported YSZ. Lower T possible with GDC/LSGM electrolytes.</p>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Gauge className="h-4 w-4 text-primary" /> Cell Materials
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <Label className="w-40 shrink-0 text-sm">Electrolyte</Label>
+                  <Select value={sofcMaterials.electrolyte} onValueChange={(v) => setSofcMaterials((p) => ({ ...p, electrolyte: v as SOFCMaterials["electrolyte"] }))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="YSZ">8YSZ (yttria-stabilized zirconia)</SelectItem>
+                      <SelectItem value="ScSZ">ScSZ (scandia-stabilized zirconia)</SelectItem>
+                      <SelectItem value="GDC">GDC (gadolinia-doped ceria)</SelectItem>
+                      <SelectItem value="LSGM">LSGM (lanthanum gallate)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <NumField label="Electrolyte Thickness" value={sofcMaterials.electrolyteThickness_um} unit="µm"
+                  onChange={(v) => setSofcMaterials((p) => ({ ...p, electrolyteThickness_um: v }))} />
+                <div className="flex items-center gap-2">
+                  <Label className="w-40 shrink-0 text-sm">Anode</Label>
+                  <Select value={sofcMaterials.anode} onValueChange={(v) => setSofcMaterials((p) => ({ ...p, anode: v as SOFCMaterials["anode"] }))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Ni-YSZ">Ni-YSZ cermet</SelectItem>
+                      <SelectItem value="Ni-GDC">Ni-GDC cermet</SelectItem>
+                      <SelectItem value="Ni-ScSZ">Ni-ScSZ cermet</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Label className="w-40 shrink-0 text-sm">Cathode</Label>
+                  <Select value={sofcMaterials.cathode} onValueChange={(v) => setSofcMaterials((p) => ({ ...p, cathode: v as SOFCMaterials["cathode"] }))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="LSM">LSM (La₀.₈Sr₀.₂MnO₃)</SelectItem>
+                      <SelectItem value="LSCF">LSCF (La₀.₆Sr₀.₄Co₀.₂Fe₀.₈O₃)</SelectItem>
+                      <SelectItem value="LSC">LSC (La₀.₆Sr₀.₄CoO₃)</SelectItem>
+                      <SelectItem value="BSCF">BSCF (Ba₀.₅Sr₀.₅Co₀.₈Fe₀.₂O₃)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Label className="w-40 shrink-0 text-sm">Interconnect</Label>
+                  <Select value={sofcMaterials.interconnect} onValueChange={(v) => setSofcMaterials((p) => ({ ...p, interconnect: v as SOFCMaterials["interconnect"] }))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Crofer22APU">Crofer 22 APU (ferritic steel)</SelectItem>
+                      <SelectItem value="SS441">SS 441 (ferritic steel)</SelectItem>
+                      <SelectItem value="LaCrO3">LaCrO₃ (ceramic)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="rounded-lg border bg-muted/30 p-3 text-xs">
+                  <p className="font-semibold mb-1">Material Notes</p>
+                  <p className="text-muted-foreground">
+                    {sofcMaterials.electrolyte === "YSZ" && "8YSZ: industry standard. σ_ionic peaks at 800–1000°C. Minimum ~5 µm for gas-tight layer."}
+                    {sofcMaterials.electrolyte === "ScSZ" && "ScSZ: 40% higher conductivity than YSZ. Enables lower operating T (700°C). Higher cost."}
+                    {sofcMaterials.electrolyte === "GDC" && "GDC: excellent conductivity at 500–700°C. Electronic conductivity at low pO₂ reduces OCV. Use with barrier layer."}
+                    {sofcMaterials.electrolyte === "LSGM" && "LSGM: high conductivity at 600–800°C. Ga volatility issue. Incompatible with Ni — needs buffer layer."}
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="flex justify-between">
+            <Button variant="outline" onClick={() => setStep(1)}><ChevronLeft className="mr-2 h-4 w-4" /> Back</Button>
             <Button onClick={calculate} disabled={calculating}>
-              {calculating ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Calculator className="mr-2 h-4 w-4" />
-              )}
-              Calculate Sizing
+              {calculating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Calculator className="mr-2 h-4 w-4" />}
+              Calculate Full System
             </Button>
           </div>
         </div>
       )}
 
-      {/* Step 3: Results */}
-      {step === 2 && result && (
+      {/* ================================================================ */}
+      {/* STEP 4: RESULTS */}
+      {/* ================================================================ */}
+      {step === 4 && result && sofcResult && (
         <div className="flex flex-col gap-6">
           {/* Warnings */}
           {result.warnings.length > 0 && (
             <Card className="border-amber-500/50 bg-amber-500/5">
               <CardContent className="pt-6">
-                <div className="flex flex-col gap-2">
-                  {result.warnings.map((w, i) => (
-                    <div key={i} className="flex items-start gap-2">
-                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
-                      <p className="text-sm">{w}</p>
-                    </div>
-                  ))}
-                </div>
+                {result.warnings.map((w, i) => (
+                  <div key={i} className="flex items-start gap-2 mb-2">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                    <p className="text-sm">{w}</p>
+                  </div>
+                ))}
               </CardContent>
             </Card>
           )}
 
-          {/* Key metrics */}
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-            <Card>
-              <CardHeader className="pb-2">
-                <CardDescription>CH₄/CO Ratio</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <p className="text-2xl font-bold font-mono">
-                  {result.CH4_CO_ratio < 100
-                    ? result.CH4_CO_ratio.toFixed(3)
-                    : "∞"}
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardDescription>H₂/CO Ratio</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <p className="text-2xl font-bold font-mono">
-                  {result.H2_CO_ratio < 100
-                    ? result.H2_CO_ratio.toFixed(2)
-                    : "∞"}
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardDescription>CH₄ Conversion</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <p className="text-2xl font-bold font-mono">
-                  {result.CH4_conversion_percent.toFixed(1)}%
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardDescription>H₂ Production</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <p className="text-2xl font-bold font-mono">
-                  {result.H2_production_Nm3_h.toFixed(1)} Nm³/h
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardDescription>Carbon Risk</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Badge
-                  variant={
-                    result.carbonFormationRisk === "low"
-                      ? "default"
-                      : result.carbonFormationRisk === "moderate"
-                        ? "secondary"
-                        : "destructive"
-                  }
-                  className="text-base"
-                >
-                  {result.carbonFormationRisk === "low" && "Low"}
-                  {result.carbonFormationRisk === "moderate" && "Moderate"}
-                  {result.carbonFormationRisk === "high" && "HIGH"}
-                </Badge>
-              </CardContent>
-            </Card>
+          {/* KPI Cards */}
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            {[
+              { label: "SOFC Power", value: `${sofcResult.targetPower_kW.toFixed(1)} kW`, sub: `${sofcResult.numberOfCells} cells`, color: "text-emerald-600" },
+              { label: "Cell Voltage", value: `${sofcResult.cellVoltage_V.toFixed(3)} V`, sub: `Nernst: ${sofcResult.nernstVoltage.toFixed(3)} V`, color: "text-blue-600" },
+              { label: "Electrical η", value: `${(sofcResult.electricalEfficiency_LHV * 100).toFixed(1)}%`, sub: `CHP: ${(sofcResult.combinedEfficiency_CHP * 100).toFixed(1)}%`, color: "text-purple-600" },
+              { label: "H₂ Production", value: `${result.H2_production_Nm3_h.toFixed(1)} Nm³/h`, sub: `Yield: ${result.H2_yield_mol_per_mol_CH4.toFixed(2)} mol/mol`, color: "text-orange-600" },
+              { label: "Carbon Risk", value: result.carbonFormationRisk.toUpperCase(), sub: `Min S/C: ${result.minimumSCRatio_noCarbon.toFixed(1)}`, color: result.carbonFormationRisk === "low" ? "text-green-600" : "text-red-600" },
+            ].map((kpi) => (
+              <Card key={kpi.label}>
+                <CardContent className="pt-4 pb-3">
+                  <p className="text-xs text-muted-foreground">{kpi.label}</p>
+                  <p className={`text-xl font-bold font-mono ${kpi.color}`}>{kpi.value}</p>
+                  <p className="text-[10px] text-muted-foreground">{kpi.sub}</p>
+                </CardContent>
+              </Card>
+            ))}
           </div>
 
-          <Tabs defaultValue="composition">
-            <TabsList>
-              <TabsTrigger value="composition">Reformate</TabsTrigger>
+          <Tabs defaultValue="sofc">
+            <TabsList className="flex-wrap">
+              <TabsTrigger value="sofc">SOFC Electrochemistry</TabsTrigger>
+              <TabsTrigger value="reformate">Reformate</TabsTrigger>
               <TabsTrigger value="equilibrium">Equilibrium</TabsTrigger>
+              <TabsTrigger value="reactor">Reactor Profile</TabsTrigger>
               <TabsTrigger value="beds">Catalyst Beds</TabsTrigger>
-              <TabsTrigger value="heat">Heat Balance</TabsTrigger>
+              <TabsTrigger value="heat">Heat Integration</TabsTrigger>
               <TabsTrigger value="carbon">Carbon Boundary</TabsTrigger>
-              <TabsTrigger value="conversion">CO/CH₄ Conversion</TabsTrigger>
-              <TabsTrigger value="h2prod">H₂ Production</TabsTrigger>
+              <TabsTrigger value="sensitivity">Sensitivity</TabsTrigger>
             </TabsList>
 
-            {/* Reformate composition */}
-            <TabsContent value="composition" className="mt-4">
+            {/* ---- SOFC ELECTROCHEMISTRY ---- */}
+            <TabsContent value="sofc" className="mt-4">
               <div className="grid gap-6 md:grid-cols-2">
+                {/* Polarization Curve */}
                 <Card>
                   <CardHeader>
-                    <CardTitle className="text-base">
-                      Reformate Composition (dry basis)
-                    </CardTitle>
-                    <CardDescription>
-                      At reformer outlet: {result.reformerOutletTemp_C}°C,{" "}
-                      {result.reformerPressure_kPa} kPa
-                    </CardDescription>
+                    <CardTitle className="text-base">V-I Polarization Curve</CardTitle>
+                    <CardDescription>Cell voltage and power density vs current density at {inputs.SOFC_operatingTemp_C}°C</CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <div className="grid gap-3">
+                    <ResponsiveContainer width="100%" height={320}>
+                      <ComposedChart data={sofcResult.polarizationData}>
+                        <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                        <XAxis dataKey="j_A_cm2" label={{ value: "Current Density [A/cm²]", position: "insideBottom", offset: -5 }} />
+                        <YAxis yAxisId="v" domain={[0, 1.2]} label={{ value: "Voltage [V]", angle: -90, position: "insideLeft" }} />
+                        <YAxis yAxisId="p" orientation="right" label={{ value: "Power [W/cm²]", angle: 90, position: "insideRight" }} />
+                        <Tooltip formatter={(v: number, name: string) => [v.toFixed(4), name]} />
+                        <Legend />
+                        <Line yAxisId="v" type="monotone" dataKey="V_cell" name="Cell Voltage [V]" stroke="#2563EB" strokeWidth={2.5} dot={false} />
+                        <Line yAxisId="v" type="monotone" dataKey="E_nernst" name="Nernst OCV [V]" stroke="#94A3B8" strokeWidth={1} strokeDasharray="5 5" dot={false} />
+                        <Area yAxisId="p" type="monotone" dataKey="P_W_cm2" name="Power [W/cm²]" fill="#10B981" fillOpacity={0.15} stroke="#10B981" strokeWidth={2} dot={false} />
+                        <ReferenceLine yAxisId="v" x={inputs.SOFC_currentDensity_A_cm2} stroke="#EF4444" strokeDasharray="3 3" label={{ value: "Design Point", position: "top" }} />
+                      </ComposedChart>
+                    </ResponsiveContainer>
+                  </CardContent>
+                </Card>
+
+                {/* Voltage Loss Breakdown */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Voltage Loss Breakdown</CardTitle>
+                    <CardDescription>At j = {inputs.SOFC_currentDensity_A_cm2} A/cm², T = {inputs.SOFC_operatingTemp_C}°C</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <ResponsiveContainer width="100%" height={320}>
+                      <AreaChart data={sofcResult.polarizationData}>
+                        <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                        <XAxis dataKey="j_A_cm2" label={{ value: "Current Density [A/cm²]", position: "insideBottom", offset: -5 }} />
+                        <YAxis domain={[0, 1.2]} label={{ value: "Voltage [V]", angle: -90, position: "insideLeft" }} />
+                        <Tooltip formatter={(v: number) => `${v.toFixed(4)} V`} />
+                        <Legend />
+                        <Area type="monotone" dataKey="eta_conc" name="Concentration Loss" stackId="1" fill="#EF4444" fillOpacity={0.6} stroke="#EF4444" />
+                        <Area type="monotone" dataKey="eta_act_cathode" name="Cathode Activation" stackId="1" fill="#F59E0B" fillOpacity={0.6} stroke="#F59E0B" />
+                        <Area type="monotone" dataKey="eta_act_anode" name="Anode Activation" stackId="1" fill="#8B5CF6" fillOpacity={0.6} stroke="#8B5CF6" />
+                        <Area type="monotone" dataKey="eta_ohmic" name="Ohmic Loss" stackId="1" fill="#3B82F6" fillOpacity={0.6} stroke="#3B82F6" />
+                        <Area type="monotone" dataKey="V_cell" name="Useful Voltage" stackId="1" fill="#10B981" fillOpacity={0.6} stroke="#10B981" />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </CardContent>
+                </Card>
+
+                {/* Stack Design Summary */}
+                <Card>
+                  <CardHeader><CardTitle className="text-base">Stack Design</CardTitle></CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
                       {[
-                        ["H₂", result.reformateComposition.H2_percent, "hsl(var(--chart-1))"],
-                        ["CO", result.reformateComposition.CO_percent, "hsl(var(--chart-2))"],
-                        ["CO₂", result.reformateComposition.CO2_percent, "hsl(var(--chart-3))"],
-                        ["CH₄", result.reformateComposition.CH4_percent, "hsl(var(--chart-4))"],
-                        ["N₂", result.reformateComposition.N2_percent, "hsl(var(--chart-5))"],
-                      ].map(([name, value, color]) => (
-                        <div key={name as string} className="flex items-center gap-3">
-                          <span className="w-10 text-sm font-medium">
-                            {name as string}
-                          </span>
-                          <div className="flex-1 h-6 rounded-full bg-muted overflow-hidden">
-                            <div
-                              className="h-full rounded-full transition-all"
-                              style={{
-                                width: `${Math.min(100, value as number)}%`,
-                                backgroundColor: color as string,
-                              }}
-                            />
-                          </div>
-                          <span className="w-16 text-right font-mono text-sm">
-                            {(value as number).toFixed(1)}%
-                          </span>
+                        ["Number of Cells", sofcResult.numberOfCells.toString()],
+                        ["Cell Active Area", `${cellArea} cm²`],
+                        ["Total Active Area", `${(sofcResult.totalActiveArea_cm2 / 1e4).toFixed(2)} m²`],
+                        ["Stack Voltage", `${sofcResult.stackVoltage_V.toFixed(1)} V`],
+                        ["Stack Current", `${sofcResult.stackCurrent_A.toFixed(1)} A`],
+                        ["Cell Power", `${sofcResult.cellPower_W.toFixed(1)} W`],
+                        ["Nernst OCV", `${sofcResult.nernstVoltage.toFixed(4)} V`],
+                        ["Ohmic Loss", `${(sofcResult.ohmicLoss_V * 1000).toFixed(1)} mV`],
+                        ["Activation Loss", `${(sofcResult.activationLoss_V * 1000).toFixed(1)} mV`],
+                        ["Concentration Loss", `${(sofcResult.concentrationLoss_V * 1000).toFixed(1)} mV`],
+                      ].map(([k, v]) => (
+                        <div key={k} className="flex justify-between">
+                          <span className="text-muted-foreground">{k}</span>
+                          <span className="font-mono font-medium">{v}</span>
                         </div>
                       ))}
                     </div>
                   </CardContent>
                 </Card>
 
+                {/* Efficiency & Degradation */}
                 <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base">
-                      SOFC Feed Summary
-                    </CardTitle>
-                  </CardHeader>
+                  <CardHeader><CardTitle className="text-base">Efficiency & Lifetime</CardTitle></CardHeader>
                   <CardContent>
-                    <dl className="grid grid-cols-2 gap-4 text-sm">
-                      <div>
-                        <dt className="text-muted-foreground">
-                          SOFC Fuel Flow
-                        </dt>
-                        <dd className="font-mono font-medium">
-                          {result.SOFC_fuelFlow_Nm3_h.toFixed(2)} Nm³/h
-                        </dd>
+                    <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm mb-4">
+                      {[
+                        ["Voltage Efficiency", `${(sofcResult.voltageEfficiency * 100).toFixed(1)}%`],
+                        ["Fuel Utilization", `${(sofcResult.fuelUtilization * 100).toFixed(0)}%`],
+                        ["Electrical η (LHV)", `${(sofcResult.electricalEfficiency_LHV * 100).toFixed(1)}%`],
+                        ["Thermal η", `${(sofcResult.thermalEfficiency * 100).toFixed(1)}%`],
+                        ["Combined CHP η", `${(sofcResult.combinedEfficiency_CHP * 100).toFixed(1)}%`],
+                        ["Heat Generation", `${sofcResult.heatGeneration_kW.toFixed(1)} kW`],
+                        ["Air Flow Required", `${sofcResult.airFlowRequired_kg_h.toFixed(1)} kg/h`],
+                        ["Degradation Rate", `${sofcResult.degradationRate_percent_per_kh.toFixed(2)} %/kh`],
+                        ["Projected Lifetime", `${(sofcResult.projectedLifetime_h / 1000).toFixed(0)} kh`],
+                      ].map(([k, v]) => (
+                        <div key={k} className="flex justify-between">
+                          <span className="text-muted-foreground">{k}</span>
+                          <span className="font-mono font-medium">{v}</span>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Efficiency bar */}
+                    <div className="rounded-lg border p-3">
+                      <p className="text-xs font-semibold mb-2">Energy Flow</p>
+                      <div className="flex h-6 rounded overflow-hidden text-[10px] font-medium text-white">
+                        <div style={{ width: `${sofcResult.electricalEfficiency_LHV * 100}%` }} className="bg-emerald-500 flex items-center justify-center">
+                          {(sofcResult.electricalEfficiency_LHV * 100).toFixed(0)}% Elec
+                        </div>
+                        <div style={{ width: `${sofcResult.thermalEfficiency * 80}%` }} className="bg-orange-500 flex items-center justify-center">
+                          {(sofcResult.thermalEfficiency * 100).toFixed(0)}% Heat
+                        </div>
+                        <div className="flex-1 bg-gray-400 flex items-center justify-center">
+                          Losses
+                        </div>
                       </div>
-                      <div>
-                        <dt className="text-muted-foreground">
-                          Est. SOFC Power
-                        </dt>
-                        <dd className="font-mono font-medium">
-                          {result.SOFC_estimatedPower_kW.toFixed(1)} kW
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="text-muted-foreground">
-                          System Efficiency
-                        </dt>
-                        <dd className="font-mono font-medium">
-                          {result.systemEfficiency_percent.toFixed(1)}% (LHV)
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="text-muted-foreground">
-                          H₂ Yield
-                        </dt>
-                        <dd className="font-mono font-medium">
-                          {result.H2_yield_mol_per_mol_CH4.toFixed(2)}{" "}
-                          mol H₂/mol CH₄
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="text-muted-foreground">
-                          Min S/C (no carbon)
-                        </dt>
-                        <dd className="font-mono font-medium">
-                          {result.minimumSCRatio_noCarbon.toFixed(1)}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="text-muted-foreground">Strategy</dt>
-                        <dd className="font-mono font-medium">
-                          {result.reformingStrategy}
-                        </dd>
-                      </div>
-                    </dl>
+                    </div>
                   </CardContent>
                 </Card>
               </div>
             </TabsContent>
 
-            {/* Equilibrium diagram */}
+            {/* ---- REFORMATE ---- */}
+            <TabsContent value="reformate" className="mt-4">
+              <div className="grid gap-6 md:grid-cols-2">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Reformate Composition (dry basis)</CardTitle>
+                    <CardDescription>At {result.reformerOutletTemp_C}°C, {result.reformerPressure_kPa} kPa | S/C = {inputs.steamToCarbonRatio}</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {[
+                      ["H₂", result.reformateComposition.H2_percent, "#3B82F6"],
+                      ["CO", result.reformateComposition.CO_percent, "#EF4444"],
+                      ["CO₂", result.reformateComposition.CO2_percent, "#F59E0B"],
+                      ["CH₄", result.reformateComposition.CH4_percent, "#8B5CF6"],
+                      ["N₂", result.reformateComposition.N2_percent, "#6B7280"],
+                    ].map(([name, value, color]) => (
+                      <div key={name as string} className="flex items-center gap-3 mb-2">
+                        <span className="w-10 text-sm font-medium">{name as string}</span>
+                        <div className="flex-1 h-5 rounded-full bg-muted overflow-hidden">
+                          <div className="h-full rounded-full" style={{ width: `${Math.min(100, value as number)}%`, backgroundColor: color as string }} />
+                        </div>
+                        <span className="w-16 text-right font-mono text-sm">{(value as number).toFixed(1)}%</span>
+                      </div>
+                    ))}
+                    <div className="grid grid-cols-2 gap-4 mt-4 text-sm">
+                      <div className="rounded-lg border p-3">
+                        <p className="text-xs text-muted-foreground">CH₄/CO Ratio</p>
+                        <p className="text-xl font-mono font-bold">{result.CH4_CO_ratio < 100 ? result.CH4_CO_ratio.toFixed(3) : "∞"}</p>
+                      </div>
+                      <div className="rounded-lg border p-3">
+                        <p className="text-xs text-muted-foreground">H₂/CO Ratio</p>
+                        <p className="text-xl font-mono font-bold">{result.H2_CO_ratio < 100 ? result.H2_CO_ratio.toFixed(2) : "∞"}</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader><CardTitle className="text-base">System Summary</CardTitle></CardHeader>
+                  <CardContent>
+                    <div className="space-y-2 text-sm">
+                      {[
+                        ["Strategy", result.reformingStrategy],
+                        ["Reformer Inlet T", `${result.reformerInletTemp_C}°C`],
+                        ["Reformer Outlet T", `${result.reformerOutletTemp_C}°C`],
+                        ["CH₄ Conversion", `${result.CH4_conversion_percent.toFixed(1)}%`],
+                        ["H₂ Production", `${result.H2_production_Nm3_h.toFixed(2)} Nm³/h`],
+                        ["H₂ Yield", `${result.H2_yield_mol_per_mol_CH4.toFixed(2)} mol H₂/mol CH₄`],
+                        ["Yield Efficiency", `${(result.H2_yield_mol_per_mol_CH4 / 4.0 * 100).toFixed(1)}% of theoretical max`],
+                        ["SOFC Power", `${sofcResult.targetPower_kW.toFixed(1)} kW`],
+                        ["System η (LHV)", `${result.systemEfficiency_percent.toFixed(1)}%`],
+                        ["Total ΔP", `${result.catalystBeds.reduce((s, b) => s + b.pressureDrop_kPa, 0).toFixed(2)} kPa`],
+                      ].map(([k, v]) => (
+                        <div key={k} className="flex justify-between rounded-lg border p-2.5">
+                          <span className="text-muted-foreground">{k}</span>
+                          <span className="font-mono font-medium">{v}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </TabsContent>
+
+            {/* ---- EQUILIBRIUM ---- */}
             <TabsContent value="equilibrium" className="mt-4">
               <div className="grid gap-6 md:grid-cols-2">
                 <Card>
                   <CardHeader>
-                    <CardTitle className="text-base">
-                      Equilibrium Composition vs Temperature
-                    </CardTitle>
-                    <CardDescription>
-                      S/C = {inputs.steamToCarbonRatio}, P ={" "}
-                      {inputs.fuelPressure_kPa} kPa
-                    </CardDescription>
+                    <CardTitle className="text-base">Equilibrium Composition vs Temperature</CardTitle>
+                    <CardDescription>Gibbs free energy minimization | S/C = {inputs.steamToCarbonRatio}, P = {inputs.fuelPressure_kPa} kPa</CardDescription>
                   </CardHeader>
                   <CardContent>
                     <ResponsiveContainer width="100%" height={350}>
                       <LineChart data={equilibriumData}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis
-                          dataKey="temp_C"
-                          label={{
-                            value: "Temperature [°C]",
-                            position: "insideBottom",
-                            offset: -5,
-                          }}
-                        />
-                        <YAxis
-                          label={{
-                            value: "mol%",
-                            angle: -90,
-                            position: "insideLeft",
-                          }}
-                        />
-                        <Tooltip />
+                        <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                        <XAxis dataKey="temp_C" label={{ value: "Temperature [°C]", position: "insideBottom", offset: -5 }} />
+                        <YAxis label={{ value: "mol%", angle: -90, position: "insideLeft" }} />
+                        <Tooltip formatter={(v: number) => `${v.toFixed(2)} mol%`} />
                         <Legend />
-                        <Line
-                          type="monotone"
-                          dataKey="H2"
-                          name="H₂"
-                          stroke="hsl(var(--chart-1))"
-                          strokeWidth={2}
-                          dot={false}
-                        />
-                        <Line
-                          type="monotone"
-                          dataKey="CO"
-                          name="CO"
-                          stroke="hsl(var(--chart-2))"
-                          strokeWidth={2}
-                          dot={false}
-                        />
-                        <Line
-                          type="monotone"
-                          dataKey="CO2"
-                          name="CO₂"
-                          stroke="hsl(var(--chart-3))"
-                          strokeWidth={2}
-                          dot={false}
-                        />
-                        <Line
-                          type="monotone"
-                          dataKey="CH4"
-                          name="CH₄"
-                          stroke="hsl(var(--chart-4))"
-                          strokeWidth={2}
-                          dot={false}
-                        />
-                        <Line
-                          type="monotone"
-                          dataKey="H2O"
-                          name="H₂O"
-                          stroke="hsl(var(--chart-5))"
-                          strokeWidth={2}
-                          dot={false}
-                          strokeDasharray="5 5"
-                        />
-                        <ReferenceLine
-                          x={result.reformerOutletTemp_C}
-                          stroke="red"
-                          strokeDasharray="3 3"
-                          label="Outlet"
-                        />
+                        <Line type="monotone" dataKey="H2" name="H₂" stroke="#3B82F6" strokeWidth={2.5} dot={false} />
+                        <Line type="monotone" dataKey="CO" name="CO" stroke="#EF4444" strokeWidth={2} dot={false} />
+                        <Line type="monotone" dataKey="CO2" name="CO₂" stroke="#F59E0B" strokeWidth={2} dot={false} />
+                        <Line type="monotone" dataKey="CH4" name="CH₄" stroke="#8B5CF6" strokeWidth={2} dot={false} />
+                        <Line type="monotone" dataKey="H2O" name="H₂O" stroke="#6B7280" strokeWidth={1.5} dot={false} strokeDasharray="5 5" />
+                        <ReferenceLine x={result.reformerOutletTemp_C} stroke="#EF4444" strokeDasharray="3 3" label={{ value: "Outlet", position: "top" }} />
                       </LineChart>
                     </ResponsiveContainer>
                   </CardContent>
@@ -815,297 +851,257 @@ export function ReformerCalculator() {
 
                 <Card>
                   <CardHeader>
-                    <CardTitle className="text-base">
-                      CH₄/CO Ratio vs Temperature
-                    </CardTitle>
-                    <CardDescription>
-                      Shows how reformer outlet temperature controls the
-                      CH₄/CO ratio
-                    </CardDescription>
+                    <CardTitle className="text-base">CH₄ Conversion & CH₄/CO Ratio</CardTitle>
                   </CardHeader>
                   <CardContent>
                     <ResponsiveContainer width="100%" height={350}>
-                      <LineChart data={equilibriumData}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis
-                          dataKey="temp_C"
-                          label={{
-                            value: "Temperature [°C]",
-                            position: "insideBottom",
-                            offset: -5,
-                          }}
-                        />
-                        <YAxis
-                          scale="log"
-                          domain={[0.001, 100]}
-                          label={{
-                            value: "CH₄/CO ratio",
-                            angle: -90,
-                            position: "insideLeft",
-                          }}
-                        />
+                      <ComposedChart data={equilibriumData}>
+                        <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                        <XAxis dataKey="temp_C" label={{ value: "Temperature [°C]", position: "insideBottom", offset: -5 }} />
+                        <YAxis yAxisId="conv" domain={[0, 100]} label={{ value: "Conversion [%]", angle: -90, position: "insideLeft" }} />
+                        <YAxis yAxisId="ratio" orientation="right" scale="log" domain={[0.001, 100]} label={{ value: "CH₄/CO", angle: 90, position: "insideRight" }} />
                         <Tooltip />
-                        <Line
-                          type="monotone"
-                          dataKey="CH4_CO"
-                          name="CH₄/CO"
-                          stroke="hsl(var(--primary))"
-                          strokeWidth={2}
-                          dot={false}
-                        />
-                        <ReferenceLine
-                          x={result.reformerOutletTemp_C}
-                          stroke="red"
-                          strokeDasharray="3 3"
-                          label="Outlet"
-                        />
-                        <ReferenceLine
-                          y={1.0}
-                          stroke="hsl(var(--muted-foreground))"
-                          strokeDasharray="5 5"
-                          label="CH₄/CO = 1"
-                        />
-                      </LineChart>
+                        <Legend />
+                        <Line yAxisId="conv" type="monotone" dataKey="conversion" name="CH₄ Conversion [%]" stroke="#10B981" strokeWidth={2.5} dot={false} />
+                        <Line yAxisId="ratio" type="monotone" dataKey="CH4_CO" name="CH₄/CO Ratio" stroke="#8B5CF6" strokeWidth={2} dot={false} />
+                        <ReferenceLine yAxisId="conv" x={result.reformerOutletTemp_C} stroke="#EF4444" strokeDasharray="3 3" />
+                      </ComposedChart>
                     </ResponsiveContainer>
                   </CardContent>
                 </Card>
               </div>
             </TabsContent>
 
-            {/* Catalyst beds */}
-            <TabsContent value="beds" className="mt-4">
-              <div className="rounded-md border">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Stage</TableHead>
-                      <TableHead>Catalyst</TableHead>
-                      <TableHead>GHSV [h⁻¹]</TableHead>
-                      <TableHead>Volume [L]</TableHead>
-                      <TableHead>Diameter [mm]</TableHead>
-                      <TableHead>Length [mm]</TableHead>
-                      <TableHead>Weight [kg]</TableHead>
-                      <TableHead>ΔP [kPa]</TableHead>
-                      <TableHead>T_in [°C]</TableHead>
-                      <TableHead>T_out [°C]</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {result.catalystBeds.map((bed, i) => (
-                      <TableRow key={i}>
-                        <TableCell>
-                          <Badge variant="outline">{bed.stage}</Badge>
-                        </TableCell>
-                        <TableCell className="font-mono text-sm">
-                          {bed.catalystType}
-                        </TableCell>
-                        <TableCell className="font-mono">
-                          {bed.GHSV.toLocaleString()}
-                        </TableCell>
-                        <TableCell className="font-mono">
-                          {bed.volume_L.toFixed(1)}
-                        </TableCell>
-                        <TableCell className="font-mono">
-                          {bed.diameter_mm}
-                        </TableCell>
-                        <TableCell className="font-mono">
-                          {bed.length_mm}
-                        </TableCell>
-                        <TableCell className="font-mono">
-                          {bed.weight_kg.toFixed(1)}
-                        </TableCell>
-                        <TableCell className="font-mono">
-                          {bed.pressureDrop_kPa.toFixed(2)}
-                        </TableCell>
-                        <TableCell className="font-mono">
-                          {bed.inletTemp_C}
-                        </TableCell>
-                        <TableCell className="font-mono">
-                          {bed.outletTemp_C}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            </TabsContent>
-
-            {/* Heat balance */}
-            <TabsContent value="heat" className="mt-4">
+            {/* ---- REACTOR PROFILE ---- */}
+            <TabsContent value="reactor" className="mt-4">
               <div className="grid gap-6 md:grid-cols-2">
                 <Card>
                   <CardHeader>
-                    <CardTitle className="text-base">
-                      Heat Balance
-                    </CardTitle>
+                    <CardTitle className="text-base">Species Profile Along Reformer</CardTitle>
+                    <CardDescription>1D plug-flow model with Xu-Froment kinetics (Ni/Al₂O₃)</CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <ResponsiveContainer width="100%" height={300}>
-                      <BarChart
-                        data={[
-                          {
-                            name: "Reformer",
-                            value: result.reformerHeatDuty_kW,
-                            fill:
-                              result.reformerHeatDuty_kW > 0
-                                ? "hsl(var(--destructive))"
-                                : "hsl(var(--chart-1))",
-                          },
-                          {
-                            name: "WGS",
-                            value: -result.WGS_heatRelease_kW,
-                            fill: "hsl(var(--chart-1))",
-                          },
-                          {
-                            name: "Net",
-                            value: result.netHeatDuty_kW,
-                            fill:
-                              result.netHeatDuty_kW > 0
-                                ? "hsl(var(--destructive))"
-                                : "hsl(var(--chart-1))",
-                          },
-                        ]}
-                        layout="vertical"
-                      >
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis
-                          type="number"
-                          label={{
-                            value: "Heat Duty [kW]",
-                            position: "insideBottom",
-                            offset: -5,
-                          }}
-                        />
-                        <YAxis type="category" dataKey="name" width={80} />
-                        <Tooltip
-                          formatter={(value: number) => [
-                            `${value.toFixed(1)} kW`,
-                            value > 0 ? "Heat Required" : "Heat Released",
-                          ]}
-                        />
-                        <Bar dataKey="value" radius={[0, 4, 4, 0]} />
-                        <ReferenceLine x={0} stroke="hsl(var(--foreground))" />
-                      </BarChart>
+                    <ResponsiveContainer width="100%" height={350}>
+                      <LineChart data={reactorProfile}>
+                        <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                        <XAxis dataKey="position_fraction" label={{ value: "Reactor Position (z/L)", position: "insideBottom", offset: -5 }} tickFormatter={(v: number) => v.toFixed(1)} />
+                        <YAxis label={{ value: "mol%", angle: -90, position: "insideLeft" }} />
+                        <Tooltip formatter={(v: number) => `${v.toFixed(2)} mol%`} />
+                        <Legend />
+                        <Line type="monotone" dataKey="H2_mol_percent" name="H₂" stroke="#3B82F6" strokeWidth={2.5} dot={false} />
+                        <Line type="monotone" dataKey="CO_mol_percent" name="CO" stroke="#EF4444" strokeWidth={2} dot={false} />
+                        <Line type="monotone" dataKey="CO2_mol_percent" name="CO₂" stroke="#F59E0B" strokeWidth={2} dot={false} />
+                        <Line type="monotone" dataKey="CH4_mol_percent" name="CH₄" stroke="#8B5CF6" strokeWidth={2} dot={false} />
+                        <Line type="monotone" dataKey="H2O_mol_percent" name="H₂O" stroke="#6B7280" strokeWidth={1.5} dot={false} strokeDasharray="5 5" />
+                      </LineChart>
                     </ResponsiveContainer>
                   </CardContent>
                 </Card>
 
                 <Card>
                   <CardHeader>
-                    <CardTitle className="text-base">
-                      Heat Duty Details
-                    </CardTitle>
+                    <CardTitle className="text-base">Temperature & Conversion Profile</CardTitle>
+                    <CardDescription>Temperature gradient and CH₄ conversion along reactor length</CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <dl className="grid gap-4 text-sm">
-                      <div className="flex items-center justify-between rounded-lg border p-3">
-                        <div className="flex items-center gap-2">
-                          <Flame className="h-4 w-4 text-red-500" />
-                          <span>Reformer Heat Duty</span>
-                        </div>
-                        <span className="font-mono font-bold">
-                          {result.reformerHeatDuty_kW > 0 ? "+" : ""}
-                          {result.reformerHeatDuty_kW.toFixed(1)} kW
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between rounded-lg border p-3">
-                        <div className="flex items-center gap-2">
-                          <Snowflake className="h-4 w-4 text-blue-500" />
-                          <span>WGS Heat Release</span>
-                        </div>
-                        <span className="font-mono font-bold">
-                          −{result.WGS_heatRelease_kW.toFixed(1)} kW
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between rounded-lg border-2 border-primary p-3">
-                        <span className="font-medium">Net Heat Duty</span>
-                        <span className="font-mono font-bold text-lg">
-                          {result.netHeatDuty_kW > 0 ? "+" : ""}
-                          {result.netHeatDuty_kW.toFixed(1)} kW
-                        </span>
-                      </div>
-                      <p className="text-muted-foreground text-xs mt-2">
-                        {result.netHeatDuty_kW > 0
-                          ? "Positive = endothermic system, external heat required (e.g., SOFC exhaust heat, burner)"
-                          : "Negative = exothermic system, excess heat available for steam generation or SOFC preheating"}
-                      </p>
-                    </dl>
+                    <ResponsiveContainer width="100%" height={350}>
+                      <ComposedChart data={reactorProfile}>
+                        <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                        <XAxis dataKey="position_fraction" label={{ value: "Reactor Position (z/L)", position: "insideBottom", offset: -5 }} tickFormatter={(v: number) => v.toFixed(1)} />
+                        <YAxis yAxisId="t" label={{ value: "Temperature [°C]", angle: -90, position: "insideLeft" }} />
+                        <YAxis yAxisId="c" orientation="right" domain={[0, 100]} label={{ value: "Conversion [%]", angle: 90, position: "insideRight" }} />
+                        <Tooltip />
+                        <Legend />
+                        <Line yAxisId="t" type="monotone" dataKey="temperature_C" name="Temperature [°C]" stroke="#EF4444" strokeWidth={2.5} dot={false} />
+                        <Area yAxisId="c" type="monotone" dataKey="CH4_conversion" name="CH₄ Conversion [%]" fill="#10B981" fillOpacity={0.15} stroke="#10B981" strokeWidth={2} dot={false} />
+                      </ComposedChart>
+                    </ResponsiveContainer>
+                  </CardContent>
+                </Card>
+
+                {/* Reaction rate profile */}
+                <Card className="md:col-span-2">
+                  <CardHeader>
+                    <CardTitle className="text-base">Local Reaction Rate Along Reactor</CardTitle>
+                    <CardDescription>Shows where most conversion occurs — front of bed is kinetically limited, rear approaches equilibrium</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <ResponsiveContainer width="100%" height={250}>
+                      <AreaChart data={reactorProfile}>
+                        <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                        <XAxis dataKey="position_fraction" tickFormatter={(v: number) => v.toFixed(1)} />
+                        <YAxis tickFormatter={(v: number) => v.toExponential(0)} />
+                        <Tooltip formatter={(v: number) => v.toExponential(3)} />
+                        <Area type="monotone" dataKey="reactionRate_mol_m3_s" name="Rate [mol/(m³·s)]" fill="#8B5CF6" fillOpacity={0.3} stroke="#8B5CF6" strokeWidth={2} />
+                      </AreaChart>
+                    </ResponsiveContainer>
                   </CardContent>
                 </Card>
               </div>
             </TabsContent>
 
-            {/* Carbon boundary */}
+            {/* ---- CATALYST BEDS ---- */}
+            <TabsContent value="beds" className="mt-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Catalyst Bed Sizing (Ergun Equation)</CardTitle>
+                  <CardDescription>Packed bed sizing with pressure drop via Ergun equation. L/D ≈ 4 for optimal flow distribution.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="rounded-md border overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Stage</TableHead>
+                          <TableHead>Catalyst</TableHead>
+                          <TableHead>GHSV [h⁻¹]</TableHead>
+                          <TableHead>Volume [L]</TableHead>
+                          <TableHead>Ø [mm]</TableHead>
+                          <TableHead>L [mm]</TableHead>
+                          <TableHead>Weight [kg]</TableHead>
+                          <TableHead>ΔP [kPa]</TableHead>
+                          <TableHead>T_in [°C]</TableHead>
+                          <TableHead>T_out [°C]</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {result.catalystBeds.map((bed, i) => (
+                          <TableRow key={i}>
+                            <TableCell><Badge variant="outline">{bed.stage}</Badge></TableCell>
+                            <TableCell className="font-mono text-xs">{bed.catalystType}</TableCell>
+                            <TableCell className="font-mono">{bed.GHSV.toLocaleString()}</TableCell>
+                            <TableCell className="font-mono">{bed.volume_L.toFixed(1)}</TableCell>
+                            <TableCell className="font-mono">{bed.diameter_mm}</TableCell>
+                            <TableCell className="font-mono">{bed.length_mm}</TableCell>
+                            <TableCell className="font-mono">{bed.weight_kg.toFixed(1)}</TableCell>
+                            <TableCell className="font-mono">{bed.pressureDrop_kPa.toFixed(2)}</TableCell>
+                            <TableCell className="font-mono">{bed.inletTemp_C}</TableCell>
+                            <TableCell className="font-mono">{bed.outletTemp_C}</TableCell>
+                          </TableRow>
+                        ))}
+                        <TableRow className="font-semibold bg-muted/30">
+                          <TableCell colSpan={3}>TOTAL</TableCell>
+                          <TableCell className="font-mono">{result.catalystBeds.reduce((s, b) => s + b.volume_L, 0).toFixed(1)}</TableCell>
+                          <TableCell colSpan={2} />
+                          <TableCell className="font-mono">{result.catalystBeds.reduce((s, b) => s + b.weight_kg, 0).toFixed(1)}</TableCell>
+                          <TableCell className="font-mono">{result.catalystBeds.reduce((s, b) => s + b.pressureDrop_kPa, 0).toFixed(2)}</TableCell>
+                          <TableCell colSpan={2} />
+                        </TableRow>
+                      </TableBody>
+                    </Table>
+                  </div>
+
+                  {/* Pressure drop waterfall */}
+                  <div className="mt-4">
+                    <p className="text-sm font-semibold mb-2">Pressure Drop Waterfall</p>
+                    <ResponsiveContainer width="100%" height={200}>
+                      <BarChart data={result.catalystBeds.map((b) => ({ name: b.stage, dP: +b.pressureDrop_kPa.toFixed(3) }))}>
+                        <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                        <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                        <YAxis label={{ value: "ΔP [kPa]", angle: -90, position: "insideLeft" }} />
+                        <Tooltip />
+                        <Bar dataKey="dP" name="ΔP [kPa]" fill="#3B82F6" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* ---- HEAT INTEGRATION ---- */}
+            <TabsContent value="heat" className="mt-4">
+              {heatResult && (
+                <div className="grid gap-6 md:grid-cols-2">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <Flame className="h-4 w-4 text-red-500" /> Heat Sources (Exothermic)
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      {heatResult.sources.map((s, i) => (
+                        <div key={i} className="flex items-center justify-between rounded-lg border p-2.5 mb-2">
+                          <div>
+                            <p className="text-sm font-medium">{s.name}</p>
+                            <p className="text-xs text-muted-foreground">{s.T_hot_C}°C → {s.T_cold_C}°C</p>
+                          </div>
+                          <span className="font-mono font-bold text-red-500">+{s.duty_kW.toFixed(1)} kW</span>
+                        </div>
+                      ))}
+                      <div className="rounded-lg border-2 border-red-500/30 p-2.5 mt-2">
+                        <div className="flex justify-between">
+                          <span className="font-semibold">Total Sources</span>
+                          <span className="font-mono font-bold text-red-500">+{heatResult.sources.reduce((s, x) => s + x.duty_kW, 0).toFixed(1)} kW</span>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <Snowflake className="h-4 w-4 text-blue-500" /> Heat Sinks (Endothermic)
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      {heatResult.sinks.map((s, i) => (
+                        <div key={i} className="flex items-center justify-between rounded-lg border p-2.5 mb-2">
+                          <div>
+                            <p className="text-sm font-medium">{s.name}</p>
+                            <p className="text-xs text-muted-foreground">{s.T_cold_C}°C → {s.T_hot_C}°C</p>
+                          </div>
+                          <span className="font-mono font-bold text-blue-500">−{s.duty_kW.toFixed(1)} kW</span>
+                        </div>
+                      ))}
+                      <div className="rounded-lg border-2 border-blue-500/30 p-2.5 mt-2">
+                        <div className="flex justify-between">
+                          <span className="font-semibold">Total Sinks</span>
+                          <span className="font-mono font-bold text-blue-500">−{heatResult.sinks.reduce((s, x) => s + x.duty_kW, 0).toFixed(1)} kW</span>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="md:col-span-2">
+                    <CardHeader><CardTitle className="text-base">Heat Balance Summary</CardTitle></CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        {[
+                          { label: "Net Heat", value: `${heatResult.netHeat_kW > 0 ? "+" : ""}${heatResult.netHeat_kW.toFixed(1)} kW`, color: heatResult.netHeat_kW > 0 ? "text-red-500" : "text-blue-500" },
+                          { label: "Steam Generation", value: `${heatResult.steamGeneration_kg_h.toFixed(1)} kg/h`, color: "text-foreground" },
+                          { label: "Elec/Thermal Ratio", value: heatResult.electricToThermalRatio.toFixed(2), color: "text-foreground" },
+                          { label: "Heat Recovery", value: `${heatResult.heatRecoveryEffectiveness.toFixed(0)}%`, color: "text-foreground" },
+                        ].map((item) => (
+                          <div key={item.label} className="rounded-lg border p-3">
+                            <p className="text-xs text-muted-foreground">{item.label}</p>
+                            <p className={`text-xl font-mono font-bold ${item.color}`}>{item.value}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+            </TabsContent>
+
+            {/* ---- CARBON BOUNDARY ---- */}
             <TabsContent value="carbon" className="mt-4">
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-base">
-                    Carbon Formation Boundary
-                  </CardTitle>
-                  <CardDescription>
-                    Green = safe operating region (no carbon deposition). Red =
-                    carbon formation predicted. Your operating point is marked.
-                  </CardDescription>
+                  <CardTitle className="text-base">Carbon Formation Boundary</CardTitle>
+                  <CardDescription>Green = safe (no carbon). Red = carbon deposition predicted. Operating point marked with star.</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <ResponsiveContainer width="100%" height={400}>
                     <ScatterChart>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis
-                        dataKey="temp_C"
-                        type="number"
-                        name="Temperature"
-                        unit="°C"
-                        domain={[400, 1000]}
-                        label={{
-                          value: "Temperature [°C]",
-                          position: "insideBottom",
-                          offset: -5,
-                        }}
-                      />
-                      <YAxis
-                        dataKey="SC"
-                        type="number"
-                        name="S/C Ratio"
-                        domain={[0.5, 5]}
-                        label={{
-                          value: "S/C Ratio",
-                          angle: -90,
-                          position: "insideLeft",
-                        }}
-                      />
+                      <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                      <XAxis dataKey="temp_C" type="number" name="Temperature" unit="°C" domain={[400, 1000]} label={{ value: "Temperature [°C]", position: "insideBottom", offset: -5 }} />
+                      <YAxis dataKey="SC" type="number" name="S/C Ratio" domain={[0.5, 5]} label={{ value: "S/C Ratio", angle: -90, position: "insideLeft" }} />
                       <ZAxis dataKey="safe" range={[20, 20]} />
-                      <Tooltip
-                        formatter={(value: number, name: string) => {
-                          if (name === "safe")
-                            return [value ? "Safe" : "Carbon!", "Status"];
-                          return [value, name];
-                        }}
-                      />
-                      <Scatter
-                        name="Safe"
-                        data={carbonBoundaryData.filter((d) => d.safe)}
-                        fill="hsl(142, 76%, 36%)"
-                        opacity={0.3}
-                      />
-                      <Scatter
-                        name="Carbon Risk"
-                        data={carbonBoundaryData.filter((d) => !d.safe)}
-                        fill="hsl(0, 84%, 60%)"
-                        opacity={0.3}
-                      />
-                      <Scatter
-                        name="Operating Point"
-                        data={[
-                          {
-                            temp_C: result.reformerOutletTemp_C,
-                            SC: inputs.steamToCarbonRatio,
-                            safe: result.carbonFormationRisk === "low" ? 1 : 0,
-                          },
-                        ]}
-                        fill="hsl(var(--primary))"
-                        shape="star"
-                      />
+                      <Tooltip />
+                      <Scatter name="Safe" data={carbonBoundaryData.filter((d) => d.safe)} fill="#22C55E" opacity={0.3} />
+                      <Scatter name="Carbon Risk" data={carbonBoundaryData.filter((d) => !d.safe)} fill="#EF4444" opacity={0.3} />
+                      <Scatter name="Operating Point" data={[{ temp_C: result.reformerOutletTemp_C, SC: inputs.steamToCarbonRatio, safe: result.carbonFormationRisk === "low" ? 1 : 0 }]} fill="#2563EB" shape="star" />
                       <Legend />
                     </ScatterChart>
                   </ResponsiveContainer>
@@ -1113,123 +1109,77 @@ export function ReformerCalculator() {
               </Card>
             </TabsContent>
 
-            {/* CO/CH₄ Conversion vs Temperature */}
-            <TabsContent value="conversion" className="mt-4">
+            {/* ---- SENSITIVITY ---- */}
+            <TabsContent value="sensitivity" className="mt-4">
               <div className="grid gap-6 md:grid-cols-2">
                 <Card>
                   <CardHeader>
-                    <CardTitle className="text-base">CH₄ Conversion vs. Temperature</CardTitle>
-                    <CardDescription>
-                      Equilibrium CH₄ conversion at S/C = {inputs.steamToCarbonRatio}, P = {inputs.fuelPressure_kPa} kPa
-                    </CardDescription>
+                    <CardTitle className="text-base">S/C Ratio Sensitivity</CardTitle>
+                    <CardDescription>Effect of steam-to-carbon ratio on CH₄ conversion and H₂ yield</CardDescription>
                   </CardHeader>
                   <CardContent>
                     <ResponsiveContainer width="100%" height={300}>
-                      <LineChart data={equilibriumData}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="temp_C" label={{ value: "Temperature [°C]", position: "insideBottom", offset: -5 }} />
-                        <YAxis domain={[0, 100]} label={{ value: "CH₄ Conversion [%]", angle: -90, position: "insideLeft" }} />
-                        <Tooltip formatter={(v: number) => `${v.toFixed(1)}%`} />
-                        <Line type="monotone" dataKey="conversion" stroke="hsl(var(--chart-1))" strokeWidth={2.5} dot={false} name="CH₄ Conversion" />
-                      </LineChart>
-                    </ResponsiveContainer>
-                    <div className="mt-3 rounded-lg bg-muted/50 p-3 text-sm">
-                      <p>At reformer outlet ({result.reformerOutletTemp_C}°C): <span className="font-mono font-bold">{result.CH4_conversion_percent.toFixed(1)}%</span> CH₄ conversion</p>
-                      <p className="text-muted-foreground mt-1">Higher temperature → higher conversion (endothermic SMR). Above 800°C, conversion exceeds 95% at S/C ≥ 2.5.</p>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base">CO vs. CO₂ Selectivity</CardTitle>
-                    <CardDescription>WGS equilibrium shifts CO/CO₂ ratio with temperature</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <ResponsiveContainer width="100%" height={300}>
-                      <LineChart data={equilibriumData}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="temp_C" label={{ value: "Temperature [°C]", position: "insideBottom", offset: -5 }} />
-                        <YAxis label={{ value: "mol%", angle: -90, position: "insideLeft" }} />
-                        <Tooltip formatter={(v: number) => `${v.toFixed(2)} mol%`} />
+                      <ComposedChart data={scSensitivity}>
+                        <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                        <XAxis dataKey="SC" label={{ value: "S/C Ratio", position: "insideBottom", offset: -5 }} />
+                        <YAxis yAxisId="c" domain={[0, 100]} label={{ value: "Conversion [%]", angle: -90, position: "insideLeft" }} />
+                        <YAxis yAxisId="y" orientation="right" domain={[0, 4]} label={{ value: "H₂ Yield [mol/mol]", angle: 90, position: "insideRight" }} />
+                        <Tooltip />
                         <Legend />
-                        <Line type="monotone" dataKey="CO" stroke="hsl(var(--chart-2))" strokeWidth={2} dot={false} name="CO" />
-                        <Line type="monotone" dataKey="CO2" stroke="hsl(var(--chart-3))" strokeWidth={2} dot={false} name="CO₂" />
-                        <Line type="monotone" dataKey="CH4" stroke="hsl(var(--chart-4))" strokeWidth={2} dot={false} name="CH₄ (residual)" />
-                      </LineChart>
+                        <Line yAxisId="c" type="monotone" dataKey="conversion" name="CH₄ Conversion [%]" stroke="#10B981" strokeWidth={2.5} dot={false} />
+                        <Line yAxisId="y" type="monotone" dataKey="H2_yield" name="H₂ Yield [mol/mol]" stroke="#3B82F6" strokeWidth={2} dot={false} />
+                        <ReferenceLine yAxisId="c" x={inputs.steamToCarbonRatio} stroke="#EF4444" strokeDasharray="3 3" label={{ value: "Design", position: "top" }} />
+                      </ComposedChart>
                     </ResponsiveContainer>
-                    <div className="mt-3 rounded-lg bg-muted/50 p-3 text-sm">
-                      <p className="text-muted-foreground">
-                        At low T: WGS favors CO₂ + H₂ (more H₂, less CO).
-                        At high T: WGS reverses, more CO in reformate.
-                        CH₄/CO ratio = <span className="font-mono font-bold">{result.CH4_CO_ratio.toFixed(2)}</span> at outlet.
-                      </p>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-            </TabsContent>
-
-            {/* H₂ Production */}
-            <TabsContent value="h2prod" className="mt-4">
-              <div className="grid gap-6 md:grid-cols-2">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base">H₂ Production vs. Temperature</CardTitle>
-                    <CardDescription>Equilibrium H₂ yield across temperature range</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <ResponsiveContainer width="100%" height={300}>
-                      <LineChart data={equilibriumData}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="temp_C" label={{ value: "Temperature [°C]", position: "insideBottom", offset: -5 }} />
-                        <YAxis label={{ value: "H₂ [mol%]", angle: -90, position: "insideLeft" }} />
-                        <Tooltip formatter={(v: number) => `${v.toFixed(2)} mol%`} />
-                        <Line type="monotone" dataKey="H2" stroke="hsl(var(--chart-1))" strokeWidth={2.5} dot={false} name="H₂" />
-                        <Line type="monotone" dataKey="H2O" stroke="hsl(var(--chart-5))" strokeWidth={1.5} dot={false} name="H₂O" strokeDasharray="5 5" />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base">H₂ Production Summary</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid gap-3">
-                      {[
-                        ["H₂ Production Rate", `${result.H2_production_Nm3_h.toFixed(2)} Nm³/h`],
-                        ["H₂ Yield", `${result.H2_yield_mol_per_mol_CH4.toFixed(2)} mol H₂ / mol CH₄`],
-                        ["Theoretical Max (SMR+WGS)", "4.0 mol H₂ / mol CH₄"],
-                        ["Yield Efficiency", `${(result.H2_yield_mol_per_mol_CH4 / 4.0 * 100).toFixed(1)}%`],
-                        ["H₂/CO Ratio", result.H2_CO_ratio.toFixed(2)],
-                        ["CH₄ Conversion", `${result.CH4_conversion_percent.toFixed(1)}%`],
-                        ["SOFC Estimated Power", `${result.SOFC_estimatedPower_kW.toFixed(1)} kW`],
-                        ["System Efficiency (LHV)", `${result.systemEfficiency_percent.toFixed(1)}%`],
-                      ].map(([label, value]) => (
-                        <div key={label} className="flex items-center justify-between rounded-lg border p-3">
-                          <span className="text-sm">{label}</span>
-                          <span className="font-mono font-medium">{value}</span>
-                        </div>
+                    <div className="mt-2 flex gap-1">
+                      {scSensitivity.map((pt, i) => (
+                        <div key={i} className="flex-1 h-3 rounded-sm" style={{ backgroundColor: pt.carbonRisk === "low" ? "#22C55E" : pt.carbonRisk === "moderate" ? "#F59E0B" : "#EF4444" }}
+                          title={`S/C=${pt.SC}: ${pt.carbonRisk}`} />
                       ))}
                     </div>
+                    <p className="text-[10px] text-muted-foreground mt-1">Carbon risk: green = low, yellow = moderate, red = high</p>
+                  </CardContent>
+                </Card>
 
-                    <div className="mt-4 rounded-lg border-2 border-primary/20 bg-primary/5 p-4">
-                      <div className="flex items-center justify-between">
-                        <span className="font-bold">Net H₂ to SOFC</span>
-                        <span className="text-2xl font-bold font-mono">{result.H2_production_Nm3_h.toFixed(2)} Nm³/h</span>
-                      </div>
-                      <div className="mt-1 h-2 rounded-full bg-muted overflow-hidden">
-                        <div
-                          className="h-full rounded-full bg-primary"
-                          style={{ width: `${Math.min(100, result.H2_yield_mol_per_mol_CH4 / 4.0 * 100)}%` }}
-                        />
-                      </div>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {(result.H2_yield_mol_per_mol_CH4 / 4.0 * 100).toFixed(0)}% of theoretical maximum yield
-                      </p>
-                    </div>
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">SOFC Temperature Sensitivity</CardTitle>
+                    <CardDescription>Effect of operating temperature on cell voltage and efficiency</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {(() => {
+                      const reformateComp: Record<string, number> = {
+                        H2: result.reformateComposition.H2_percent / 100,
+                        CO: result.reformateComposition.CO_percent / 100,
+                        CO2: result.reformateComposition.CO2_percent / 100,
+                        CH4: result.reformateComposition.CH4_percent / 100,
+                        H2O: result.reformateComposition.H2O_percent / 100,
+                        N2: result.reformateComposition.N2_percent / 100,
+                      };
+                      const sweep = sofcParametricSweep(
+                        { cellActiveArea_cm2: cellArea, operatingTemp_C: inputs.SOFC_operatingTemp_C,
+                          operatingPressure_atm: inputs.fuelPressure_kPa / 101.325,
+                          currentDensity_A_cm2: inputs.SOFC_currentDensity_A_cm2,
+                          fuelUtilization: inputs.SOFC_fuelUtilization, materials: sofcMaterials },
+                        inputs.SOFC_power_kW, reformateComp, "temperature", [600, 950], 25
+                      );
+                      return (
+                        <ResponsiveContainer width="100%" height={300}>
+                          <ComposedChart data={sweep}>
+                            <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                            <XAxis dataKey="value" label={{ value: "Temperature [°C]", position: "insideBottom", offset: -5 }} />
+                            <YAxis yAxisId="v" domain={[0.4, 1.0]} label={{ value: "Cell Voltage [V]", angle: -90, position: "insideLeft" }} />
+                            <YAxis yAxisId="n" orientation="right" label={{ value: "# Cells", angle: 90, position: "insideRight" }} />
+                            <Tooltip />
+                            <Legend />
+                            <Line yAxisId="v" type="monotone" dataKey="cellVoltage" name="Cell Voltage [V]" stroke="#3B82F6" strokeWidth={2.5} dot={false} />
+                            <Line yAxisId="v" type="monotone" dataKey="efficiency" name="Efficiency (LHV)" stroke="#10B981" strokeWidth={2} dot={false} />
+                            <Bar yAxisId="n" dataKey="numberOfCells" name="# Cells" fill="#8B5CF6" fillOpacity={0.3} />
+                            <ReferenceLine yAxisId="v" x={inputs.SOFC_operatingTemp_C} stroke="#EF4444" strokeDasharray="3 3" />
+                          </ComposedChart>
+                        </ResponsiveContainer>
+                      );
+                    })()}
                   </CardContent>
                 </Card>
               </div>
@@ -1237,12 +1187,8 @@ export function ReformerCalculator() {
           </Tabs>
 
           <div className="flex justify-between">
-            <Button variant="outline" onClick={() => setStep(1)}>
-              <ChevronLeft className="mr-2 h-4 w-4" /> Modify Parameters
-            </Button>
-            <Button variant="outline" onClick={() => setStep(0)}>
-              Start Over
-            </Button>
+            <Button variant="outline" onClick={() => setStep(2)}><ChevronLeft className="mr-2 h-4 w-4" /> Modify Parameters</Button>
+            <Button variant="outline" onClick={() => setStep(0)}>Start Over</Button>
           </div>
         </div>
       )}

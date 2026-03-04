@@ -14,6 +14,7 @@ export * from "./spray-model";
 export * from "./adblue-dosing";
 export * from "./catalyst-technology";
 export * from "./surface-science";
+export * from "./sofc-model";
 export * from "./catalyst-profiles";
 export * from "./tof-sizing-engine";
 export * from "./depollution-engine";
