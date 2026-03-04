@@ -211,7 +211,7 @@ export function DepollutionCalculator() {
   const [pipe, setPipe] = useState<MixingPipeConfig>(DEFAULT_PIPE);
   const [sprayResult, setSprayResult] = useState<SpraySystemResult | null>(null);
   const [dosingMap, setDosingMap] = useState<DosingMap | null>(null);
-  const [catalogFilter, setCatalogFilter] = useState<{ type: string; vehicleClass: string }>({ type: "", vehicleClass: "" });
+  const [catalogFilter, setCatalogFilter] = useState<{ type: string; vehicleClass: string }>({ type: "all", vehicleClass: "all" });
 
   const { setValue } = useForm<EngineInputs>({ defaultValues: DEFAULT_ENGINE });
 
@@ -1700,7 +1700,7 @@ export function DepollutionCalculator() {
                     </div>
                     <div className="rounded-lg border p-2 text-center">
                       <p className="text-muted-foreground">Max Diameter</p>
-                      <p className="font-mono font-bold">{Math.max(...rfq.aftertreatmentSystem.catalysts.map((c) => c.canningDiameter_mm))} mm</p>
+                      <p className="font-mono font-bold">{rfq.aftertreatmentSystem.catalysts.length > 0 ? Math.max(...rfq.aftertreatmentSystem.catalysts.map((c) => c.canningDiameter_mm)) : 0} mm</p>
                     </div>
                     <div className="rounded-lg border p-2 text-center">
                       <p className="text-muted-foreground">Total Weight</p>
