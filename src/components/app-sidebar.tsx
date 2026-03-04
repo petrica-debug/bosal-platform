@@ -16,6 +16,7 @@ import {
   PieChart,
   Plug,
   Settings,
+  FlaskConical,
   ChevronsUpDown,
   LogOut,
   type LucideIcon,
@@ -67,6 +68,7 @@ const ICON_MAP: Record<string, LucideIcon> = {
   PieChart,
   Plug,
   Settings,
+  FlaskConical,
 };
 
 const PHASE_VARIANT: Record<Phase, "default" | "secondary" | "outline"> = {

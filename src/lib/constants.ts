@@ -259,6 +259,17 @@ export const NAV_ITEMS: readonly NavItem[] = [
     featureCode: 'F-09',
   },
 
+  // -- Engineering --
+  {
+    title: 'CatSizer',
+    href: '/catsizer',
+    icon: 'FlaskConical',
+    phase: 'P0',
+    description: 'Catalyst sizing for depollution & SOFC reformers',
+    requiredRoles: ALL_ROLES,
+    group: 'Engineering',
+  },
+
   // -- Settings --
   {
     title: 'Integrations',
@@ -281,13 +292,14 @@ export const NAV_ITEMS: readonly NavItem[] = [
   },
 ];
 
-export type NavGroup = 'Operations' | 'Supply Chain' | 'Compliance' | 'Analytics' | 'Settings';
+export type NavGroup = 'Operations' | 'Supply Chain' | 'Compliance' | 'Analytics' | 'Engineering' | 'Settings';
 
 export const NAV_GROUPS: readonly NavGroup[] = [
   'Operations',
   'Supply Chain',
   'Compliance',
   'Analytics',
+  'Engineering',
   'Settings',
 ];
 
