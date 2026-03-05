@@ -6,7 +6,7 @@ export default function DepollutionPage() {
   return (
     <div className="flex flex-col gap-6 p-6">
       {/* Header with diagram */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#772222] via-[#A33327] to-[#C44536] p-6 text-white">
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#7A0A1E] via-[#C8102E] to-[#E03050] p-6 text-white">
         <div className="absolute inset-0 opacity-[0.03]">
           <svg width="100%" height="100%">
             <pattern id="hex" width="28" height="49" patternUnits="userSpaceOnUse" patternTransform="scale(2)">

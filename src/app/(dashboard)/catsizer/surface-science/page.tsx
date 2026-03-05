@@ -4,7 +4,7 @@ import { Atom, FlaskConical, Microscope } from "lucide-react";
 export default function SurfaceSciencePage() {
   return (
     <div className="flex flex-col gap-6 p-6">
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#2C1654] via-[#4A2080] to-[#6B3FA0] p-6 text-white">
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#7A0A1E] via-[#C8102E] to-[#E03050] p-6 text-white">
         <div className="absolute inset-0 opacity-10">
           <svg width="100%" height="100%">
             <defs>

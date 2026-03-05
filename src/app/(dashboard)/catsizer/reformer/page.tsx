@@ -6,7 +6,7 @@ export default function ReformerPage() {
   return (
     <div className="flex flex-col gap-6 p-6">
       {/* Header with diagram */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#0F5A50] via-[#1A7A6E] to-[#2A9D8F] p-6 text-white">
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#7A0A1E] via-[#C8102E] to-[#E03050] p-6 text-white">
         <div className="absolute inset-0 opacity-[0.03]">
           <svg width="100%" height="100%">
             <pattern id="circuit" width="40" height="40" patternUnits="userSpaceOnUse">
