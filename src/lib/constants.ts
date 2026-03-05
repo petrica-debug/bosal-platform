@@ -115,7 +115,7 @@ export const PHASE_LABELS: Record<Phase, string> = {
 };
 
 // ---------------------------------------------------------------------------
-// Navigation
+// Navigation — BOSAL Chemistry Copilot
 // ---------------------------------------------------------------------------
 
 export interface NavItem {
@@ -141,146 +141,121 @@ const ALL_ROLES: readonly UserRole[] = [
 ];
 
 export const NAV_ITEMS: readonly NavItem[] = [
-  // -- Operations --
+  // -- Engineering (primary modules) --
+  {
+    title: 'Dashboard',
+    href: '/command-center',
+    icon: 'LayoutDashboard',
+    phase: 'P0',
+    description: 'Overview dashboard with project status and KPIs',
+    requiredRoles: ALL_ROLES,
+    group: 'Overview',
+  },
+  {
+    title: 'OEM Sizing',
+    href: '/catsizer/depollution',
+    icon: 'FlaskConical',
+    phase: 'P0',
+    description: 'Automotive catalyst sizing — TWC, DOC, SCR, DPF, ASC, LNT',
+    requiredRoles: ALL_ROLES,
+    group: 'Engineering',
+  },
+  {
+    title: 'Reformer / SOFC',
+    href: '/catsizer/reformer',
+    icon: 'Flame',
+    phase: 'P0',
+    description: 'Methane reformer and SOFC catalyst sizing',
+    requiredRoles: ALL_ROLES,
+    group: 'Engineering',
+  },
+  {
+    title: 'Heat Exchanger',
+    href: '/catsizer/heat-exchanger',
+    icon: 'Thermometer',
+    phase: 'P1',
+    description: 'Heat exchange reformer — coupled reforming + combustion',
+    requiredRoles: ALL_ROLES,
+    group: 'Engineering',
+  },
+  {
+    title: 'Surface Science',
+    href: '/catsizer/surface-science',
+    icon: 'Atom',
+    phase: 'P0',
+    description: 'TOF analysis, chemisorption, catalyst characterization',
+    requiredRoles: ALL_ROLES,
+    group: 'Engineering',
+  },
+  {
+    title: 'Spray Simulation',
+    href: '/catsizer/spray-sim',
+    icon: 'Droplets',
+    phase: 'P2',
+    description: 'Urea spray visualization and NH₃ uniformity',
+    requiredRoles: ALL_ROLES,
+    group: 'Engineering',
+  },
+
+  // -- Aftermarket --
+  {
+    title: 'Engine DB',
+    href: '/aftermarket/engines',
+    icon: 'Database',
+    phase: 'P1',
+    description: 'Engine family database with exhaust maps',
+    requiredRoles: ALL_ROLES,
+    group: 'Aftermarket',
+  },
+  {
+    title: 'Product Config',
+    href: '/aftermarket/products',
+    icon: 'Layers',
+    phase: 'P1',
+    description: 'Substrate selection, multi-brick configs, zone coating',
+    requiredRoles: ALL_ROLES,
+    group: 'Aftermarket',
+  },
+  {
+    title: 'WLTP Simulation',
+    href: '/aftermarket/wltp',
+    icon: 'Activity',
+    phase: 'P2',
+    description: 'Transient cycle simulation with pass/fail prediction',
+    requiredRoles: ALL_ROLES,
+    group: 'Aftermarket',
+  },
+
+  // -- Commercial --
+  {
+    title: 'Pricing',
+    href: '/pricing',
+    icon: 'DollarSign',
+    phase: 'P0',
+    description: 'Component pricing, PGM cost, margin analysis',
+    requiredRoles: ALL_ROLES,
+    group: 'Commercial',
+  },
+  {
+    title: 'RFQ Manager',
+    href: '/rfq',
+    icon: 'FileText',
+    phase: 'P0',
+    description: 'Upload RFQ documents, auto-extract specs, manage responses',
+    requiredRoles: ALL_ROLES,
+    group: 'Commercial',
+  },
   {
     title: 'Catalog',
     href: '/catalog',
     icon: 'BookOpen',
     phase: 'P0',
-    description: 'Product catalog management with ACES/PIES data',
+    description: 'BOSAL product catalog with substrate and catalyst data',
     requiredRoles: ['admin', 'ops_director', 'catalog_manager'],
-    group: 'Operations',
-    featureCode: 'F-01',
-  },
-  {
-    title: 'Orders',
-    href: '/orders',
-    icon: 'ShoppingCart',
-    phase: 'P0',
-    description: 'Multi-channel order processing and tracking',
-    requiredRoles: ['admin', 'ops_director', 'sales_manager', 'warehouse_supervisor'],
-    group: 'Operations',
-    featureCode: 'F-04',
-  },
-  {
-    title: 'Inventory',
-    href: '/inventory',
-    icon: 'Package',
-    phase: 'P0',
-    description: 'Real-time inventory levels across facilities',
-    requiredRoles: ['admin', 'ops_director', 'warehouse_supervisor', 'catalog_manager'],
-    group: 'Operations',
-    featureCode: 'F-02',
-  },
-  {
-    title: 'Warehouse',
-    href: '/warehouse',
-    icon: 'Warehouse',
-    phase: 'P1',
-    description: 'Warehouse operations and location management',
-    requiredRoles: ['admin', 'ops_director', 'warehouse_supervisor'],
-    group: 'Operations',
-    featureCode: 'F-08',
-  },
-
-  // -- Supply Chain --
-  {
-    title: 'Control Tower',
-    href: '/control-tower',
-    icon: 'Radar',
-    phase: 'P0',
-    description: 'Supply chain visibility and shipment tracking',
-    requiredRoles: ['admin', 'ops_director', 'warehouse_supervisor', 'executive'],
-    group: 'Supply Chain',
-    featureCode: 'F-03',
-  },
-
-  // -- Compliance --
-  {
-    title: 'Certifications',
-    href: '/certifications',
-    icon: 'ShieldCheck',
-    phase: 'P1',
-    description: 'Regulatory certifications and compliance tracking',
-    requiredRoles: ['admin', 'ops_director', 'compliance_officer'],
-    group: 'Compliance',
-    featureCode: 'F-05',
-  },
-  {
-    title: 'Warranty',
-    href: '/warranty',
-    icon: 'FileCheck',
-    phase: 'P1',
-    description: 'Warranty claims management and tracking',
-    requiredRoles: ['admin', 'ops_director', 'compliance_officer', 'sales_manager'],
-    group: 'Compliance',
-    featureCode: 'F-06',
-  },
-
-  // -- Analytics --
-  {
-    title: 'Command Center',
-    href: '/command-center',
-    icon: 'LayoutDashboard',
-    phase: 'P0',
-    description: 'Executive dashboard with KPIs and alerts',
-    requiredRoles: ALL_ROLES,
-    group: 'Analytics',
-    featureCode: 'F-12',
-  },
-  {
-    title: 'Pricing',
-    href: '/pricing',
-    icon: 'DollarSign',
-    phase: 'P2',
-    description: 'Dynamic pricing engine and margin analysis',
-    requiredRoles: ['admin', 'ops_director', 'sales_manager', 'cfo'],
-    group: 'Analytics',
-    featureCode: 'F-10',
-  },
-  {
-    title: 'Demand',
-    href: '/demand',
-    icon: 'TrendingUp',
-    phase: 'P2',
-    description: 'Demand forecasting and trend analysis',
-    requiredRoles: ['admin', 'ops_director', 'sales_manager', 'cfo', 'executive'],
-    group: 'Analytics',
-    featureCode: 'F-11',
-  },
-  {
-    title: 'Portfolio',
-    href: '/portfolio',
-    icon: 'PieChart',
-    phase: 'P1',
-    description: 'Product portfolio analysis and optimization',
-    requiredRoles: ['admin', 'ops_director', 'catalog_manager', 'cfo', 'executive'],
-    group: 'Analytics',
-    featureCode: 'F-09',
-  },
-
-  // -- Engineering --
-  {
-    title: 'CatSizer',
-    href: '/catsizer',
-    icon: 'FlaskConical',
-    phase: 'P0',
-    description: 'Catalyst sizing for depollution & SOFC reformers',
-    requiredRoles: ALL_ROLES,
-    group: 'Engineering',
+    group: 'Commercial',
   },
 
   // -- Settings --
-  {
-    title: 'Integrations',
-    href: '/integrations',
-    icon: 'Plug',
-    phase: 'P0',
-    description: 'ERP, eCommerce, and EDI integration management',
-    requiredRoles: ['admin', 'ops_director'],
-    group: 'Settings',
-    featureCode: 'F-07',
-  },
   {
     title: 'Settings',
     href: '/settings',
@@ -292,16 +267,33 @@ export const NAV_ITEMS: readonly NavItem[] = [
   },
 ];
 
-export type NavGroup = 'Operations' | 'Supply Chain' | 'Compliance' | 'Analytics' | 'Engineering' | 'Settings';
+export type NavGroup = 'Overview' | 'Engineering' | 'Aftermarket' | 'Commercial' | 'Settings';
 
 export const NAV_GROUPS: readonly NavGroup[] = [
-  'Operations',
-  'Supply Chain',
-  'Compliance',
-  'Analytics',
+  'Overview',
   'Engineering',
+  'Aftermarket',
+  'Commercial',
   'Settings',
 ];
+
+// ---------------------------------------------------------------------------
+// AI Mode
+// ---------------------------------------------------------------------------
+
+export type AIMode = 'online' | 'offline' | 'off';
+
+export const AI_MODE_LABELS: Record<AIMode, string> = {
+  online: 'Claude (Online)',
+  offline: 'Ollama (Offline)',
+  off: 'Manual',
+};
+
+export const AI_MODE_COLORS: Record<AIMode, string> = {
+  online: '#10B981',
+  offline: '#F59E0B',
+  off: '#6B7280',
+};
 
 // ---------------------------------------------------------------------------
 // Demo / Seed

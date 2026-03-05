@@ -54,9 +54,9 @@ export default function LoginPage() {
   return (
     <Card>
       <CardHeader className="text-center">
-        <CardTitle className="text-2xl">Sign in to AftermarketOS</CardTitle>
+        <CardTitle className="text-2xl">Sign in</CardTitle>
         <CardDescription>
-          Enter your credentials to access your account
+          Enter your BOSAL credentials to continue
         </CardDescription>
       </CardHeader>
       <CardContent>

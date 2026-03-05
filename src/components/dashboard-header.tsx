@@ -2,7 +2,7 @@
 
 import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";
-import { Bell, Moon, Sun } from "lucide-react";
+import { Bell, Moon, Sun, MessageSquare } from "lucide-react";
 
 import { useUser } from "@/hooks/use-user";
 import { signOut } from "@/app/(auth)/actions";
@@ -39,21 +39,31 @@ export function DashboardHeader() {
   );
   const pageTitle = currentNav?.title ?? "Dashboard";
 
-  const displayName =
-    profile?.full_name ?? "User";
+  const displayName = profile?.full_name ?? "User";
   const roleLabel = role ? ROLE_LABELS[role as UserRole] : "Member";
 
   return (
-    <header className="flex h-16 shrink-0 items-center gap-2 border-b px-4 transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12">
+    <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4 transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12">
       <div className="flex items-center gap-2">
         <SidebarTrigger className="-ml-1" />
         <Separator orientation="vertical" className="mr-2 h-4" />
-        <nav aria-label="Breadcrumb">
-          <h1 className="text-sm font-medium">{pageTitle}</h1>
+        <nav aria-label="Breadcrumb" className="flex items-center gap-2">
+          <h1 className="text-sm font-semibold">{pageTitle}</h1>
         </nav>
       </div>
 
-      <div className="ml-auto flex items-center gap-2">
+      <div className="ml-auto flex items-center gap-1.5">
+        {/* AI Chat toggle */}
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="AI Assistant"
+          className="relative"
+        >
+          <MessageSquare className="size-4" />
+          <span className="absolute -top-0.5 -right-0.5 flex size-2 rounded-full bg-green-500" />
+        </Button>
+
         <Button
           variant="ghost"
           size="icon"
@@ -66,9 +76,6 @@ export function DashboardHeader() {
 
         <Button variant="ghost" size="icon" className="relative" aria-label="Notifications">
           <Bell className="size-4" />
-          <span className="absolute -top-0.5 -right-0.5 flex size-4 items-center justify-center rounded-full bg-destructive text-[10px] font-medium text-white">
-            3
-          </span>
         </Button>
 
         <Separator orientation="vertical" className="mx-1 h-6" />

@@ -10,7 +10,7 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+    <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
       <SidebarProvider>
         <AppSidebar />
         <SidebarInset>
@@ -18,6 +18,9 @@ export default function DashboardLayout({
           <main className="flex-1 overflow-auto p-4 pt-0">
             {children}
           </main>
+          <footer className="border-t px-4 py-2 text-center text-[10px] text-muted-foreground">
+            Made by BelgaLabs &mdash; Petrica Dulgheru
+          </footer>
         </SidebarInset>
       </SidebarProvider>
       <Toaster />
