@@ -83,7 +83,7 @@ import {
   EMISSION_STANDARDS,
 } from "@/lib/catsizer/constants";
 import { sizeDepollutionSystem } from "@/lib/catsizer/depollution-engine";
-import { generateRFQ } from "@/lib/catsizer/rfq-generator";
+import { generateRFQ, PGM_PRICES_USD_OZ, calculatePGMCost } from "@/lib/catsizer/rfq-generator";
 import { washcoatThicknessSweep, WASHCOAT_DOC_DEFAULT } from "@/lib/catsizer/washcoat";
 import { filterCatalog, STANDARD_CELL_CONFIGS, type SubstrateCatalogEntry } from "@/lib/catsizer/substrate-catalog";
 import { INJECTOR_PRESETS, assessSpraySystem, type InjectorSpec, type MixingPipeConfig, type SpraySystemResult } from "@/lib/catsizer/spray-model";
@@ -991,6 +991,7 @@ export function DepollutionCalculator() {
               <TabsTrigger value="lightoff">Light-Off Curves</TabsTrigger>
               {techRecs.length > 0 && <TabsTrigger value="technology">Technology</TabsTrigger>}
               {tofSizingResults.length > 0 && <TabsTrigger value="surface">Surface Science</TabsTrigger>}
+              <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
             </TabsList>
 
             {/* ---- CATALYST SIZING TAB ---- */}
@@ -1533,6 +1534,28 @@ export function DepollutionCalculator() {
                       </BarChart>
                     </ResponsiveContainer>
 
+                    {/* Live PGM Market Prices */}
+                    <div className="mt-4 rounded-lg border bg-gradient-to-r from-amber-500/5 to-amber-500/10 p-3">
+                      <p className="text-xs font-semibold mb-2">PGM Market Prices (March 2026)</p>
+                      <div className="flex gap-4 text-xs">
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-blue-500" />
+                          <span className="text-muted-foreground">Pt:</span>
+                          <span className="font-mono font-bold">${PGM_PRICES_USD_OZ.Pt.toLocaleString()}/oz</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                          <span className="text-muted-foreground">Pd:</span>
+                          <span className="font-mono font-bold">${PGM_PRICES_USD_OZ.Pd.toLocaleString()}/oz</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-rose-500" />
+                          <span className="text-muted-foreground">Rh:</span>
+                          <span className="font-mono font-bold">${PGM_PRICES_USD_OZ.Rh.toLocaleString()}/oz</span>
+                        </div>
+                      </div>
+                    </div>
+
                     {rfq.aftertreatmentSystem.catalysts.filter((c) => c.pgm).length > 0 && (
                       <div className="mt-4 rounded-md border">
                         <Table>
@@ -1542,23 +1565,50 @@ export function DepollutionCalculator() {
                               <TableHead>Pt [g/ft³]</TableHead>
                               <TableHead>Pd [g/ft³]</TableHead>
                               <TableHead>Rh [g/ft³]</TableHead>
+                              <TableHead>Total [g/ft³]</TableHead>
+                              <TableHead>PGM Mass [g]</TableHead>
                               <TableHead>Pt:Pd</TableHead>
-                              <TableHead>Cost</TableHead>
+                              <TableHead>PGM Cost</TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
                             {rfq.aftertreatmentSystem.catalysts
                               .filter((c) => c.pgm)
-                              .map((cat) => (
-                                <TableRow key={cat.position}>
-                                  <TableCell><Badge variant="outline">{cat.type}</Badge></TableCell>
-                                  <TableCell className="font-mono">{cat.pgm!.Pt_g_ft3.toFixed(1)}</TableCell>
-                                  <TableCell className="font-mono">{cat.pgm!.Pd_g_ft3.toFixed(1)}</TableCell>
-                                  <TableCell className="font-mono">{cat.pgm!.Rh_g_ft3.toFixed(1)}</TableCell>
-                                  <TableCell className="font-mono">{cat.pgm!.Pt_Pd_ratio}</TableCell>
-                                  <TableCell className="font-mono">${cat.pgm!.estimatedCost_USD_per_unit.toFixed(0)}</TableCell>
-                                </TableRow>
-                              ))}
+                              .map((cat) => {
+                                const vol_ft3 = cat.substrate.volume_L / 28.3168;
+                                const ptMass = cat.pgm!.Pt_g_ft3 * vol_ft3;
+                                const pdMass = cat.pgm!.Pd_g_ft3 * vol_ft3;
+                                const rhMass = cat.pgm!.Rh_g_ft3 * vol_ft3;
+                                const cost = calculatePGMCost(ptMass, pdMass, rhMass);
+                                return (
+                                  <TableRow key={cat.position}>
+                                    <TableCell><Badge variant="outline">{cat.type}</Badge></TableCell>
+                                    <TableCell className="font-mono">{cat.pgm!.Pt_g_ft3.toFixed(1)}</TableCell>
+                                    <TableCell className="font-mono">{cat.pgm!.Pd_g_ft3.toFixed(1)}</TableCell>
+                                    <TableCell className="font-mono">{cat.pgm!.Rh_g_ft3.toFixed(1)}</TableCell>
+                                    <TableCell className="font-mono font-semibold">{cat.pgm!.totalLoading_g_ft3.toFixed(0)}</TableCell>
+                                    <TableCell className="font-mono">{(ptMass + pdMass + rhMass).toFixed(2)}</TableCell>
+                                    <TableCell className="font-mono">{cat.pgm!.Pt_Pd_ratio}</TableCell>
+                                    <TableCell className="font-mono font-bold">${cost.total.toFixed(0)}</TableCell>
+                                  </TableRow>
+                                );
+                              })}
+                            <TableRow className="font-semibold bg-muted/30">
+                              <TableCell colSpan={7}>Total PGM Cost</TableCell>
+                              <TableCell className="font-mono font-bold">
+                                ${rfq.aftertreatmentSystem.catalysts
+                                  .filter((c) => c.pgm)
+                                  .reduce((sum, cat) => {
+                                    const vol_ft3 = cat.substrate.volume_L / 28.3168;
+                                    const c = calculatePGMCost(
+                                      cat.pgm!.Pt_g_ft3 * vol_ft3,
+                                      cat.pgm!.Pd_g_ft3 * vol_ft3,
+                                      cat.pgm!.Rh_g_ft3 * vol_ft3
+                                    );
+                                    return sum + c.total;
+                                  }, 0).toFixed(0)}
+                              </TableCell>
+                            </TableRow>
                           </TableBody>
                         </Table>
                       </div>
@@ -1780,6 +1830,55 @@ export function DepollutionCalculator() {
                           <p className="text-muted-foreground">Max Local α</p>
                           <p className="font-mono font-bold">{sprayResult.uniformity.maxLocalAlpha.toFixed(2)}</p>
                         </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Urea Decomposition */}
+                  <Card className="md:col-span-2">
+                    <CardHeader>
+                      <CardTitle className="text-base">Urea Decomposition Analysis</CardTitle>
+                      <CardDescription>
+                        (NH₂)₂CO → NH₃ + HNCO (thermolysis) → NH₃ + CO₂ (hydrolysis) at {engineInputs.exhaustTemp_C}°C
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid gap-4 md:grid-cols-4">
+                        <div className="rounded-lg border p-3 text-center">
+                          <p className="text-xs text-muted-foreground">Thermolysis</p>
+                          <p className="text-2xl font-mono font-bold">{(sprayResult.ureaDecomposition.thermolysisFraction * 100).toFixed(0)}%</p>
+                          <p className="text-[10px] text-muted-foreground">urea → HNCO + NH₃</p>
+                        </div>
+                        <div className="rounded-lg border p-3 text-center">
+                          <p className="text-xs text-muted-foreground">Hydrolysis</p>
+                          <p className="text-2xl font-mono font-bold">{(sprayResult.ureaDecomposition.hydrolysisFraction * 100).toFixed(0)}%</p>
+                          <p className="text-[10px] text-muted-foreground">HNCO → NH₃ + CO₂</p>
+                        </div>
+                        <div className="rounded-lg border p-3 text-center">
+                          <p className="text-xs text-muted-foreground">Overall Conversion</p>
+                          <p className={`text-2xl font-mono font-bold ${sprayResult.ureaDecomposition.overallConversion > 0.9 ? "text-green-500" : sprayResult.ureaDecomposition.overallConversion > 0.7 ? "text-amber-500" : "text-red-500"}`}>
+                            {(sprayResult.ureaDecomposition.overallConversion * 100).toFixed(0)}%
+                          </p>
+                          <p className="text-[10px] text-muted-foreground">urea → 2NH₃</p>
+                        </div>
+                        <div className="rounded-lg border p-3 text-center">
+                          <p className="text-xs text-muted-foreground">Undecomposed</p>
+                          <p className={`text-2xl font-mono font-bold ${sprayResult.ureaDecomposition.undecomposedUreaFraction < 0.05 ? "text-green-500" : "text-red-500"}`}>
+                            {(sprayResult.ureaDecomposition.undecomposedUreaFraction * 100).toFixed(1)}%
+                          </p>
+                          <p className="text-[10px] text-muted-foreground">at SCR face</p>
+                        </div>
+                      </div>
+                      <div className="mt-4 flex gap-3">
+                        <Badge variant={sprayResult.ureaDecomposition.depositRisk === "low" ? "default" : sprayResult.ureaDecomposition.depositRisk === "moderate" ? "secondary" : "destructive"}>
+                          Deposit: {sprayResult.ureaDecomposition.depositRisk}
+                        </Badge>
+                        <Badge variant={sprayResult.ureaDecomposition.byproductRisk === "low" ? "default" : sprayResult.ureaDecomposition.byproductRisk === "moderate" ? "secondary" : "destructive"}>
+                          Byproduct: {sprayResult.ureaDecomposition.byproductRisk}
+                        </Badge>
+                        <Badge variant="outline">
+                          HNCO slip: {(sprayResult.ureaDecomposition.hncoSlipFraction * 100).toFixed(1)}%
+                        </Badge>
                       </div>
                     </CardContent>
                   </Card>
@@ -2510,6 +2609,232 @@ export function DepollutionCalculator() {
                 </div>
               </TabsContent>
             )}
+            {/* ---- PROFESSIONAL DASHBOARD ---- */}
+            <TabsContent value="dashboard" className="mt-4">
+              <div className="grid gap-4">
+                {/* Header banner */}
+                <div className="rounded-xl bg-gradient-to-r from-[#003366] via-[#004080] to-[#003366] p-5 text-white">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs uppercase tracking-widest opacity-70">Aftertreatment System Report</p>
+                      <p className="text-xl font-bold mt-1">{rfq.projectInfo.rfqNumber}</p>
+                      <p className="text-sm opacity-80">{rfq.projectInfo.engineModel} | {rfq.projectInfo.emissionStandard.replace(/_/g, " ").toUpperCase()}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-3xl font-bold font-mono">{rfq.aftertreatmentSystem.architecture}</p>
+                      <p className="text-xs opacity-70 mt-1">{rfq.aftertreatmentSystem.catalysts.length} elements</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* KPI Row */}
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                  {[
+                    { label: "System ΔP", value: `${rfq.aftertreatmentSystem.totalPressureDrop_kPa.toFixed(1)}`, unit: "kPa", status: rfq.aftertreatmentSystem.totalPressureDrop_kPa < 20 ? "ok" : "warn" },
+                    { label: "Total Mass", value: `${rfq.aftertreatmentSystem.totalSystemWeight_kg.toFixed(1)}`, unit: "kg", status: "ok" },
+                    { label: "Total Length", value: `${rfq.aftertreatmentSystem.totalSystemLength_mm}`, unit: "mm", status: "ok" },
+                    { label: "PGM Cost", value: `$${rfq.costEstimate.pgmCost_USD.toFixed(0)}`, unit: "", status: rfq.costEstimate.pgmCost_USD > rfq.costEstimate.totalPerUnit_USD * 0.6 ? "warn" : "ok" },
+                    { label: "Unit Cost", value: `$${rfq.costEstimate.totalPerUnit_USD.toFixed(0)}`, unit: "", status: "ok" },
+                    { label: "Exhaust Flow", value: `${baseResult.exhaustFlowRate_Nm3_h.toFixed(0)}`, unit: "Nm³/h", status: "ok" },
+                  ].map((kpi) => (
+                    <div key={kpi.label} className={`rounded-lg border-2 p-3 ${kpi.status === "warn" ? "border-amber-500/50 bg-amber-500/5" : "border-border"}`}>
+                      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{kpi.label}</p>
+                      <p className="text-lg font-bold font-mono">{kpi.value}<span className="text-xs font-normal text-muted-foreground ml-1">{kpi.unit}</span></p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* System schematic + compliance */}
+                <div className="grid gap-4 md:grid-cols-3">
+                  {/* Catalyst chain visual */}
+                  <Card className="md:col-span-2">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm uppercase tracking-wider text-muted-foreground">System Architecture</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="flex items-center gap-2 py-4 overflow-x-auto">
+                        <div className="rounded-lg border-2 border-dashed px-3 py-4 text-center shrink-0">
+                          <p className="text-[10px] uppercase text-muted-foreground">Engine</p>
+                          <p className="text-xs font-bold">{engineInputs.displacement_L}L</p>
+                          <p className="text-[10px] text-muted-foreground">{engineInputs.ratedPower_kW} kW</p>
+                        </div>
+                        {rfq.aftertreatmentSystem.catalysts.map((cat, idx) => {
+                          const typeColors: Record<string, string> = {
+                            DOC: "#1A4F6E", DPF: "#5C4028", SCR: "#1A5E42", ASC: "#4E356E", TWC: "#8B2500",
+                          };
+                          const bg = typeColors[cat.type] ?? "#444";
+                          return (
+                            <div key={idx} className="flex items-center gap-2">
+                              <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                              <div className="rounded-lg px-3 py-3 text-center text-white shrink-0" style={{ backgroundColor: bg, minWidth: 80 }}>
+                                <p className="text-xs font-bold">{cat.type}</p>
+                                <p className="text-[10px] opacity-80">{cat.substrate.volume_L.toFixed(1)} L</p>
+                                <p className="text-[10px] opacity-80">{cat.substrate.diameter_mm}×{cat.substrate.length_mm} mm</p>
+                                <p className="text-[10px] opacity-80">{cat.substrate.cellDensity_cpsi}/{cat.substrate.wallThickness_mil}</p>
+                              </div>
+                            </div>
+                          );
+                        })}
+                        <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <div className="rounded-lg border-2 border-dashed px-3 py-4 text-center shrink-0">
+                          <p className="text-[10px] uppercase text-muted-foreground">Tailpipe</p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Compliance summary */}
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm uppercase tracking-wider text-muted-foreground">Compliance</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-2">
+                        {rfq.compliance.testCycles.map((tc, tci) => (
+                          <div key={tci} className="flex items-center justify-between rounded-lg border p-2">
+                            <span className="text-sm font-medium">{tc.cycle}</span>
+                            <div className={`w-3 h-3 rounded-full ${tc.compliant ? "bg-green-500" : "bg-red-500"}`} />
+                          </div>
+                        ))}
+                      </div>
+                      <div className="mt-3 text-center">
+                        <Badge className={`text-sm ${rfq.compliance.overallCompliant ? "bg-green-600" : "bg-red-600"}`}>
+                          {rfq.compliance.overallCompliant ? "COMPLIANT" : "NON-COMPLIANT"}
+                        </Badge>
+                        <p className="text-[10px] text-muted-foreground mt-1">{String(rfq.compliance.standard).replace(/_/g, " ").toUpperCase()}</p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* Performance charts row */}
+                <div className="grid gap-4 md:grid-cols-2">
+                  {/* Conversion by species */}
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm uppercase tracking-wider text-muted-foreground">Conversion Efficiency (Fresh vs Aged)</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <ResponsiveContainer width="100%" height={220}>
+                        <BarChart data={rfq.aftertreatmentSystem.catalysts.flatMap((cat) =>
+                          Object.entries(cat.freshConversion_percent).map(([species, fresh]) => ({
+                            name: `${cat.type} ${species}`,
+                            Fresh: fresh,
+                            Aged: cat.agedConversion_percent[species] ?? fresh,
+                          }))
+                        )}>
+                          <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                          <XAxis dataKey="name" tick={{ fontSize: 9 }} />
+                          <YAxis domain={[0, 100]} />
+                          <Tooltip formatter={(v: number) => `${v.toFixed(1)}%`} />
+                          <Legend />
+                          <Bar dataKey="Fresh" fill="#10B981" radius={[2, 2, 0, 0]} />
+                          <Bar dataKey="Aged" fill="#F59E0B" radius={[2, 2, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </CardContent>
+                  </Card>
+
+                  {/* Cost breakdown */}
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm uppercase tracking-wider text-muted-foreground">Cost Structure</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-2">
+                        {[
+                          { label: "Substrate", value: rfq.costEstimate.substrateCost_USD, color: "#3B82F6" },
+                          { label: "Washcoat", value: rfq.costEstimate.washcoatCost_USD, color: "#10B981" },
+                          { label: "PGM", value: rfq.costEstimate.pgmCost_USD, color: "#F59E0B" },
+                          { label: "Canning", value: rfq.costEstimate.canningCost_USD, color: "#8B5CF6" },
+                          { label: "Assembly", value: rfq.costEstimate.assemblyCost_USD, color: "#EF4444" },
+                        ].map((item) => {
+                          const pct = rfq.costEstimate.totalPerUnit_USD > 0 ? (item.value / rfq.costEstimate.totalPerUnit_USD) * 100 : 0;
+                          return (
+                            <div key={item.label} className="flex items-center gap-2">
+                              <span className="w-16 text-xs text-muted-foreground">{item.label}</span>
+                              <div className="flex-1 h-5 rounded-full bg-muted overflow-hidden">
+                                <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: item.color }} />
+                              </div>
+                              <span className="w-16 text-right font-mono text-xs">${item.value.toFixed(0)}</span>
+                              <span className="w-10 text-right text-[10px] text-muted-foreground">{pct.toFixed(0)}%</span>
+                            </div>
+                          );
+                        })}
+                        <div className="flex items-center justify-between border-t pt-2 mt-2">
+                          <span className="font-semibold text-sm">Total</span>
+                          <span className="font-mono font-bold text-lg">${rfq.costEstimate.totalPerUnit_USD.toFixed(0)}</span>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* Pressure drop + weight breakdown */}
+                <div className="grid gap-4 md:grid-cols-2">
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm uppercase tracking-wider text-muted-foreground">Pressure Drop by Element</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <ResponsiveContainer width="100%" height={180}>
+                        <BarChart data={rfq.aftertreatmentSystem.catalysts.map((c) => ({
+                          name: c.type,
+                          Clean: c.pressureDrop_kPa_clean,
+                          Aged: c.pressureDrop_kPa_aged,
+                        }))}>
+                          <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                          <XAxis dataKey="name" />
+                          <YAxis />
+                          <Tooltip formatter={(v: number) => `${v.toFixed(2)} kPa`} />
+                          <Legend />
+                          <Bar dataKey="Clean" fill="#3B82F6" radius={[2, 2, 0, 0]} />
+                          <Bar dataKey="Aged" fill="#EF4444" radius={[2, 2, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm uppercase tracking-wider text-muted-foreground">Element Specifications</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="rounded-md border overflow-x-auto">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead className="text-[10px]">Type</TableHead>
+                              <TableHead className="text-[10px]">Vol [L]</TableHead>
+                              <TableHead className="text-[10px]">GHSV</TableHead>
+                              <TableHead className="text-[10px]">PGM</TableHead>
+                              <TableHead className="text-[10px]">T₅₀ [°C]</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {rfq.aftertreatmentSystem.catalysts.map((c, i) => (
+                              <TableRow key={i}>
+                                <TableCell><Badge variant="outline" className="text-[10px]">{c.type}</Badge></TableCell>
+                                <TableCell className="font-mono text-xs">{c.substrate.volume_L.toFixed(1)}</TableCell>
+                                <TableCell className="font-mono text-xs">{c.GHSV_design_h.toLocaleString()}</TableCell>
+                                <TableCell className="font-mono text-xs">{c.pgm ? `${c.pgm.totalLoading_g_ft3}` : "—"}</TableCell>
+                                <TableCell className="font-mono text-xs">{c.lightOffTemp_C_fresh}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* Footer */}
+                <div className="rounded-lg border bg-muted/30 p-3 text-center text-xs text-muted-foreground">
+                  <p>AftermarketOS CatSizer — Confidential Engineering Report</p>
+                  <p>Generated {new Date().toISOString().split("T")[0]} | {rfq.projectInfo.rfqNumber} | PGM prices as of March 2026</p>
+                </div>
+              </div>
+            </TabsContent>
           </Tabs>
 
           {/* Recommendations */}

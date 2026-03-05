@@ -37,6 +37,9 @@ import {
   Thermometer,
   Activity,
   Info,
+  ChevronDown,
+  ChevronRight,
+  Eye,
 } from "lucide-react";
 import {
   LineChart,
@@ -96,6 +99,44 @@ function NumField({
     </div>
   );
 }
+
+const REACTION_CATEGORIES: Record<string, { label: string; match: (r: string) => boolean; color: string }> = {
+  co_ox: {
+    label: "CO Oxidation",
+    match: (r) => r.includes("CO") && r.includes("½O₂") && r.includes("CO₂") && !r.includes("H₂O"),
+    color: "#EF4444",
+  },
+  hc_ox: {
+    label: "HC Oxidation",
+    match: (r) => r.includes("C₃H₆") || r.includes("C₃H₈") || (r.includes("CH₄") && r.includes("O₂") && !r.includes("H₂O")),
+    color: "#F59E0B",
+  },
+  no_ox: {
+    label: "NO Oxidation",
+    match: (r) => r.includes("NO") && r.includes("½O₂") && !r.includes("NH₃") && !r.includes("CO"),
+    color: "#8B5CF6",
+  },
+  nox_red: {
+    label: "NOₓ Reduction (TWC)",
+    match: (r) => r.includes("NO") && r.includes("CO") && r.includes("N₂") && !r.includes("NH₃"),
+    color: "#06B6D4",
+  },
+  scr: {
+    label: "SCR DeNOx",
+    match: (r) => r.includes("NH₃") || r.includes("4NO"),
+    color: "#10B981",
+  },
+  wgs: {
+    label: "Water-Gas Shift",
+    match: (r) => r.includes("CO + H₂O") || r.includes("CO₂ + H₂"),
+    color: "#3B82F6",
+  },
+  smr: {
+    label: "Steam Methane Reforming",
+    match: (r) => r.includes("CH₄ + H₂O") || (r.includes("CH₄") && r.includes("3H₂")),
+    color: "#EC4899",
+  },
+};
 
 export function SurfaceScienceWorkbench() {
   // Chemisorption inputs
@@ -158,7 +199,52 @@ export function SurfaceScienceWorkbench() {
     }
   };
 
-  const loadProfile = (id: string) => {
+  const generateMultiReactionProfiles = (
+    profile: DetailedCatalystProfile,
+    dispersionResult: DispersionResult,
+  ) => {
+    const profiles: Array<{ reactionName: string; tofEntry: TOFEntry; data: ActivityPoint[] }> = [];
+
+    for (const rx of profile.activity.reactions) {
+      const matchingTOF = TOF_DATABASE.find((t) =>
+        t.catalystTypes.includes(profile.catalystType) &&
+        Math.abs(t.TOF_ref - rx.TOF_ref) < 0.01 &&
+        Math.abs(t.Ea_kJ_mol - rx.Ea_kJ_mol) < 1
+      );
+
+      const syntheticTOF: TOFEntry = matchingTOF ?? {
+        id: `synthetic-${profile.id}-${rx.name.replace(/\s+/g, "-")}`,
+        reaction: rx.name,
+        catalyst: profile.name,
+        metal: profile.composition.activePhase.split(/[\s-/(]+/)[0] ?? "Pt",
+        TOF_ref: rx.TOF_ref,
+        T_ref_C: rx.T_ref_C,
+        Ea_kJ_mol: rx.Ea_kJ_mol,
+        reactionOrder: 1,
+        conditions: rx.conditions,
+        reference: "Profile data",
+        catalystTypes: [profile.catalystType],
+      };
+
+      const data = generateActivityProfile(
+        syntheticTOF,
+        dispersionResult,
+        catalystVolume,
+        profile.composition.washcoatLoading_g_L,
+        pollutantFlow,
+        profile.composition.washcoatThickness_um,
+        1e-6,
+        [100, 650],
+        50
+      );
+
+      profiles.push({ reactionName: rx.name, tofEntry: syntheticTOF, data });
+    }
+
+    setMultiActivityProfiles(profiles);
+  };
+
+  const loadProfile = (id: string, switchToActivity = false) => {
     const p = CATALYST_PROFILES_DB.find((pr) => pr.id === id);
     if (!p) return;
     setSelectedProfileId(id);
@@ -170,7 +256,6 @@ export function SurfaceScienceWorkbench() {
     setWashcoatLoading(p.composition.washcoatLoading_g_L);
     setWashcoatThickness(p.composition.washcoatThickness_um);
 
-    // Determine metal from profile (compute locally — state is async)
     let metal: typeof primaryMetal = "Pt";
     const phase = p.composition.activePhase.toLowerCase();
     if (phase.includes("rh")) metal = "Rh";
@@ -181,14 +266,12 @@ export function SurfaceScienceWorkbench() {
     else if (phase.includes("fe")) metal = "Fe";
     setPrimaryMetal(metal);
 
-    // Select first applicable TOF entry using the local metal value
     const applicableTOF = TOF_DATABASE.find((t) =>
       t.catalystTypes.includes(p.catalystType) &&
       t.metal === metal
     );
     if (applicableTOF) setSelectedTOFId(applicableTOF.id);
 
-    // Auto-calculate dispersion with the loaded values
     const data: ChemisorptionData = {
       probeGas: p.chemisorption.probeGas,
       uptake_umol_g: p.chemisorption.uptake_umol_gCat,
@@ -199,7 +282,6 @@ export function SurfaceScienceWorkbench() {
     const result = calculateDispersion(data);
     setDispResult(result);
 
-    // Generate activity profile
     const tofEntry = applicableTOF ?? TOF_DATABASE.find((t) => t.catalystTypes.includes(p.catalystType));
     if (tofEntry) {
       const profile = generateActivityProfile(
@@ -211,9 +293,18 @@ export function SurfaceScienceWorkbench() {
       setActivityProfile(profile);
     }
 
-    // Switch to characterization tab to show results
-    setActiveTab("characterize");
+    generateMultiReactionProfiles(p, result);
+
+    setActiveTab(switchToActivity ? "activity" : "characterize");
   };
+
+  // Multi-reaction activity profiles (generated when loading a catalyst profile)
+  const [multiActivityProfiles, setMultiActivityProfiles] = useState<
+    Array<{ reactionName: string; tofEntry: TOFEntry; data: ActivityPoint[] }>
+  >([]);
+
+  // Collapsible state for "All Reactions" chart
+  const [showAllReactionsChart, setShowAllReactionsChart] = useState(false);
 
   // TOF vs Temperature data for all entries
   const tofTempData = useMemo(() => {
@@ -226,6 +317,34 @@ export function SurfaceScienceWorkbench() {
       return row;
     });
   }, []);
+
+  // Group TOF entries by reaction category
+  const tofByReaction = useMemo(() => {
+    const groups: Record<string, { label: string; color: string; entries: TOFEntry[] }> = {};
+    for (const [key, cat] of Object.entries(REACTION_CATEGORIES)) {
+      const matching = TOF_DATABASE.filter((e) => cat.match(e.reaction));
+      if (matching.length > 0) {
+        groups[key] = { label: cat.label, color: cat.color, entries: matching };
+      }
+    }
+    return groups;
+  }, []);
+
+  // Per-reaction chart data
+  const tofPerReactionData = useMemo(() => {
+    const temps = Array.from({ length: 50 }, (_, i) => 100 + i * 12);
+    const result: Record<string, Record<string, number>[]> = {};
+    for (const [key, group] of Object.entries(tofByReaction)) {
+      result[key] = temps.map((T) => {
+        const row: Record<string, number> = { T };
+        for (const entry of group.entries) {
+          row[entry.id] = tofAtTemperature(entry, T);
+        }
+        return row;
+      });
+    }
+    return result;
+  }, [tofByReaction]);
 
   // Sizing result
   const sizingResult = useMemo(() => {
@@ -474,41 +593,102 @@ export function SurfaceScienceWorkbench() {
               </CardContent>
             </Card>
 
-            {/* TOF vs Temperature Chart */}
+            {/* Per-Reaction TOF Charts */}
+            <div className="grid gap-4 md:grid-cols-2">
+              {Object.entries(tofByReaction).map(([key, group]) => (
+                <Card key={key}>
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center gap-2">
+                      <div className="h-3 w-3 rounded-full" style={{ backgroundColor: REACTION_CATEGORIES[key]?.color }} />
+                      <CardTitle className="text-sm">{group.label}</CardTitle>
+                      <Badge variant="outline" className="text-[10px] ml-auto">
+                        {group.entries.length} {group.entries.length === 1 ? "catalyst" : "catalysts"}
+                      </Badge>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <ResponsiveContainer width="100%" height={300}>
+                      <LineChart data={tofPerReactionData[key]}>
+                        <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                        <XAxis
+                          dataKey="T"
+                          label={{ value: "Temperature [°C]", position: "insideBottom", offset: -5 }}
+                          tick={{ fontSize: 10 }}
+                        />
+                        <YAxis
+                          scale="log"
+                          domain={[1e-6, 1e4]}
+                          label={{ value: "TOF [s⁻¹]", angle: -90, position: "insideLeft" }}
+                          tickFormatter={(v: number) => v >= 1 ? v.toFixed(0) : v.toExponential(0)}
+                          tick={{ fontSize: 10 }}
+                        />
+                        <Tooltip formatter={(v: number) => v.toFixed(4)} />
+                        <Legend wrapperStyle={{ fontSize: "10px" }} />
+                        {group.entries.map((entry, i) => (
+                          <Line
+                            key={entry.id}
+                            type="monotone"
+                            dataKey={entry.id}
+                            name={`${entry.metal}: ${entry.catalyst}`}
+                            stroke={COLORS[i % COLORS.length]}
+                            strokeWidth={2}
+                            dot={false}
+                          />
+                        ))}
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+
+            {/* Collapsible All Reactions Chart */}
             <Card>
-              <CardHeader>
-                <CardTitle className="text-base">TOF vs Temperature — All Reactions</CardTitle>
+              <CardHeader
+                className="cursor-pointer select-none"
+                onClick={() => setShowAllReactionsChart((v) => !v)}
+              >
+                <div className="flex items-center gap-2">
+                  {showAllReactionsChart ? (
+                    <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                  ) : (
+                    <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                  )}
+                  <CardTitle className="text-base">TOF vs Temperature — All Reactions</CardTitle>
+                </div>
                 <CardDescription>
                   Arrhenius-extrapolated turnover frequencies showing how catalytic activity varies with temperature
                 </CardDescription>
               </CardHeader>
-              <CardContent>
-                <ResponsiveContainer width="100%" height={450}>
-                  <LineChart data={tofTempData}>
-                    <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                    <XAxis dataKey="T" label={{ value: "Temperature [°C]", position: "insideBottom", offset: -5 }} />
-                    <YAxis
-                      scale="log"
-                      domain={[1e-6, 1e4]}
-                      label={{ value: "TOF [s⁻¹]", angle: -90, position: "insideLeft" }}
-                      tickFormatter={(v: number) => v >= 1 ? v.toFixed(0) : v.toExponential(0)}
-                    />
-                    <Tooltip formatter={(v: number) => v.toFixed(4)} />
-                    <Legend wrapperStyle={{ fontSize: "10px" }} />
-                    {TOF_DATABASE.map((entry, i) => (
-                      <Line
-                        key={entry.id}
-                        type="monotone"
-                        dataKey={entry.id}
-                        name={`${entry.metal}: ${entry.reaction}`}
-                        stroke={COLORS[i % COLORS.length]}
-                        strokeWidth={2}
-                        dot={false}
+              {showAllReactionsChart && (
+                <CardContent>
+                  <ResponsiveContainer width="100%" height={450}>
+                    <LineChart data={tofTempData}>
+                      <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                      <XAxis dataKey="T" label={{ value: "Temperature [°C]", position: "insideBottom", offset: -5 }} />
+                      <YAxis
+                        scale="log"
+                        domain={[1e-6, 1e4]}
+                        label={{ value: "TOF [s⁻¹]", angle: -90, position: "insideLeft" }}
+                        tickFormatter={(v: number) => v >= 1 ? v.toFixed(0) : v.toExponential(0)}
                       />
-                    ))}
-                  </LineChart>
-                </ResponsiveContainer>
-              </CardContent>
+                      <Tooltip formatter={(v: number) => v.toFixed(4)} />
+                      <Legend wrapperStyle={{ fontSize: "10px" }} />
+                      {TOF_DATABASE.map((entry, i) => (
+                        <Line
+                          key={entry.id}
+                          type="monotone"
+                          dataKey={entry.id}
+                          name={`${entry.metal}: ${entry.reaction}`}
+                          stroke={COLORS[i % COLORS.length]}
+                          strokeWidth={2}
+                          dot={false}
+                        />
+                      ))}
+                    </LineChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              )}
             </Card>
           </div>
         </TabsContent>
@@ -580,14 +760,25 @@ export function SurfaceScienceWorkbench() {
 
                     <p className="text-[10px] text-muted-foreground italic leading-tight">{p.notes}</p>
 
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="w-full text-xs"
-                      onClick={() => loadProfile(p.id)}
-                    >
-                      Load into Workbench
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="flex-1 text-xs"
+                        onClick={() => loadProfile(p.id)}
+                      >
+                        Load into Workbench
+                      </Button>
+                      <Button
+                        variant="default"
+                        size="sm"
+                        className="flex-1 text-xs"
+                        onClick={() => loadProfile(p.id, true)}
+                      >
+                        <Eye className="mr-1 h-3 w-3" />
+                        View Activity Curves
+                      </Button>
+                    </div>
                   </CardContent>
                 </Card>
               );
@@ -741,33 +932,124 @@ export function SurfaceScienceWorkbench() {
         {/* ---- ACTIVITY PROFILES TAB ---- */}
         <TabsContent value="activity" className="mt-4">
           <div className="grid gap-6">
-            {activityProfile.length > 0 ? (
+            {activityProfile.length > 0 || multiActivityProfiles.length > 0 ? (
               <>
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base">Conversion vs Temperature (TOF-Based)</CardTitle>
-                    <CardDescription>
-                      Light-off curve generated from turnover frequency, dispersion, and Thiele modulus effectiveness factor
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <ResponsiveContainer width="100%" height={350}>
-                      <LineChart data={activityProfile}>
-                        <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                        <XAxis dataKey="temperature_C" label={{ value: "Temperature [°C]", position: "insideBottom", offset: -5 }} />
-                        <YAxis domain={[0, 100]} label={{ value: "Conversion [%]", angle: -90, position: "insideLeft" }} />
-                        <Tooltip
-                          formatter={(v: number, name: string) => {
-                            if (name === "conversion_percent") return [`${v.toFixed(1)}%`, "Conversion"];
-                            return [v.toFixed(4), name];
-                          }}
-                        />
-                        <Legend />
-                        <Line type="monotone" dataKey="conversion_percent" name="Conversion" stroke="#E74C3C" strokeWidth={3} dot={false} />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </CardContent>
-                </Card>
+                {/* Multi-reaction conversion overlay chart */}
+                {multiActivityProfiles.length > 0 && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-base">All Reaction Light-Off Curves</CardTitle>
+                      <CardDescription>
+                        Conversion vs temperature for all reactions supported by the loaded catalyst profile
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <ResponsiveContainer width="100%" height={400}>
+                        <LineChart
+                          data={multiActivityProfiles[0].data.map((pt, idx) => {
+                            const row: Record<string, number> = { temperature_C: pt.temperature_C };
+                            for (const mp of multiActivityProfiles) {
+                              row[mp.reactionName] = mp.data[idx]?.conversion_percent ?? 0;
+                            }
+                            return row;
+                          })}
+                        >
+                          <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                          <XAxis
+                            dataKey="temperature_C"
+                            label={{ value: "Temperature [°C]", position: "insideBottom", offset: -5 }}
+                          />
+                          <YAxis
+                            domain={[0, 100]}
+                            label={{ value: "Conversion [%]", angle: -90, position: "insideLeft" }}
+                          />
+                          <Tooltip formatter={(v: number) => `${v.toFixed(1)}%`} />
+                          <Legend />
+                          <ReferenceLine y={50} stroke="#999" strokeDasharray="4 4" label={{ value: "T₅₀", position: "right", fontSize: 10 }} />
+                          <ReferenceLine y={90} stroke="#999" strokeDasharray="4 4" label={{ value: "T₉₀", position: "right", fontSize: 10 }} />
+                          {multiActivityProfiles.map((mp, i) => (
+                            <Line
+                              key={mp.reactionName}
+                              type="monotone"
+                              dataKey={mp.reactionName}
+                              name={mp.reactionName}
+                              stroke={COLORS[i % COLORS.length]}
+                              strokeWidth={2.5}
+                              dot={false}
+                            />
+                          ))}
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Per-reaction detail cards */}
+                {multiActivityProfiles.length > 1 && (
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {multiActivityProfiles.map((mp, i) => (
+                      <Card key={mp.reactionName}>
+                        <CardHeader className="pb-2">
+                          <div className="flex items-center gap-2">
+                            <div className="h-3 w-3 rounded-full" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
+                            <CardTitle className="text-sm">{mp.reactionName}</CardTitle>
+                          </div>
+                          <CardDescription className="text-xs">
+                            TOF = {mp.tofEntry.TOF_ref} s⁻¹ @ {mp.tofEntry.T_ref_C}°C, Ea = {mp.tofEntry.Ea_kJ_mol} kJ/mol
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <ResponsiveContainer width="100%" height={220}>
+                            <LineChart data={mp.data}>
+                              <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                              <XAxis dataKey="temperature_C" tick={{ fontSize: 10 }} />
+                              <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} />
+                              <Tooltip formatter={(v: number) => `${v.toFixed(1)}%`} />
+                              <ReferenceLine y={50} stroke="#ccc" strokeDasharray="3 3" />
+                              <Line
+                                type="monotone"
+                                dataKey="conversion_percent"
+                                name="Conversion"
+                                stroke={COLORS[i % COLORS.length]}
+                                strokeWidth={2}
+                                dot={false}
+                              />
+                            </LineChart>
+                          </ResponsiveContainer>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+
+                {/* Single-reaction fallback (original behavior) */}
+                {multiActivityProfiles.length === 0 && activityProfile.length > 0 && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-base">Conversion vs Temperature (TOF-Based)</CardTitle>
+                      <CardDescription>
+                        Light-off curve generated from turnover frequency, dispersion, and Thiele modulus effectiveness factor
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <ResponsiveContainer width="100%" height={350}>
+                        <LineChart data={activityProfile}>
+                          <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                          <XAxis dataKey="temperature_C" label={{ value: "Temperature [°C]", position: "insideBottom", offset: -5 }} />
+                          <YAxis domain={[0, 100]} label={{ value: "Conversion [%]", angle: -90, position: "insideLeft" }} />
+                          <Tooltip
+                            formatter={(v: number, name: string) => {
+                              if (name === "conversion_percent") return [`${v.toFixed(1)}%`, "Conversion"];
+                              return [v.toFixed(4), name];
+                            }}
+                          />
+                          <Legend />
+                          <Line type="monotone" dataKey="conversion_percent" name="Conversion" stroke="#E74C3C" strokeWidth={3} dot={false} />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </CardContent>
+                  </Card>
+                )}
 
                 <div className="grid gap-6 lg:grid-cols-2">
                   <Card>
@@ -776,12 +1058,30 @@ export function SurfaceScienceWorkbench() {
                     </CardHeader>
                     <CardContent>
                       <ResponsiveContainer width="100%" height={280}>
-                        <LineChart data={activityProfile}>
+                        <LineChart data={activityProfile.length > 0 ? activityProfile : (multiActivityProfiles[0]?.data ?? [])}>
                           <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
                           <XAxis dataKey="temperature_C" />
                           <YAxis scale="log" domain={["auto", "auto"]} tickFormatter={(v: number) => v >= 1 ? v.toFixed(0) : v.toExponential(0)} />
                           <Tooltip formatter={(v: number) => v.toFixed(4)} />
-                          <Line type="monotone" dataKey="TOF" name="TOF [s⁻¹]" stroke="#3498DB" strokeWidth={2} dot={false} />
+                          {multiActivityProfiles.length > 0 ? (
+                            <>
+                              <Legend />
+                              {multiActivityProfiles.map((mp, i) => (
+                                <Line
+                                  key={mp.reactionName}
+                                  type="monotone"
+                                  dataKey="TOF"
+                                  data={mp.data}
+                                  name={mp.reactionName}
+                                  stroke={COLORS[i % COLORS.length]}
+                                  strokeWidth={2}
+                                  dot={false}
+                                />
+                              ))}
+                            </>
+                          ) : (
+                            <Line type="monotone" dataKey="TOF" name="TOF [s⁻¹]" stroke="#3498DB" strokeWidth={2} dot={false} />
+                          )}
                         </LineChart>
                       </ResponsiveContainer>
                     </CardContent>
@@ -793,7 +1093,7 @@ export function SurfaceScienceWorkbench() {
                     </CardHeader>
                     <CardContent>
                       <ResponsiveContainer width="100%" height={280}>
-                        <LineChart data={activityProfile}>
+                        <LineChart data={activityProfile.length > 0 ? activityProfile : (multiActivityProfiles[0]?.data ?? [])}>
                           <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
                           <XAxis dataKey="temperature_C" />
                           <YAxis tickFormatter={(v: number) => v.toExponential(1)} />
@@ -814,28 +1114,64 @@ export function SurfaceScienceWorkbench() {
                     <CardDescription>Shows transition from kinetically-limited to diffusion-limited regime</CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <div className="flex gap-1 h-8 rounded overflow-hidden">
-                      {activityProfile.map((pt, i) => {
-                        const colors: Record<string, string> = {
-                          kinetic: "#2ECC71",
-                          transition: "#F39C12",
-                          diffusion: "#E74C3C",
-                          equilibrium: "#3498DB",
-                        };
-                        return (
-                          <div
-                            key={i}
-                            className="flex-1"
-                            style={{ backgroundColor: colors[pt.regime] ?? "#999" }}
-                            title={`${pt.temperature_C.toFixed(0)}°C: ${pt.regime}`}
-                          />
-                        );
-                      })}
-                    </div>
-                    <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
-                      <span>{activityProfile[0]?.temperature_C.toFixed(0)}°C</span>
-                      <span>{activityProfile[activityProfile.length - 1]?.temperature_C.toFixed(0)}°C</span>
-                    </div>
+                    {multiActivityProfiles.length > 0 ? (
+                      <div className="space-y-3">
+                        {multiActivityProfiles.map((mp, i) => {
+                          const regimeColors: Record<string, string> = {
+                            kinetic: "#2ECC71",
+                            transition: "#F39C12",
+                            diffusion: "#E74C3C",
+                            equilibrium: "#3498DB",
+                          };
+                          return (
+                            <div key={mp.reactionName}>
+                              <p className="text-xs font-medium mb-1" style={{ color: COLORS[i % COLORS.length] }}>
+                                {mp.reactionName}
+                              </p>
+                              <div className="flex gap-0.5 h-5 rounded overflow-hidden">
+                                {mp.data.map((pt, j) => (
+                                  <div
+                                    key={j}
+                                    className="flex-1"
+                                    style={{ backgroundColor: regimeColors[pt.regime] ?? "#999" }}
+                                    title={`${pt.temperature_C.toFixed(0)}°C: ${pt.regime}`}
+                                  />
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })}
+                        <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
+                          <span>{multiActivityProfiles[0].data[0]?.temperature_C.toFixed(0)}°C</span>
+                          <span>{multiActivityProfiles[0].data[multiActivityProfiles[0].data.length - 1]?.temperature_C.toFixed(0)}°C</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex gap-1 h-8 rounded overflow-hidden">
+                          {activityProfile.map((pt, i) => {
+                            const colors: Record<string, string> = {
+                              kinetic: "#2ECC71",
+                              transition: "#F39C12",
+                              diffusion: "#E74C3C",
+                              equilibrium: "#3498DB",
+                            };
+                            return (
+                              <div
+                                key={i}
+                                className="flex-1"
+                                style={{ backgroundColor: colors[pt.regime] ?? "#999" }}
+                                title={`${pt.temperature_C.toFixed(0)}°C: ${pt.regime}`}
+                              />
+                            );
+                          })}
+                        </div>
+                        <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
+                          <span>{activityProfile[0]?.temperature_C.toFixed(0)}°C</span>
+                          <span>{activityProfile[activityProfile.length - 1]?.temperature_C.toFixed(0)}°C</span>
+                        </div>
+                      </>
+                    )}
                     <div className="flex gap-4 mt-2 text-xs">
                       <span className="flex items-center gap-1"><span className="w-3 h-3 rounded" style={{ backgroundColor: "#2ECC71" }} /> Kinetic</span>
                       <span className="flex items-center gap-1"><span className="w-3 h-3 rounded" style={{ backgroundColor: "#F39C12" }} /> Transition</span>
@@ -849,7 +1185,7 @@ export function SurfaceScienceWorkbench() {
               <Card>
                 <CardContent className="flex flex-col items-center justify-center h-48 text-muted-foreground">
                   <Thermometer className="h-12 w-12 mb-3 opacity-30" />
-                  <p className="text-sm">Run a characterization calculation first to generate activity profiles</p>
+                  <p className="text-sm">Run a characterization calculation or load a catalyst profile to generate activity profiles</p>
                 </CardContent>
               </Card>
             )}

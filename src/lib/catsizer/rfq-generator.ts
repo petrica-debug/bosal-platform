@@ -53,6 +53,30 @@ import type {
 } from "./types";
 
 // ============================================================
+// PGM MARKET PRICES (March 2026)
+// ============================================================
+
+export const PGM_PRICES_USD_OZ: Record<string, number> = {
+  Pt: 2148,
+  Pd: 1671,
+  Rh: 11350,
+  Ir: 4800,
+  Ru: 650,
+};
+
+export function calculatePGMCost(
+  Pt_g: number,
+  Pd_g: number,
+  Rh_g: number
+): { ptCost: number; pdCost: number; rhCost: number; total: number } {
+  const OZ = 31.1035; // troy oz to grams
+  const ptCost = (Pt_g / OZ) * PGM_PRICES_USD_OZ.Pt;
+  const pdCost = (Pd_g / OZ) * PGM_PRICES_USD_OZ.Pd;
+  const rhCost = (Rh_g / OZ) * PGM_PRICES_USD_OZ.Rh;
+  return { ptCost, pdCost, rhCost, total: ptCost + pdCost + rhCost };
+}
+
+// ============================================================
 // DEFAULT CONFIGS
 // ============================================================
 
@@ -193,11 +217,10 @@ function buildPGMSpec(type: CatalystType, loading_g_ft3: number, volume_L: numbe
 
   const r = ratios[type] ?? { Pt: 0.5, Pd: 0.5, Rh: 0 };
 
-  // PGM price estimate (2024 averages): Pt ~$950/oz, Pd ~$1000/oz, Rh ~$4500/oz
   const totalMass_g = loading_g_L * volume_L;
-  const ptCost = totalMass_g * r.Pt / 31.1035 * 950;
-  const pdCost = totalMass_g * r.Pd / 31.1035 * 1000;
-  const rhCost = totalMass_g * r.Rh / 31.1035 * 4500;
+  const ptCost = totalMass_g * r.Pt / 31.1035 * PGM_PRICES_USD_OZ.Pt;
+  const pdCost = totalMass_g * r.Pd / 31.1035 * PGM_PRICES_USD_OZ.Pd;
+  const rhCost = totalMass_g * r.Rh / 31.1035 * PGM_PRICES_USD_OZ.Rh;
 
   return {
     totalLoading_g_ft3: loading_g_ft3,

@@ -142,12 +142,17 @@ export interface EvaporationResult {
 }
 
 /**
- * Droplet evaporation model using d² law.
+ * Droplet evaporation model using d² law with mixer effects.
  *
  * d²(t) = d₀² - K × t
  * K = (8 × λ_g × ln(1 + B_M)) / (ρ_l × Cp_g)
  *
- * where B_M is the Spalding mass transfer number.
+ * Mixer effects:
+ * - Swirl mixer: increases effective path length by 1.5–2.5× (helical path)
+ * - Blade mixer: reduces SMD by 30–50% via droplet impact breakup, but creates deposit risk
+ * - Tab mixer: moderate path extension + some breakup
+ *
+ * Urea decomposition: HNCO + H₂O → NH₃ + CO₂ (hydrolysis, rate-limited below 300°C)
  */
 export function calculateEvaporation(
   injector: InjectorSpec,
@@ -157,16 +162,25 @@ export function calculateEvaporation(
   exhaustDensity_kg_m3: number
 ): EvaporationResult {
   const T_K = exhaustTemp_C + 273.15;
-  const d0 = injector.SMD_um * 1e-6; // m
+
+  // Effective SMD after mixer impact
+  let effectiveSMD_um = injector.SMD_um;
+  if (pipe.hasStaticMixer) {
+    if (pipe.mixerType === "blade") effectiveSMD_um *= 0.55; // blade impact breakup
+    else if (pipe.mixerType === "swirl") effectiveSMD_um *= 0.85; // mild breakup
+    else if (pipe.mixerType === "tab") effectiveSMD_um *= 0.70;
+  }
+
+  const d0 = effectiveSMD_um * 1e-6; // m
 
   // DEF properties
   const rho_l = 1090; // kg/m³
   const T_boil = 373.15; // K (water boiling)
   const h_fg = 2.26e6; // J/kg (latent heat of water)
 
-  // Gas properties
-  const lambda_g = 0.04; // W/(m·K) exhaust thermal conductivity
-  const Cp_g = 1100; // J/(kg·K)
+  // Gas properties (temperature-dependent)
+  const lambda_g = 0.026 + 5e-5 * (T_K - 300); // W/(m·K)
+  const Cp_g = 1050 + 0.15 * (T_K - 300); // J/(kg·K)
 
   // Spalding number
   const B_M = Cp_g * (T_K - T_boil) / h_fg;
@@ -179,21 +193,30 @@ export function calculateEvaporation(
   const t_evap = d0 * d0 / K;
   const t_evap_ms = t_evap * 1000;
 
-  // Distance traveled during evaporation
-  const dropletVelocity = exhaustVelocity_m_s * 0.6; // droplets slower than gas
+  // Effective path length (mixer extends the path)
+  let pathLengthFactor = 1.0;
+  if (pipe.hasStaticMixer) {
+    if (pipe.mixerType === "swirl") pathLengthFactor = 2.2; // helical flow path
+    else if (pipe.mixerType === "blade") pathLengthFactor = 1.3;
+    else if (pipe.mixerType === "tab") pathLengthFactor = 1.6;
+  }
+  if (pipe.hasSwirlFlap) pathLengthFactor *= 1.4;
+
+  const effectiveDistance_mm = pipe.injectorToSCR_mm * pathLengthFactor;
+
+  // Droplet velocity (slower than gas, affected by mixer)
+  const dropletVelocity = exhaustVelocity_m_s * 0.6;
   const evapDistance_mm = dropletVelocity * t_evap * 1000;
 
-  // Check if evaporation completes before reaching SCR face
-  const availableDistance = pipe.injectorToSCR_mm;
-  const residenceTime_ms = (availableDistance / 1000 / dropletVelocity) * 1000;
+  const residenceTime_ms = (effectiveDistance_mm / 1000 / dropletVelocity) * 1000;
 
   let residualSize_um = 0;
   if (residenceTime_ms < t_evap_ms) {
     const fraction_evaporated = residenceTime_ms / t_evap_ms;
-    residualSize_um = injector.SMD_um * Math.sqrt(1 - fraction_evaporated);
+    residualSize_um = effectiveSMD_um * Math.sqrt(1 - fraction_evaporated);
   }
 
-  // Wall impingement: spray reaches pipe wall before evaporating
+  // Wall impingement
   const sprayRadius_mm = pipe.injectorToSCR_mm * Math.tan((injector.sprayAngle_deg / 2) * Math.PI / 180);
   const wallImpingement = sprayRadius_mm > pipe.pipeDiameter_mm / 2 * 0.8;
 
@@ -203,6 +226,89 @@ export function calculateEvaporation(
     evaporationComplete: residenceTime_ms >= t_evap_ms,
     residualDropletSize_um: residualSize_um,
     wallImpingementRisk: wallImpingement,
+  };
+}
+
+// ============================================================
+// UREA DECOMPOSITION MODEL
+// ============================================================
+
+export interface SprayUreaDecompositionResult {
+  /** Fraction of urea thermolyzed to HNCO + NH₃ [0–1] */
+  thermolysisFraction: number;
+  /** Fraction of HNCO hydrolyzed to NH₃ + CO₂ [0–1] */
+  hydrolysisFraction: number;
+  /** Overall urea-to-NH₃ conversion [0–1] */
+  overallConversion: number;
+  /** Fraction of undecomposed urea at SCR face [0–1] */
+  undecomposedUreaFraction: number;
+  /** HNCO slip at SCR face [fraction] */
+  hncoSlipFraction: number;
+  /** Deposit risk from incomplete decomposition */
+  depositRisk: "low" | "moderate" | "high";
+  /** Biuret/cyanuric acid formation risk */
+  byproductRisk: "low" | "moderate" | "high";
+}
+
+/**
+ * Model urea decomposition in the mixing section.
+ *
+ * Step 1: Thermolysis — (NH₂)₂CO → NH₃ + HNCO (starts ~150°C, fast above 250°C)
+ * Step 2: Hydrolysis — HNCO + H₂O → NH₃ + CO₂ (needs catalyst or T > 350°C)
+ *
+ * Side reactions at low T: biuret, cyanuric acid, melamine (deposit precursors)
+ */
+export function calculateUreaDecomposition(
+  exhaustTemp_C: number,
+  residenceTime_ms: number,
+  evaporationComplete: boolean,
+  hasStaticMixer: boolean,
+  mixerType?: string
+): SprayUreaDecompositionResult {
+  const T = exhaustTemp_C;
+
+  // Thermolysis rate (Arrhenius-type, Ea ≈ 80 kJ/mol)
+  const k_therm = 1e8 * Math.exp(-80000 / (8.314 * (T + 273.15)));
+  const t_s = residenceTime_ms / 1000;
+  const thermolysisFraction = Math.min(1, 1 - Math.exp(-k_therm * t_s));
+
+  // Hydrolysis rate (slower, Ea ≈ 60 kJ/mol, enhanced by mixer surfaces)
+  let k_hydro = 5e5 * Math.exp(-60000 / (8.314 * (T + 273.15)));
+  if (hasStaticMixer) {
+    // Mixer surfaces act as hydrolysis catalyst
+    const surfaceFactor = mixerType === "blade" ? 2.0 : mixerType === "swirl" ? 1.5 : 1.3;
+    k_hydro *= surfaceFactor;
+  }
+  const hydrolysisFraction = Math.min(1, 1 - Math.exp(-k_hydro * t_s));
+
+  // Overall: thermolysis produces HNCO, hydrolysis converts HNCO to NH₃
+  // First NH₃ from thermolysis (1 mol per mol urea) + second from hydrolysis
+  const directNH3 = thermolysisFraction * 0.5; // 1 of 2 N atoms
+  const hncoProduced = thermolysisFraction * 0.5;
+  const hncoConverted = hncoProduced * hydrolysisFraction;
+  const overallConversion = evaporationComplete ? directNH3 + hncoConverted : (directNH3 + hncoConverted) * 0.7;
+
+  const undecomposed = 1 - thermolysisFraction;
+  const hncoSlip = hncoProduced * (1 - hydrolysisFraction);
+
+  // Deposit risk
+  const depositRisk: "low" | "moderate" | "high" =
+    T < 180 || (undecomposed > 0.3 && !evaporationComplete) ? "high" :
+    T < 250 || undecomposed > 0.1 ? "moderate" : "low";
+
+  // Byproduct risk (biuret forms at 190–250°C with incomplete evaporation)
+  const byproductRisk: "low" | "moderate" | "high" =
+    T >= 190 && T <= 280 && !evaporationComplete ? "high" :
+    T >= 160 && T <= 300 && undecomposed > 0.05 ? "moderate" : "low";
+
+  return {
+    thermolysisFraction,
+    hydrolysisFraction,
+    overallConversion: Math.min(1, overallConversion),
+    undecomposedUreaFraction: undecomposed,
+    hncoSlipFraction: hncoSlip,
+    depositRisk,
+    byproductRisk,
   };
 }
 
@@ -396,6 +502,7 @@ export function calculateNH3Uniformity(
 export interface SpraySystemResult {
   evaporation: EvaporationResult;
   uniformity: UniformityResult;
+  ureaDecomposition: SprayUreaDecompositionResult;
   sprayPenetration_mm: number;
   residenceTime_ms: number;
   wallFilmRisk: "low" | "moderate" | "high";
@@ -423,6 +530,11 @@ export function assessSpraySystem(
   const uniformity = calculateNH3Uniformity(injector, pipe, exhaustTemp_C, exhaustMassFlow_kg_h, targetAlpha);
 
   const residenceTime = (pipe.injectorToSCR_mm / 1000 / velocity) * 1000;
+
+  const ureaDecomp = calculateUreaDecomposition(
+    exhaustTemp_C, residenceTime, evaporation.evaporationComplete,
+    pipe.hasStaticMixer, pipe.mixerType
+  );
 
   // Wall film risk
   const wallFilmRisk: "low" | "moderate" | "high" =
@@ -456,9 +568,20 @@ export function assessSpraySystem(
 
   warnings.push(...uniformity.recommendations);
 
+  if (ureaDecomp.undecomposedUreaFraction > 0.1) {
+    warnings.push(`${(ureaDecomp.undecomposedUreaFraction * 100).toFixed(0)}% undecomposed urea at SCR face — risk of catalyst fouling and reduced DeNOₓ.`);
+  }
+  if (ureaDecomp.hncoSlipFraction > 0.05) {
+    warnings.push(`HNCO slip: ${(ureaDecomp.hncoSlipFraction * 100).toFixed(1)}% — incomplete hydrolysis. Increase mixing length or temperature.`);
+  }
+  if (ureaDecomp.byproductRisk === "high") {
+    warnings.push("High biuret/cyanuric acid formation risk — temperature in 190–280°C range with incomplete evaporation.");
+  }
+
   return {
     evaporation,
     uniformity,
+    ureaDecomposition: ureaDecomp,
     sprayPenetration_mm: penetration,
     residenceTime_ms: residenceTime,
     wallFilmRisk,
