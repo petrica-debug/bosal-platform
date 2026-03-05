@@ -35,7 +35,16 @@ import {
   TrendingUp,
   Percent,
   Calculator,
+  Settings,
+  Factory,
 } from "lucide-react";
+import {
+  loadCostDB,
+  calculateBrickCost,
+  calculateSystemPricing,
+  type CostDatabase,
+  type SystemPricingResult,
+} from "@/lib/pricing/cost-database";
 import {
   BarChart,
   Bar,
@@ -222,8 +231,36 @@ const DEFAULT_CONFIGS: SystemConfig[] = [
 export default function PricingPage() {
   const [configs] = useState<SystemConfig[]>(DEFAULT_CONFIGS);
   const [selectedId, setSelectedId] = useState(configs[0].id);
-  const [pgmSlider, setPgmSlider] = useState(0); // -30 to +30 %
+  const [pgmSlider, setPgmSlider] = useState(0);
   const [volumeSlider, setVolumeSlider] = useState(0);
+
+  const integratorPricing = useMemo<SystemPricingResult | null>(() => {
+    const db = loadCostDB();
+    const sel = configs.find((c) => c.id === selectedId) ?? configs[0];
+    const brickCosts = sel.catalysts.map((cat) =>
+      calculateBrickCost(db, {
+        name: cat.name,
+        type: cat.type,
+        volume_L: cat.volume_L,
+        diameter_mm: cat.type === "SCR" ? 229 : 143,
+        length_mm: cat.type === "SCR" ? 200 : 130,
+        substrateMaterial: cat.type === "DPF" ? "sic" : "cordierite",
+        washcoatType: cat.washcoat_type,
+        washcoatLoading_g_L: cat.washcoat_loading_g_L,
+        pgm_Pt_g_ft3: cat.pgm_Pt_g_ft3,
+        pgm_Pd_g_ft3: cat.pgm_Pd_g_ft3,
+        pgm_Rh_g_ft3: cat.pgm_Rh_g_ft3,
+        shellMaterial: "ss409",
+        hasCones: true,
+      })
+    );
+    const hasUrea = sel.ureaComponents.length > 0;
+    return calculateSystemPricing(db, brickCosts, hasUrea, {
+      hasMixer: true,
+      mixerType: "swirl",
+      tankSize: "20l",
+    });
+  }, [configs, selectedId]);
 
   const selected = configs.find((c) => c.id === selectedId) ?? configs[0];
   const cost = useMemo(() => calcSystemCost(selected), [selected]);
@@ -320,6 +357,7 @@ export default function PricingPage() {
           <TabsTrigger value="sensitivity">PGM Sensitivity</TabsTrigger>
           <TabsTrigger value="compare">Multi-Config Compare</TabsTrigger>
           <TabsTrigger value="costdb">Cost Database</TabsTrigger>
+          <TabsTrigger value="integrator">Integrator Pricing</TabsTrigger>
         </TabsList>
 
         {/* ---- BREAKDOWN ---- */}
@@ -630,6 +668,145 @@ export default function PricingPage() {
               </CardContent>
             </Card>
           </div>
+        </TabsContent>
+
+        {/* ---- INTEGRATOR PRICING ---- */}
+        <TabsContent value="integrator" className="mt-4">
+          {integratorPricing && (
+            <div className="grid gap-4">
+              {/* Header */}
+              <Card className="bg-gradient-to-r from-[#7A0A1E] to-[#C8102E] text-white">
+                <CardContent className="py-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <Factory className="h-6 w-6" />
+                      <div>
+                        <p className="text-sm font-bold">BOSAL Integrator Pricing</p>
+                        <p className="text-xs text-white/70">Substrate + Coating + PGM + Mat + Canning + Welding</p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-2xl font-bold">&euro;{integratorPricing.quotedPrice_eur.toFixed(0)}</p>
+                      <p className="text-xs text-white/70">Quoted price (incl. margin)</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                {/* Per-brick breakdown */}
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm flex items-center gap-2">
+                      <Calculator className="h-4 w-4 text-[#C8102E]" /> Per-Element Cost Breakdown
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="rounded-md border">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Element</TableHead>
+                            <TableHead>Substrate</TableHead>
+                            <TableHead>Coating</TableHead>
+                            <TableHead>PGM</TableHead>
+                            <TableHead>Mat</TableHead>
+                            <TableHead>Shell</TableHead>
+                            <TableHead>Cone</TableHead>
+                            <TableHead>Weld</TableHead>
+                            <TableHead className="font-bold">Total</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {integratorPricing.bricks.map((b) => (
+                            <TableRow key={b.name}>
+                              <TableCell className="font-medium text-xs">{b.name} <Badge variant="outline" className="text-[9px] ml-1">{b.type}</Badge></TableCell>
+                              <TableCell className="font-mono text-[10px]">&euro;{b.substrate_eur.toFixed(0)}</TableCell>
+                              <TableCell className="font-mono text-[10px]">&euro;{b.coating_eur.toFixed(0)}</TableCell>
+                              <TableCell className="font-mono text-[10px]">&euro;{b.pgm_eur.toFixed(0)}</TableCell>
+                              <TableCell className="font-mono text-[10px]">&euro;{b.mat_eur.toFixed(0)}</TableCell>
+                              <TableCell className="font-mono text-[10px]">&euro;{b.canning_shell_eur.toFixed(0)}</TableCell>
+                              <TableCell className="font-mono text-[10px]">&euro;{b.canning_cone_eur.toFixed(0)}</TableCell>
+                              <TableCell className="font-mono text-[10px]">&euro;{b.welding_eur.toFixed(0)}</TableCell>
+                              <TableCell className="font-mono text-[10px] font-bold">&euro;{b.subtotal_eur.toFixed(0)}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Cost waterfall */}
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm">Cost Waterfall — Integrator View</CardTitle>
+                    <CardDescription className="text-[10px]">Material → Manufacturing → Overhead → Margin → Quoted</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      {[
+                        { label: "Material Total", value: integratorPricing.materialTotal_eur, color: "#3B82F6" },
+                        { label: "Manufacturing", value: integratorPricing.manufacturing_eur, color: "#F59E0B" },
+                        { label: "Quality / QC", value: integratorPricing.qualityInspection_eur, color: "#8B5CF6" },
+                        { label: "Packaging", value: integratorPricing.packaging_eur, color: "#6B7280" },
+                        { label: "Logistics", value: integratorPricing.logistics_eur, color: "#EC4899" },
+                        { label: "Overhead", value: integratorPricing.overhead_eur, color: "#14B8A6" },
+                        { label: "Warranty Reserve", value: integratorPricing.warrantyReserve_eur, color: "#EF4444" },
+                      ].map((item) => {
+                        const pct = integratorPricing.quotedPrice_eur > 0 ? (item.value / integratorPricing.quotedPrice_eur) * 100 : 0;
+                        return (
+                          <div key={item.label} className="flex items-center gap-2">
+                            <span className="w-28 text-[10px] text-muted-foreground">{item.label}</span>
+                            <div className="flex-1 h-3 rounded-full bg-muted overflow-hidden">
+                              <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: item.color }} />
+                            </div>
+                            <span className="w-16 text-right font-mono text-[10px]">&euro;{item.value.toFixed(0)}</span>
+                            <span className="w-10 text-right font-mono text-[10px] text-muted-foreground">{pct.toFixed(0)}%</span>
+                          </div>
+                        );
+                      })}
+                      <div className="border-t pt-2 mt-2 space-y-1">
+                        <div className="flex justify-between text-xs">
+                          <span>Cost Price</span>
+                          <span className="font-mono">&euro;{integratorPricing.costPrice_eur.toFixed(0)}</span>
+                        </div>
+                        <div className="flex justify-between text-xs text-muted-foreground">
+                          <span>Profit Margin</span>
+                          <span className="font-mono">&euro;{integratorPricing.profitMargin_eur.toFixed(0)}</span>
+                        </div>
+                        <div className="flex justify-between text-base font-bold border-t pt-2">
+                          <span>Quoted Price</span>
+                          <span className="font-mono text-[#C8102E]">&euro;{integratorPricing.quotedPrice_eur.toFixed(0)}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="mt-3 flex items-center gap-2">
+                      <Settings className="h-3 w-3 text-muted-foreground" />
+                      <span className="text-[10px] text-muted-foreground">
+                        Costs editable in Settings → Cost Database
+                      </span>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Urea system if applicable */}
+              {integratorPricing.ureaSystem_eur > 0 && (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm">Urea / SCR Dosing System</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex items-center gap-4 text-xs">
+                      <Badge variant="outline">Injector + Pump + DCU + Tank + Sensors + Mixer</Badge>
+                      <span className="font-mono font-bold">&euro;{integratorPricing.ureaSystem_eur.toFixed(0)}</span>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          )}
         </TabsContent>
       </Tabs>
     </div>
