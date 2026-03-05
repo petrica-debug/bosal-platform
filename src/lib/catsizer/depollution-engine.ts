@@ -77,7 +77,7 @@ export function calculateExhaustFlow(inputs: EngineInputs): {
 // MONOLITH SUBSTRATE GEOMETRY
 // ============================================================
 
-function substrateGeometry(cellDensity_cpsi: number, wallThickness_mil: number) {
+export function substrateGeometry(cellDensity_cpsi: number, wallThickness_mil: number) {
   const cellPitch_mm =
     25.4 / Math.sqrt(cellDensity_cpsi); // mm per cell
   const wallThickness_mm = wallThickness_mil * UNITS.mil_to_mm;
@@ -127,25 +127,35 @@ function monolithPressureDrop(
 
   const mu = gasViscosity(T_K, composition);
 
-  // Fanning friction factor for square channels: f = 14.23 / Re
-  // ΔP = f × (L/d_h) × (ρ × u²/2) = 28.46 × μ × L × Q / (n × A_cell² × d_h)
-  // Simplified Hagen-Poiseuille for laminar flow in square channels:
+  // Hagen-Poiseuille for laminar flow in square channels:
+  // ΔP = 28.46 × μ × u × L / d_h²  where u = Q / (n × A_cell)
+  // Combined: ΔP = 28.46 × μ × L × Q / (n × A_cell × d_h²)
   const dP_channel =
     (28.46 * mu * Q_actual_m3_s * length_m) /
-    (nCells * A_cell ** 2 * d_h);
+    (nCells * A_cell * d_h * d_h);
 
   if (isWallFlow) {
-    // DPF wall-flow: add wall resistance
+    // Wall-flow DPF: half channels are inlet, half outlet.
+    // Channel ΔP is already calculated for all channels — for wall-flow,
+    // the effective channel length is doubled (inlet + outlet) but flow
+    // splits, so the channel ΔP is roughly 2× the flow-through value.
+    const dP_channel_wf = dP_channel * 2;
+
+    // Wall resistance (Darcy's law through porous wall):
+    // ΔP_wall = μ × Q × t_w / (A_filtration × κ)
+    // A_filtration = n_inlet × perimeter × L = (nCells/2) × 4 × d_h × L
     const wallThickness_m = geo.wallThickness_mm / 1000;
-    const permeability = 2e-13; // m² (typical clean DPF)
+    const permeability = 2e-13; // m² (typical clean SiC DPF)
+    const nInlet = nCells / 2;
+    const A_filtration = nInlet * 4 * d_h * length_m;
     const dP_wall =
       (mu * Q_actual_m3_s * wallThickness_m) /
-      (nCells * A_cell * permeability);
+      (A_filtration * permeability);
 
-    // Contraction/expansion losses (~20% of channel loss)
-    const dP_ce = dP_channel * 0.2;
+    // Contraction/expansion losses (~30% of channel loss for wall-flow)
+    const dP_ce = dP_channel_wf * 0.3;
 
-    return (dP_channel + dP_wall + dP_ce) / 1000; // Pa → kPa
+    return (dP_channel_wf + dP_wall + dP_ce) / 1000; // Pa → kPa
   }
 
   return dP_channel / 1000; // Pa → kPa
@@ -192,8 +202,8 @@ function sizeSingleCatalyst(
   const standardDiameters = [143, 171, 229, 267, 305, 356, 381, 432]; // mm
   let diameter_mm = substrateOverride?.diameter_mm ?? 0;
   if (diameter_mm <= 0) {
-    // Target L/D ratio of ~1.0–1.5 for flow-through, ~1.5–2.0 for DPF
-    const targetLD = type === "DPF" ? 1.8 : 1.2;
+    // Target L/D ratio: flow-through ~1.0–1.5, DPF ~1.0–1.3 (wide & short for soot distribution)
+    const targetLD = type === "DPF" ? 1.1 : type === "SCR" ? 1.0 : 1.2;
     const targetD_mm =
       Math.pow((4 * requiredVolume_L * 1e6) / (Math.PI * targetLD), 1 / 3);
     diameter_mm =
@@ -208,16 +218,16 @@ function sizeSingleCatalyst(
   // Round up to nearest 10mm
   length_mm = Math.ceil(length_mm / 10) * 10;
 
-  // Actual selected volume
-  const selectedVolume_L =
-    A_cross * (length_mm / 1000) * 1e6 / 1000;
-
-  // Check if we need multiple substrates in parallel
+  // Check if we need multiple substrates in series
   let numberOfSubstrates = 1;
   if (length_mm > 400) {
     numberOfSubstrates = Math.ceil(length_mm / 300);
     length_mm = Math.ceil(length_mm / numberOfSubstrates / 10) * 10;
   }
+
+  // Actual selected volume (per brick × number of bricks)
+  const singleBrickVolume_L = A_cross * (length_mm / 1000) * 1e6 / 1000;
+  const selectedVolume_L = singleBrickVolume_L * numberOfSubstrates;
 
   // Pressure drop
   const Q_actual_m3_s = Q_actual_m3_h / 3600;
@@ -244,21 +254,33 @@ function sizeSingleCatalyst(
   // Washcoat and PGM
   const wc = WASHCOAT_DEFAULTS[type];
 
-  // Weight
+  // Weight (selectedVolume_L already includes all bricks)
   const substrateDensity = SUBSTRATE_DENSITY[material];
-  const substrateWeight = selectedVolume_L * substrateDensity * numberOfSubstrates;
-  const washcoatWeight = (selectedVolume_L * wc.washcoatLoading_g_L * numberOfSubstrates) / 1000;
-  const canWeight = 0.3 * substrateWeight; // Canning ~30% of substrate weight
-  const totalWeight = substrateWeight + washcoatWeight + canWeight;
+  const substrateWeight = selectedVolume_L * substrateDensity;
+  const washcoatWeight = (selectedVolume_L * wc.washcoatLoading_g_L) / 1000;
 
-  // Can dimensions (substrate + mat + shell)
-  const canDiameter_mm = diameter_mm + 20; // ~10mm mat + shell each side
-  const canLength_mm = length_mm * numberOfSubstrates + 60; // End cones
+  // Can dimensions: substrate + mounting mat (~5mm) + shell (~1.5mm) each side
+  const canDiameter_mm = diameter_mm + 2 * 5 + 2 * 1.5; // mat + shell each side = +13mm
+  const coneHeight_mm = Math.max(60, Math.min(120, canDiameter_mm * 0.3));
+  const canLength_mm = length_mm * numberOfSubstrates + 2 * coneHeight_mm;
+
+  // Shell weight: cylindrical body + 2 frustum cones
+  const shellThick_m = 0.0015; // 1.5mm
+  const shellOD_m = canDiameter_mm / 1000;
+  const bodyLength_m = (length_mm * numberOfSubstrates) / 1000;
+  const shellBodyWeight = Math.PI * shellOD_m * bodyLength_m * shellThick_m * 7800;
+  const R_big = shellOD_m / 2;
+  const R_small = R_big * 0.45;
+  const coneSlant = Math.sqrt((coneHeight_mm / 1000) ** 2 + (R_big - R_small) ** 2);
+  const singleConeWeight = Math.PI * (R_big + R_small) * coneSlant * (shellThick_m + 0.0005) * 7800;
+  const canWeight = shellBodyWeight + 2 * singleConeWeight;
+  const matWeight = Math.PI * (diameter_mm / 1000) * bodyLength_m * 4.0; // ~4 kg/m²
+  const totalWeight = substrateWeight + washcoatWeight + canWeight + matWeight;
 
   return {
     type,
     requiredVolume_L,
-    selectedVolume_L: selectedVolume_L * numberOfSubstrates,
+    selectedVolume_L,
     diameter_mm,
     length_mm,
     numberOfSubstrates,
@@ -318,18 +340,20 @@ function checkCompliance(
     }
   }
 
-  // Convert ppm/mg to g/kWh
-  // Approximate: g/kWh = ppm × MW × Q_Nm3_h / (power_kW × 1e6)
+  // Convert ppm/mg to g/kWh per UNECE R49 methodology:
+  // g/kWh = (ppm × 1e-6) × (MW / V_mol) × Q_Nm3_h / P_kW
+  // where V_mol = 22.414 L/mol at STP, Q in Nm³/h, so:
+  // g/kWh = ppm × 1e-6 × MW × Q_Nm3_h × 1000 / (22.414 × P_kW)
   const flow = calculateExhaustFlow(inputs);
   const Q = flow.volumeFlow_Nm3_h;
   const P = inputs.ratedPower_kW;
 
   const ppmToGkWh = (ppm: number, mw: number) =>
-    (ppm * 1e-6 * mw * Q * 1000) / (22.4 * P);
+    (ppm * 1e-6 * mw * Q * 1000) / (22.414 * P);
 
-  const tailpipeNOx = ppmToGkWh(remainingNOx_ppm, 46); // NO₂ equivalent
-  const tailpipeCO = ppmToGkWh(remainingCO_ppm, 28);
-  const tailpipeHC = ppmToGkWh(remainingHC_ppm, 16); // CH₄ equivalent
+  const tailpipeNOx = ppmToGkWh(remainingNOx_ppm, 46.006); // NO₂ equivalent per regulation
+  const tailpipeCO = ppmToGkWh(remainingCO_ppm, 28.01);
+  const tailpipeHC = ppmToGkWh(remainingHC_ppm, 44.096); // C₃H₈ equivalent per EU/EPA diesel HC standard
   const tailpipePM = (remainingPM_mg_Nm3 * Q) / (P * 1000);
 
   return {

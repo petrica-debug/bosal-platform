@@ -28,8 +28,8 @@ export const GHSV_RANGES: Record<
     genset: { min: 80000, max: 150000, typical: 100000 },
   },
   SCR: {
-    heavy_duty: { min: 15000, max: 60000, typical: 30000 },
-    genset: { min: 20000, max: 50000, typical: 35000 },
+    heavy_duty: { min: 15000, max: 60000, typical: 25000 },
+    genset: { min: 15000, max: 40000, typical: 25000 },
   },
   ASC: {
     heavy_duty: { min: 100000, max: 250000, typical: 150000 },
@@ -246,7 +246,104 @@ export interface EnginePreset {
 }
 
 export const ENGINE_PRESETS: EnginePreset[] = [
-  // ---- Light-Duty ----
+  // ---- Light-Duty Passenger (< 2.0 L) ----
+  {
+    name: "1.0L 3-cyl Gasoline Turbo (VW EA211 TSI class)",
+    inputs: {
+      engineType: "gasoline", application: "heavy_duty_onroad",
+      displacement_L: 1.0, ratedPower_kW: 85, ratedSpeed_rpm: 5000,
+      peakTorque_Nm: 200, numberOfCylinders: 3,
+      exhaustFlowRate_kg_h: 140, exhaustTemp_C: 620,
+      exhaustPressure_kPa: 102, CO_ppm: 5500, HC_ppm: 350,
+      NOx_ppm: 1200, NO2_fraction: 0.02, PM_mg_Nm3: 3,
+      SO2_ppm: 1, O2_percent: 1.2, H2O_percent: 12, CO2_percent: 13,
+    },
+  },
+  {
+    name: "1.2L 4-cyl Gasoline Turbo (PSA EB2 / Renault TCe class)",
+    inputs: {
+      engineType: "gasoline", application: "heavy_duty_onroad",
+      displacement_L: 1.2, ratedPower_kW: 96, ratedSpeed_rpm: 5500,
+      peakTorque_Nm: 230, numberOfCylinders: 4,
+      exhaustFlowRate_kg_h: 170, exhaustTemp_C: 650,
+      exhaustPressure_kPa: 102, CO_ppm: 5000, HC_ppm: 300,
+      NOx_ppm: 1100, NO2_fraction: 0.02, PM_mg_Nm3: 4,
+      SO2_ppm: 1, O2_percent: 1.0, H2O_percent: 12.5, CO2_percent: 13.5,
+    },
+  },
+  {
+    name: "1.4L 4-cyl Gasoline Turbo (VW EA211 / Fiat MultiAir class)",
+    inputs: {
+      engineType: "gasoline", application: "heavy_duty_onroad",
+      displacement_L: 1.4, ratedPower_kW: 110, ratedSpeed_rpm: 5000,
+      peakTorque_Nm: 250, numberOfCylinders: 4,
+      exhaustFlowRate_kg_h: 200, exhaustTemp_C: 670,
+      exhaustPressure_kPa: 103, CO_ppm: 4800, HC_ppm: 280,
+      NOx_ppm: 1050, NO2_fraction: 0.02, PM_mg_Nm3: 3.5,
+      SO2_ppm: 1, O2_percent: 1.1, H2O_percent: 12, CO2_percent: 13.2,
+    },
+  },
+  {
+    name: "1.5L 4-cyl Gasoline Turbo (Honda L15B / VW EA211 evo class)",
+    inputs: {
+      engineType: "gasoline", application: "heavy_duty_onroad",
+      displacement_L: 1.5, ratedPower_kW: 130, ratedSpeed_rpm: 5500,
+      peakTorque_Nm: 270, numberOfCylinders: 4,
+      exhaustFlowRate_kg_h: 230, exhaustTemp_C: 690,
+      exhaustPressure_kPa: 103, CO_ppm: 4500, HC_ppm: 260,
+      NOx_ppm: 1000, NO2_fraction: 0.02, PM_mg_Nm3: 3,
+      SO2_ppm: 1, O2_percent: 1.0, H2O_percent: 12.5, CO2_percent: 13.5,
+    },
+  },
+  {
+    name: "1.6L 4-cyl Gasoline Turbo (Ford EcoBoost / PSA THP class)",
+    inputs: {
+      engineType: "gasoline", application: "heavy_duty_onroad",
+      displacement_L: 1.6, ratedPower_kW: 147, ratedSpeed_rpm: 5500,
+      peakTorque_Nm: 290, numberOfCylinders: 4,
+      exhaustFlowRate_kg_h: 260, exhaustTemp_C: 710,
+      exhaustPressure_kPa: 103, CO_ppm: 4200, HC_ppm: 240,
+      NOx_ppm: 950, NO2_fraction: 0.02, PM_mg_Nm3: 3,
+      SO2_ppm: 1, O2_percent: 1.1, H2O_percent: 12, CO2_percent: 13,
+    },
+  },
+  {
+    name: "1.2L 4-cyl Light-Duty Diesel (Renault K9K / PSA DV4 class)",
+    inputs: {
+      engineType: "diesel", application: "heavy_duty_onroad",
+      displacement_L: 1.2, ratedPower_kW: 55, ratedSpeed_rpm: 4000,
+      peakTorque_Nm: 180, numberOfCylinders: 4,
+      exhaustFlowRate_kg_h: 130, exhaustTemp_C: 250,
+      exhaustPressure_kPa: 103, CO_ppm: 250, HC_ppm: 40,
+      NOx_ppm: 550, NO2_fraction: 0.08, PM_mg_Nm3: 18,
+      SO2_ppm: 3, O2_percent: 11, H2O_percent: 4.5, CO2_percent: 6,
+    },
+  },
+  {
+    name: "1.5L 4-cyl Light-Duty Diesel (Renault K9K 1.5 dCi class)",
+    inputs: {
+      engineType: "diesel", application: "heavy_duty_onroad",
+      displacement_L: 1.5, ratedPower_kW: 81, ratedSpeed_rpm: 4000,
+      peakTorque_Nm: 260, numberOfCylinders: 4,
+      exhaustFlowRate_kg_h: 180, exhaustTemp_C: 260,
+      exhaustPressure_kPa: 103, CO_ppm: 280, HC_ppm: 45,
+      NOx_ppm: 580, NO2_fraction: 0.08, PM_mg_Nm3: 16,
+      SO2_ppm: 3, O2_percent: 10.5, H2O_percent: 5, CO2_percent: 6.5,
+    },
+  },
+  {
+    name: "1.6L 4-cyl Light-Duty Diesel (PSA DV6 / Ford TDCi class)",
+    inputs: {
+      engineType: "diesel", application: "heavy_duty_onroad",
+      displacement_L: 1.6, ratedPower_kW: 88, ratedSpeed_rpm: 3750,
+      peakTorque_Nm: 300, numberOfCylinders: 4,
+      exhaustFlowRate_kg_h: 210, exhaustTemp_C: 270,
+      exhaustPressure_kPa: 103, CO_ppm: 300, HC_ppm: 48,
+      NOx_ppm: 520, NO2_fraction: 0.08, PM_mg_Nm3: 15,
+      SO2_ppm: 3, O2_percent: 10, H2O_percent: 5, CO2_percent: 7,
+    },
+  },
+  // ---- Light-Duty (≥ 2.0 L) ----
   {
     name: "2.0L Light-Duty Diesel (VW EA288 class)",
     inputs: {

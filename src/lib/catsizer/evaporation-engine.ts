@@ -3,61 +3,86 @@
  *
  * Implements the d²-law (quasi-steady evaporation) with corrections for:
  * - Convective enhancement (Ranz-Marshall)
- * - Stefan flow (blowing factor)
+ * - Film temperature evaluation for vapor pressure
+ * - Stefan flow (Spalding B_M)
+ * - Turbulence intensity from mixer
  * - Urea thermolysis and HNCO hydrolysis kinetics
  * - Temperature-dependent thermophysical properties
  *
  * References:
  * - Birkhold et al., SAE 2006-01-0643 (urea-water spray modeling)
- * - Abramzon & Sirignano, Int. J. Heat Mass Transfer 32(9), 1989 (droplet evaporation)
+ * - Abramzon & Sirignano, Int. J. Heat Mass Transfer 32(9), 1989
  * - Koebel et al., Catal. Today 73, 2002 (urea decomposition kinetics)
+ * - Mundo & Sommerfeld, Int. J. Multiphase Flow 21(2), 1995 (wall impingement)
  */
 
 // ─── Thermophysical Properties ──────────────────────────────────────────────
 
-const R_GAS = 8.314; // J/(mol·K)
-
 interface FluidProps {
-  rho: number;       // density [kg/m³]
-  mu: number;        // dynamic viscosity [Pa·s]
-  cp: number;        // specific heat [J/(kg·K)]
-  k: number;         // thermal conductivity [W/(m·K)]
-  Dv: number;        // vapor diffusivity in air [m²/s]
-  Pr: number;        // Prandtl number
-  Sc: number;        // Schmidt number
+  rho: number;
+  mu: number;
+  cp: number;
+  k: number;
+  Dv: number;
+  Pr: number;
+  Sc: number;
 }
 
 function exhaustGasProps(T_K: number): FluidProps {
   const rho = 101325 / (287 * T_K);
-  const mu = 1.458e-6 * T_K ** 1.5 / (T_K + 110.4); // Sutherland
+  const mu = 1.458e-6 * Math.pow(T_K, 1.5) / (T_K + 110.4);
   const cp = 1005 + 0.1 * (T_K - 300);
-  const k = 0.0241 * (T_K / 273.15) ** 0.81;
-  const Dv = 2.5e-5 * (T_K / 300) ** 1.75;
+  const k = 0.0241 * Math.pow(T_K / 273.15, 0.81);
+  const Dv = 2.5e-5 * Math.pow(T_K / 300, 1.75);
   const Pr = mu * cp / k;
   const Sc = mu / (rho * Dv);
   return { rho, mu, cp, k, Dv, Pr, Sc };
 }
 
 function ureaWaterProps(T_K: number) {
-  const x_urea = 0.325; // 32.5% urea (AdBlue)
-  const rho_w = 1000 - 0.1 * (T_K - 293);
+  const x_urea = 0.325;
+  const rho_w = 1000 - 0.15 * (T_K - 293);
   const rho = rho_w * (1 + 0.3 * x_urea);
   const cp = 4186 * (1 - x_urea) + 1550 * x_urea;
-  const hfg = 2.257e6 * (1 - x_urea) + 1.8e6 * x_urea; // latent heat [J/kg]
-  const T_boil = 373 + 10 * x_urea; // elevated boiling point [K]
-  const sigma = 0.072 * (1 - 0.002 * (T_K - 293)); // surface tension [N/m]
+  // Watson correlation: latent heat decreases near critical point
+  const T_crit = 647;
+  const hfg_ref = 2.257e6;
+  const hfg_water = hfg_ref * Math.pow(Math.max(0.05, (T_crit - Math.min(T_K, 640)) / (T_crit - 373)), 0.38);
+  const hfg = hfg_water * (1 - x_urea) + 1.8e6 * x_urea;
+  const T_boil = 373 + 10 * x_urea;
+  const sigma = 0.072 * (1 - 0.002 * (T_K - 293));
   return { rho, cp, hfg, T_boil, sigma, x_urea };
+}
+
+/**
+ * Water vapor pressure via Antoine equation (NIST)
+ * Returns P_sat in Pa, input T in K
+ */
+function waterVaporPressure_Pa(T_K: number): number {
+  const T_C = Math.min(T_K - 273.15, 374);
+  if (T_C < 1) return 611; // triple point
+  // Antoine constants for water, valid 1-100°C
+  if (T_C <= 100) {
+    const A = 8.07131, B = 1730.63, C = 233.426;
+    const logP_mmHg = A - B / (C + T_C);
+    return Math.pow(10, logP_mmHg) * 133.322;
+  }
+  // Above 100°C: Clausius-Clapeyron from 100°C reference
+  const P_100 = 101325;
+  const hfg = 2.257e6;
+  const M_w = 0.018015;
+  return P_100 * Math.exp((hfg * M_w / 8.314) * (1 / 373.15 - 1 / T_K));
 }
 
 // ─── Rosin-Rammler Droplet Size Distribution ────────────────────────────────
 
 export interface RosinRammlerParams {
-  smd_um: number;    // Sauter mean diameter [µm]
-  n_spread: number;  // spread parameter (typically 2-4)
+  smd_um: number;
+  n_spread: number;
 }
 
 export function rosinRammlerCDF(d_um: number, params: RosinRammlerParams): number {
-  const d_bar = params.smd_um * 1.2; // characteristic diameter
+  const d_bar = params.smd_um * 1.2;
   return 1 - Math.exp(-Math.pow(d_um / d_bar, params.n_spread));
 }
 
@@ -67,7 +92,7 @@ export function sampleRosinRammler(params: RosinRammlerParams, count: number): n
     const u = Math.random();
     const d_bar = params.smd_um * 1.2;
     const d = d_bar * Math.pow(-Math.log(1 - u), 1 / params.n_spread);
-    sizes.push(Math.max(5, Math.min(d, params.smd_um * 4)));
+    sizes.push(Math.max(5, Math.min(d, params.smd_um * 3.5)));
   }
   return sizes;
 }
@@ -76,28 +101,28 @@ export function sampleRosinRammler(params: RosinRammlerParams, count: number): n
 
 export interface EvaporationStep {
   time_ms: number;
-  d_um: number;             // current diameter [µm]
-  d2_ratio: number;         // (d/d0)² — should decrease linearly for d²-law
-  T_droplet_C: number;      // droplet temperature [°C]
-  T_gas_C: number;          // local gas temperature [°C]
-  position_mm: number;      // axial position from injector [mm]
-  velocity_m_s: number;     // droplet velocity [m/s]
+  d_um: number;
+  d2_ratio: number;
+  T_droplet_C: number;
+  T_gas_C: number;
+  position_mm: number;
+  velocity_m_s: number;
   state: "liquid" | "evaporating" | "thermolysis" | "nh3_gas" | "deposit";
-  water_fraction: number;   // remaining water fraction [0-1]
-  urea_fraction: number;    // remaining urea fraction [0-1]
-  hnco_ppm: number;         // HNCO concentration [ppm]
-  nh3_ppm: number;          // NH₃ concentration [ppm]
-  evapRate_kg_s: number;    // instantaneous evaporation rate [kg/s]
-  Re_droplet: number;       // droplet Reynolds number
-  Nu: number;               // Nusselt number (Ranz-Marshall)
-  Sh: number;               // Sherwood number
+  water_fraction: number;
+  urea_fraction: number;
+  hnco_ppm: number;
+  nh3_ppm: number;
+  evapRate_kg_s: number;
+  Re_droplet: number;
+  Nu: number;
+  Sh: number;
 }
 
 export interface EvaporationProfile {
   steps: EvaporationStep[];
   totalTime_ms: number;
   evapComplete_pct: number;
-  d2_slope: number;         // d²-law slope [µm²/ms] — the evaporation constant K
+  d2_slope: number;
   wallImpingement: boolean;
   depositRisk: "none" | "low" | "moderate" | "high";
   nh3_yield_pct: number;
@@ -106,11 +131,11 @@ export interface EvaporationProfile {
 }
 
 export interface EvaporationInputs {
-  d0_um: number;            // initial droplet diameter [µm]
-  T_gas_C: number;          // exhaust gas temperature [°C]
-  T_droplet_init_C: number; // initial droplet temperature [°C]
-  v_gas_m_s: number;        // gas velocity [m/s]
-  v_droplet_init_m_s: number; // initial droplet velocity [m/s]
+  d0_um: number;
+  T_gas_C: number;
+  T_droplet_init_C: number;
+  v_gas_m_s: number;
+  v_droplet_init_m_s: number;
   pipe_diameter_mm: number;
   injector_to_scr_mm: number;
   mixerType: "none" | "blade" | "swirl" | "tab";
@@ -118,18 +143,25 @@ export interface EvaporationInputs {
 }
 
 export function computeEvaporationProfile(inputs: EvaporationInputs): EvaporationProfile {
-  const dt_ms = 0.5; // time step [ms]
-  const maxTime_ms = 200; // max simulation time
+  const dt_ms = 0.05; // fine timestep for smooth charts
+  const maxTime_ms = 200;
   const steps: EvaporationStep[] = [];
+  let stepCounter = 0;
+  const recordInterval = 5; // record every 5th step (0.25 ms resolution)
 
-  let d = inputs.d0_um; // current diameter [µm]
-  const d0 = inputs.d0_um;
-  let T_d = inputs.T_droplet_init_C + 273.15; // droplet T [K]
-  let T_g = inputs.T_gas_C + 273.15; // gas T [K]
+  // Mixer secondary breakup — applied to effective initial diameter
+  const breakupFactor = inputs.mixerType === "blade" ? 0.65
+    : inputs.mixerType === "swirl" ? 0.80
+    : inputs.mixerType === "tab" ? 0.75 : 1.0;
+
+  const d0_eff = inputs.d0_um * breakupFactor;
+  let d = d0_eff;
+  let T_d = inputs.T_droplet_init_C + 273.15;
+  let T_g = inputs.T_gas_C + 273.15;
   let v_d = inputs.v_droplet_init_m_s;
-  let v_g = inputs.v_gas_m_s;
-  let x_mm = 0; // axial position [mm]
-  let water_frac = 1 - 0.325; // water fraction (AdBlue = 67.5% water)
+  const v_g = inputs.v_gas_m_s;
+  let x_mm = 0;
+  let water_frac = 1 - 0.325;
   let urea_frac = 0.325;
   let nh3_cumul = 0;
   let hnco_cumul = 0;
@@ -137,139 +169,165 @@ export function computeEvaporationProfile(inputs: EvaporationInputs): Evaporatio
 
   const pipeR_mm = inputs.pipe_diameter_mm / 2;
 
-  // Mixer effects on gas velocity profile
-  const mixerFactor = inputs.mixerType === "swirl" ? 1.3
-    : inputs.mixerType === "blade" ? 1.1
-    : inputs.mixerType === "tab" ? 1.15 : 1.0;
+  // Mixer turbulence intensity
+  const turbIntensity = inputs.mixerType === "swirl" ? 0.25
+    : inputs.mixerType === "blade" ? 0.18
+    : inputs.mixerType === "tab" ? 0.15 : 0.05;
 
-  // Mixer position (typically 30-40% of distance)
   const mixerPos_mm = inputs.injector_to_scr_mm * 0.35;
 
   for (let t = 0; t <= maxTime_ms; t += dt_ms) {
-    if (d < 1) break; // fully evaporated
+    if (d < 1) break;
 
     const dt_s = dt_ms / 1000;
     const d_m = d * 1e-6;
-    const gas = exhaustGasProps(T_g);
+
+    // Film temperature (1/3 rule) — but clamp to avoid extreme vapor pressures
+    const T_film = T_d + (T_g - T_d) * 0.33;
+    const gas_film = exhaustGasProps(T_film);
+    const gas_inf = exhaustGasProps(T_g);
     const liq = ureaWaterProps(T_d);
 
-    // Relative velocity
-    const v_rel = Math.abs(v_g * mixerFactor - v_d);
+    // Relative velocity with turbulent fluctuation
+    const v_rel_mean = Math.abs(v_g - v_d);
+    const v_turb = v_g * turbIntensity * (x_mm > mixerPos_mm ? 1.0 : 0.3);
+    const v_rel = Math.sqrt(v_rel_mean * v_rel_mean + v_turb * v_turb);
 
     // Droplet Reynolds number
-    const Re_d = gas.rho * v_rel * d_m / gas.mu;
+    const Re_d = Math.max(0.01, gas_inf.rho * v_rel * d_m / gas_film.mu);
 
     // Ranz-Marshall correlations
-    const Nu = 2 + 0.6 * Re_d ** 0.5 * gas.Pr ** 0.333;
-    const Sh = 2 + 0.6 * Re_d ** 0.5 * gas.Sc ** 0.333;
+    const Nu_0 = 2 + 0.6 * Math.pow(Re_d, 0.5) * Math.pow(gas_film.Pr, 0.333);
+    const Sh_0 = 2 + 0.6 * Math.pow(Re_d, 0.5) * Math.pow(gas_film.Sc, 0.333);
 
-    // Spalding mass transfer number
-    const Y_s = Math.min(0.95, Math.exp(17.44 - 5330 / T_d) / (inputs.pressure_kPa * 1000 / 101325));
-    const B_M = Math.max(0, Y_s / (1 - Y_s));
+    // Vapor pressure at DROPLET surface temperature (not film T)
+    // Using droplet T is physically correct — the vapor is at the droplet surface
+    const P_vap = waterVaporPressure_Pa(T_d);
+    const P_total = inputs.pressure_kPa * 1000;
+    const Y_s = Math.min(0.95, (P_vap / P_total) * (18.015 / 28.97));
+    const Y_inf = 0.03;
+    const B_M = Math.max(0.001, (Y_s - Y_inf) / Math.max(0.05, 1 - Y_s));
 
-    // Evaporation rate (d²-law with convective correction)
-    const K = (8 * gas.k * Math.log(1 + B_M)) / (liq.rho * liq.cp);
-    const K_conv = K * (Nu / 2); // convective enhancement
+    // Abramzon-Sirignano blowing correction
+    const F_M = B_M > 0.01
+      ? Math.pow(1 + B_M, 0.7) * Math.log(1 + B_M) / B_M
+      : 1.0;
+    const Sh_star = 2 + (Sh_0 - 2) / Math.max(0.1, F_M);
+
+    // Evaporation constant K [m²/s]
+    const K = (4 * gas_inf.rho * gas_film.Dv * Sh_star * Math.log(1 + B_M)) / liq.rho;
 
     // d² decrease
     const d2_old = d_m * d_m;
-    const d2_new = Math.max(0, d2_old - K_conv * dt_s);
+    const d2_new = Math.max(0, d2_old - K * dt_s);
     const d_new_m = Math.sqrt(d2_new);
 
-    // Mass evaporated this step
-    const m_old = (Math.PI / 6) * liq.rho * d_m ** 3;
-    const m_new = (Math.PI / 6) * liq.rho * d_new_m ** 3;
-    const dm = m_old - m_new;
+    // Mass evaporated
+    const m_old = (Math.PI / 6) * liq.rho * Math.pow(d_m, 3);
+    const m_new = (Math.PI / 6) * liq.rho * Math.pow(d_new_m, 3);
+    const dm = Math.max(0, m_old - m_new);
     const evapRate = dm / dt_s;
 
-    // Water evaporates first, then urea decomposes
-    if (water_frac > 0.01) {
-      water_frac -= dm / m_old * water_frac;
-      water_frac = Math.max(0, water_frac);
+    // Water evaporates first
+    if (water_frac > 0.005) {
+      const dw = dm / (m_old + 1e-30) * water_frac;
+      water_frac = Math.max(0, water_frac - dw);
     }
 
-    // Urea thermolysis: (NH₂)₂CO → NH₃ + HNCO (T > 133°C / 406K)
+    // Urea thermolysis: (NH₂)₂CO → NH₃ + HNCO (onset ~133°C / 406K)
     let state: EvaporationStep["state"] = "liquid";
-    if (T_d > 373) {
-      state = "evaporating";
-    }
+    if (T_d > 353) state = "evaporating";
 
-    if (water_frac < 0.1 && T_d > 406) {
+    if (water_frac < 0.15 && T_d > 406) {
       state = "thermolysis";
-      const k_therm = 4.9e3 * Math.exp(-6200 / T_d); // Koebel 2002
+      const k_therm = 4.9e3 * Math.exp(-6200 / T_d);
       const urea_decomp = urea_frac * (1 - Math.exp(-k_therm * dt_s));
-      urea_frac -= urea_decomp;
-      nh3_cumul += urea_decomp * 0.283; // stoichiometric NH₃ yield
-      hnco_cumul += urea_decomp * 0.717; // HNCO intermediate
+      urea_frac = Math.max(0, urea_frac - urea_decomp);
+      nh3_cumul += urea_decomp * 0.283;
+      hnco_cumul += urea_decomp * 0.717;
     }
 
-    // HNCO hydrolysis: HNCO + H₂O → NH₃ + CO₂ (catalyzed by surfaces)
-    if (hnco_cumul > 0 && T_d > 473) {
-      const k_hydro = 2.5e5 * Math.exp(-8500 / T_g); // Koebel 2002
+    // HNCO hydrolysis (mixer surfaces act as catalyst)
+    if (hnco_cumul > 0 && T_d > 423) {
+      const surfaceFactor = inputs.mixerType !== "none" ? 3.0 : 1.0;
+      const k_hydro = 2.5e5 * surfaceFactor * Math.exp(-8500 / T_g);
       const hnco_conv = hnco_cumul * (1 - Math.exp(-k_hydro * dt_s));
-      hnco_cumul -= hnco_conv;
-      nh3_cumul += hnco_conv * 0.395; // stoichiometric
+      hnco_cumul = Math.max(0, hnco_cumul - hnco_conv);
+      nh3_cumul += hnco_conv * 0.395;
     }
 
-    if (d_new_m < 5e-6 && urea_frac < 0.05) {
+    if (d_new_m < 3e-6 && urea_frac < 0.03) {
       state = "nh3_gas";
     }
 
-    // Droplet heating (energy balance)
-    const Q_conv = Nu * gas.k * Math.PI * d_m * (T_g - T_d);
+    // Droplet heating — energy balance with Spalding B_T correction
+    const B_T = Math.max(0, gas_inf.cp * (T_g - T_d) / (liq.hfg + 1e-10));
+    const F_T = B_T > 0.01
+      ? Math.pow(1 + B_T, 0.7) * Math.log(1 + B_T) / B_T
+      : 1.0;
+    const Nu_star = 2 + (Nu_0 - 2) / Math.max(0.1, F_T);
+    const Q_conv = Nu_star * gas_film.k * Math.PI * d_m * (T_g - T_d);
     const Q_evap = dm * liq.hfg;
-    const dT = (Q_conv - Q_evap) / (m_new * liq.cp + 1e-20);
-    T_d += dT * dt_s;
-    T_d = Math.min(T_d, T_g); // can't exceed gas T
+    const m_thermal = m_new * liq.cp;
+    if (m_thermal > 1e-20) {
+      const dT = (Q_conv - Q_evap) / m_thermal;
+      T_d += dT * dt_s;
+    }
+    T_d = Math.min(T_d, T_g);
+    T_d = Math.max(T_d, inputs.T_droplet_init_C + 273.15);
 
-    // Droplet drag (Stokes + correction)
-    const Cd = Re_d > 0 ? (24 / Re_d) * (1 + 0.15 * Re_d ** 0.687) : 24;
-    const F_drag = 0.5 * Cd * gas.rho * Math.PI * (d_m / 2) ** 2 * v_rel ** 2;
+    // Drag (Schiller-Naumann)
+    const Cd = Re_d > 0.01 ? (24 / Re_d) * (1 + 0.15 * Math.pow(Re_d, 0.687)) : 2400;
+    const F_drag = 0.5 * Cd * gas_inf.rho * Math.PI * Math.pow(d_m / 2, 2) * v_rel * v_rel;
     const a_drag = F_drag / (m_new + 1e-20);
     if (v_d > v_g) {
       v_d -= a_drag * dt_s;
     } else {
-      v_d += a_drag * dt_s * 0.5;
+      v_d += a_drag * dt_s * 0.3;
     }
-    v_d = Math.max(0.1, v_d);
+    v_d = Math.max(0.05, v_d);
 
     // Position update
     x_mm += v_d * dt_s * 1000;
 
     // Wall impingement check
-    if (x_mm > pipeR_mm * 0.9 * Math.tan(30 * Math.PI / 180) && T_d < 473) {
+    const radialDrift_mm = x_mm * Math.tan((15 * Math.PI) / 180);
+    if (radialDrift_mm > pipeR_mm * 0.85 && T_d < 473) {
       wallHit = true;
       if (T_d < 433) state = "deposit";
     }
 
-    // Gas temperature decreases slightly along pipe (heat loss)
-    T_g = (inputs.T_gas_C + 273.15) - 0.02 * x_mm;
+    // Gas T decreases along pipe
+    T_g = (inputs.T_gas_C + 273.15) - 0.015 * x_mm;
 
-    d = d_new_m * 1e6; // back to µm
+    d = d_new_m * 1e6;
 
-    steps.push({
-      time_ms: t,
-      d_um: d,
-      d2_ratio: (d / d0) ** 2,
-      T_droplet_C: T_d - 273.15,
-      T_gas_C: T_g - 273.15,
-      position_mm: x_mm,
-      velocity_m_s: v_d,
-      state,
-      water_fraction: water_frac,
-      urea_fraction: urea_frac,
-      hnco_ppm: hnco_cumul * 1e6,
-      nh3_ppm: nh3_cumul * 1e6,
-      evapRate_kg_s: evapRate,
-      Re_droplet: Re_d,
-      Nu,
-      Sh,
-    });
+    stepCounter++;
+    if (stepCounter % recordInterval === 0 || d < 1 || t === 0) {
+      steps.push({
+        time_ms: t,
+        d_um: d,
+        d2_ratio: Math.pow(d / d0_eff, 2),
+        T_droplet_C: T_d - 273.15,
+        T_gas_C: T_g - 273.15,
+        position_mm: x_mm,
+        velocity_m_s: v_d,
+        state,
+        water_fraction: water_frac,
+        urea_fraction: urea_frac,
+        hnco_ppm: hnco_cumul * 1e6,
+        nh3_ppm: nh3_cumul * 1e6,
+        evapRate_kg_s: evapRate,
+        Re_droplet: Re_d,
+        Nu: Nu_star,
+        Sh: Sh_star,
+      });
+    }
 
     if (x_mm > inputs.injector_to_scr_mm) break;
   }
 
-  // Compute d²-law slope (linear regression on d² vs time)
+  // d²-law slope (linear regression)
   const n = steps.length;
   let sumT = 0, sumD2 = 0, sumTD2 = 0, sumT2 = 0;
   for (const s of steps) {
@@ -292,7 +350,7 @@ export function computeEvaporationProfile(inputs: EvaporationInputs): Evaporatio
     steps,
     totalTime_ms: lastStep?.time_ms ?? 0,
     evapComplete_pct: Math.min(100, evapComplete),
-    d2_slope: d2_slope * d0 * d0, // absolute slope [µm²/ms]
+    d2_slope: d2_slope * d0_eff * d0_eff,
     wallImpingement: wallHit,
     depositRisk,
     nh3_yield_pct: nh3_cumul * 100 / 0.325,
@@ -326,20 +384,19 @@ export function computeEnsembleEvaporation(
   const meanTime = profiles.reduce((s, p) => s + p.totalTime_ms, 0) / nDroplets;
   const meanEvap = profiles.reduce((s, p) => s + p.evapComplete_pct, 0) / nDroplets;
 
-  // Build size distribution histogram
-  const bins = [10, 20, 40, 60, 80, 100, 150, 200, 300];
+  const bins = [5, 10, 20, 30, 40, 50, 60, 80, 100, 120];
   const sizeDistribution = bins.map((d) => ({
     d_um: d,
-    count: sizes.filter((s) => s >= d - 10 && s < d + 10).length,
+    count: sizes.filter((s) => s >= d - 5 && s < d + 5).length,
   }));
 
-  // Build ensemble d² vs time
   const maxTime = Math.max(...profiles.map((p) => p.totalTime_ms));
   const d2_vs_time: EnsembleResult["d2_vs_time"] = [];
-  for (let t = 0; t <= maxTime; t += 1) {
+  const timeStep = Math.max(0.1, maxTime / 80); // ~80 points for smooth charts
+  for (let t = 0; t <= maxTime; t += timeStep) {
     const d2Values = profiles
       .map((p) => {
-        const step = p.steps.find((s) => Math.abs(s.time_ms - t) < 0.6);
+        const step = p.steps.find((s) => Math.abs(s.time_ms - t) < timeStep);
         return step?.d2_ratio;
       })
       .filter((v): v is number => v !== undefined);

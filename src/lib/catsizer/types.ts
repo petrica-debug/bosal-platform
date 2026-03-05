@@ -2,7 +2,7 @@
 // DOMAIN 1: AUTOMOTIVE DEPOLLUTION
 // ============================================================
 
-export type EngineType = "diesel" | "natural_gas" | "dual_fuel" | "biogas";
+export type EngineType = "diesel" | "gasoline" | "natural_gas" | "dual_fuel" | "biogas";
 export type Application =
   | "heavy_duty_onroad"
   | "heavy_duty_offroad"

@@ -52,7 +52,62 @@ import {
   XCircle,
   Loader2,
   RotateCcw,
+  FlaskConical,
+  Layers,
+  TrendingUp,
+  AlertTriangle,
+  Zap,
+  Shield,
+  DollarSign,
+  Microscope,
+  Activity,
+  Settings2,
+  Database,
+  Info,
 } from "lucide-react";
+import {
+  runPreDevSweep,
+  generateConfigMatrix,
+  getDefaultWallThickness,
+  type PreDevInput,
+  type PreDevResult,
+  type WashcoatType,
+  type SplitConfig,
+  type RAGVerdict,
+  type WashcoatAnalysisSummary,
+  type DeactivationBreakdown,
+  type GHSVAnalysis,
+  type SubstrateAnalysis,
+  type TechnologyMatch,
+} from "@/lib/catsizer/predev-engine";
+import type { EmissionStandard } from "@/lib/catsizer/types";
+import { AreaChart, Area } from "recharts";
+import {
+  runTransientWLTPSim,
+  LIGHT_DUTY_PRESETS,
+  WLTP_EMISSION_LIMITS,
+  type TransientSimResult,
+  type TransientSimConfig,
+  type TransientCatalystConfig,
+  type WLTPEmissionStandard,
+  type LightDutyEnginePreset,
+} from "@/lib/catsizer/wltp-transient-engine";
+import {
+  type SGBenchData,
+  type SGBSpeciesData,
+  buildProfileFromSGB,
+  validateSGBData,
+  EXAMPLE_SGB_DOC,
+  EXAMPLE_SGB_TWC,
+} from "@/lib/catsizer/sgb-data";
+import { CATALYST_PROFILES_DB, type DetailedCatalystProfile } from "@/lib/catsizer/catalyst-profiles";
+import {
+  getAIOptimizationAdvice,
+} from "@/lib/ai/catalyst-advisor";
+import type {
+  AIAdvisorResponse,
+  AIAdvisorRecommendation,
+} from "@/lib/ai/types";
 
 // ─── Euro 6d-ISC Limits (g/km) ───────────────────────────────────────────────
 const EURO_LIMITS = {
@@ -510,6 +565,66 @@ export default function WLTPPage() {
   const [progress, setProgress] = useState(0);
   const [resultTab, setResultTab] = useState("time-resolved");
 
+  // Top-level tab
+  const [mainTab, setMainTab] = useState<"simulation" | "predev">("simulation");
+
+  // Pre-Development workbench state
+  const [predevCpsi, setPredevCpsi] = useState<number[]>([400, 600]);
+  const [predevWashcoats, setPredevWashcoats] = useState<WashcoatType[]>(["oxidation"]);
+  const [predevSplits, setPredevSplits] = useState<SplitConfig[]>(["single"]);
+  const [predevPgmMin, setPredevPgmMin] = useState(40);
+  const [predevPgmMax, setPredevPgmMax] = useState(120);
+  const [predevPgmStep, setPredevPgmStep] = useState(20);
+  const [predevDiameter, setPredevDiameter] = useState(267);
+  const [predevLength, setPredevLength] = useState(254);
+  const [predevExhaustFlow, setPredevExhaustFlow] = useState(900);
+  const [predevExhaustTemp, setPredevExhaustTemp] = useState(350);
+  const [predevPower, setPredevPower] = useState(250);
+  const [predevRawNOx, setPredevRawNOx] = useState(800);
+  const [predevRawCO, setPredevRawCO] = useState(400);
+  const [predevRawHC, setPredevRawHC] = useState(120);
+  const [predevOemNOx, setPredevOemNOx] = useState(0);
+  const [predevEmissionStd, setPredevEmissionStd] = useState<EmissionStandard>("euro_vi_e");
+  const [wltpEmissionStd, setWltpEmissionStd] = useState<WLTPEmissionStandard>("euro_6d_diesel");
+  const [selectedPresetIdx, setSelectedPresetIdx] = useState<number | null>(null);
+  const [predevDisplacement, setPredevDisplacement] = useState(1.6);
+  const [predevCylinders, setPredevCylinders] = useState(4);
+  const [predevFuelType, setPredevFuelType] = useState<"diesel" | "gasoline">("diesel");
+  const [predevPM, setPredevPM] = useState(22);
+  const [predevAgingHours, setPredevAgingHours] = useState(5000);
+  const [predevMaxTemp, setPredevMaxTemp] = useState(700);
+  const [predevFuelSulfur, setPredevFuelSulfur] = useState(10);
+  const [predevO2, setPredevO2] = useState(10);
+  const [predevH2O, setPredevH2O] = useState(8);
+  const [predevCO2, setPredevCO2] = useState(7);
+  const [predevSO2, setPredevSO2] = useState(5);
+  const [predevResults, setPredevResults] = useState<PreDevResult[]>([]);
+  const [predevRunning, setPredevRunning] = useState(false);
+  const [predevSelectedIdx, setPredevSelectedIdx] = useState<number | null>(null);
+  const [predevDetailTab, setPredevDetailTab] = useState<"transient" | "parametric" | "deactivation" | "sgb_advisor">("transient");
+
+  // Transient WLTP simulation state
+  const [transientResult, setTransientResult] = useState<TransientSimResult | null>(null);
+
+  // SGB & AI Advisor state
+  const [sgbData, setSgbData] = useState<SGBenchData>(EXAMPLE_SGB_DOC);
+  const [sgbProfile, setSgbProfile] = useState<DetailedCatalystProfile | null>(null);
+  const [sgbSimResult, setSgbSimResult] = useState<TransientSimResult | null>(null);
+  const [sgbSimRunning, setSgbSimRunning] = useState(false);
+  const [aiAdvice, setAiAdvice] = useState<AIAdvisorResponse | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [iterationHistory, setIterationHistory] = useState<Array<{
+    iteration: number;
+    config: Partial<SGBenchData>;
+    result: TransientSimResult;
+    advice: AIAdvisorResponse | null;
+    verdict: string;
+  }>>([]);
+  const [sgbJsonMode, setSgbJsonMode] = useState(false);
+  const [sgbJsonText, setSgbJsonText] = useState("");
+  const [transientRunning, setTransientRunning] = useState(false);
+
   const activeCycle = cycleType === "wltp" ? WLTP_CYCLE : cycleType === "nedc" ? NEDC_CYCLE : customCycle;
 
   const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -685,43 +800,319 @@ export default function WLTPPage() {
       }
     : null;
 
+  const applyLightDutyPreset = useCallback((idx: number) => {
+    const preset = LIGHT_DUTY_PRESETS[idx];
+    if (!preset) return;
+    setSelectedPresetIdx(idx);
+    setPredevDisplacement(preset.displacement_L);
+    setPredevPower(preset.power_kW);
+    setPredevFuelType(preset.fuelType);
+    setPredevCylinders(preset.cylinders);
+    setPredevRawCO(preset.rawCO_ppm);
+    setPredevRawHC(preset.rawHC_ppm);
+    setPredevRawNOx(preset.rawNOx_ppm);
+    setPredevPM(preset.rawPM_mg_Nm3);
+    // Auto-select matching emission standard
+    setWltpEmissionStd(preset.fuelType === "diesel" ? "euro_6d_diesel" : "euro_6d_gasoline");
+  }, []);
+
+  // Transient WLTP simulation handler
+  const handleRunTransient = useCallback(() => {
+    setTransientRunning(true);
+    setTransientResult(null);
+
+    setTimeout(() => {
+      const simConfig: TransientSimConfig = {
+        engine: {
+          displacement_L: predevDisplacement,
+          ratedPower_kW: predevPower,
+          fuelType: predevFuelType,
+          numberOfCylinders: predevCylinders,
+          rawCO_ppm: predevRawCO,
+          rawHC_ppm: predevRawHC,
+          rawNOx_ppm: predevRawNOx,
+          rawPM_mg_Nm3: predevPM,
+        },
+        catalyst: {
+          cpsi: predevCpsi[0] || 400,
+          wallThickness_mil: getDefaultWallThickness(predevCpsi[0] || 400),
+          washcoatType: predevWashcoats[0] || "oxidation",
+          pgmLoading_g_ft3: predevPgmMin,
+          diameter_mm: predevDiameter,
+          length_mm: predevLength,
+          splitConfig: predevSplits[0] || "single",
+        },
+        emissionStandard: wltpEmissionStd,
+        agingHours: predevAgingHours,
+        maxTemp_C: predevMaxTemp,
+        fuelSulfur_ppm: predevFuelSulfur,
+      };
+
+      const wltpCycle = WLTP_CYCLE.map((p) => ({ time: p.time, speed: p.speed, phase: p.phase }));
+      const result = runTransientWLTPSim(wltpCycle, simConfig);
+      setTransientResult(result);
+      setTransientRunning(false);
+    }, 100);
+  }, [predevCpsi, predevWashcoats, predevPgmMin, predevSplits, predevDiameter, predevLength, predevRawNOx, predevRawCO, predevRawHC, predevPower, predevDisplacement, predevFuelType, predevCylinders, predevPM, wltpEmissionStd, predevAgingHours, predevMaxTemp, predevFuelSulfur]);
+
+  // Pre-Development sweep handler
+  const handleRunPredev = useCallback(() => {
+    setPredevRunning(true);
+    setPredevResults([]);
+    setPredevSelectedIdx(null);
+
+    setTimeout(() => {
+      const configs = generateConfigMatrix(
+        predevCpsi, predevWashcoats, predevPgmMin, predevPgmMax, predevPgmStep,
+        predevSplits, "DOC", predevDiameter, predevLength
+      );
+
+      const input: PreDevInput = {
+        rawNOx_ppm: predevRawNOx,
+        rawCO_ppm: predevRawCO,
+        rawHC_ppm: predevRawHC,
+        oemNOx_ppm: predevOemNOx,
+        exhaustFlow_kg_h: predevExhaustFlow,
+        exhaustTemp_C: predevExhaustTemp,
+        power_kW: predevPower,
+        O2_percent: predevO2,
+        H2O_percent: predevH2O,
+        CO2_percent: predevCO2,
+        SO2_ppm: predevSO2,
+        emissionStandard: predevEmissionStd,
+        agingHours: predevAgingHours,
+        maxTemp_C: predevMaxTemp,
+        fuelSulfur_ppm: predevFuelSulfur,
+      };
+
+      const res = runPreDevSweep(input, configs);
+      setPredevResults(res);
+      setPredevRunning(false);
+    }, 100);
+  }, [predevCpsi, predevWashcoats, predevPgmMin, predevPgmMax, predevPgmStep, predevSplits, predevDiameter, predevLength, predevRawNOx, predevRawCO, predevRawHC, predevOemNOx, predevExhaustFlow, predevExhaustTemp, predevPower, predevO2, predevH2O, predevCO2, predevSO2, predevEmissionStd, predevAgingHours, predevMaxTemp, predevFuelSulfur]);
+
+  const predevConfigCount = predevCpsi.length * predevWashcoats.length * predevSplits.length * Math.max(1, Math.floor((predevPgmMax - predevPgmMin) / predevPgmStep) + 1);
+
+  // ── SGB Handlers ──
+  const handleSGBFieldChange = useCallback(<K extends keyof SGBenchData>(field: K, value: SGBenchData[K]) => {
+    setSgbData((prev) => ({ ...prev, [field]: value }));
+  }, []);
+
+  const handleSGBSpeciesChange = useCallback((idx: number, field: keyof SGBSpeciesData, value: number | string) => {
+    setSgbData((prev) => {
+      const species = [...prev.species];
+      species[idx] = { ...species[idx], [field]: value };
+      return { ...prev, species };
+    });
+  }, []);
+
+  const handleLoadSGBExample = useCallback((example: SGBenchData) => {
+    setSgbData(example);
+    setSgbProfile(null);
+    setSgbSimResult(null);
+    setAiAdvice(null);
+    setIterationHistory([]);
+  }, []);
+
+  const handleParseSGBJson = useCallback(() => {
+    try {
+      const parsed = JSON.parse(sgbJsonText) as SGBenchData;
+      setSgbData(parsed);
+      setSgbJsonMode(false);
+    } catch {
+      setAiError("Invalid JSON. Please check the format.");
+    }
+  }, [sgbJsonText]);
+
+  const handleBuildAndSimulate = useCallback(() => {
+    const errors = validateSGBData(sgbData);
+    if (errors.length > 0) {
+      setAiError(`Validation errors: ${errors.map((e) => e.message).join("; ")}`);
+      return;
+    }
+    setAiError(null);
+    setSgbSimRunning(true);
+    setSgbSimResult(null);
+    setAiAdvice(null);
+
+    setTimeout(() => {
+      const profile = buildProfileFromSGB(sgbData);
+      setSgbProfile(profile);
+
+      const simConfig: TransientSimConfig = {
+        engine: {
+          displacement_L: predevDisplacement,
+          ratedPower_kW: predevPower,
+          fuelType: predevFuelType,
+          numberOfCylinders: predevCylinders,
+          rawCO_ppm: predevRawCO,
+          rawHC_ppm: predevRawHC,
+          rawNOx_ppm: predevRawNOx,
+          rawPM_mg_Nm3: predevPM,
+        },
+        catalyst: {
+          cpsi: predevCpsi[0] || 400,
+          wallThickness_mil: getDefaultWallThickness(predevCpsi[0] || 400),
+          washcoatType: predevWashcoats[0] || "oxidation",
+          pgmLoading_g_ft3: sgbData.pgmLoading_g_ft3,
+          diameter_mm: predevDiameter,
+          length_mm: predevLength,
+          splitConfig: predevSplits[0] || "single",
+        },
+        emissionStandard: wltpEmissionStd,
+        agingHours: predevAgingHours,
+        maxTemp_C: predevMaxTemp,
+        fuelSulfur_ppm: predevFuelSulfur,
+      };
+
+      const wltpCycle = WLTP_CYCLE.map((p) => ({ time: p.time, speed: p.speed, phase: p.phase }));
+      const result = runTransientWLTPSim(wltpCycle, simConfig);
+      setSgbSimResult(result);
+
+      setIterationHistory((prev) => [
+        ...prev,
+        {
+          iteration: prev.length + 1,
+          config: { ...sgbData },
+          result,
+          advice: null,
+          verdict: result.homologation.some((h) => h.verdict === "red") ? "FAIL" : result.homologation.some((h) => h.verdict === "amber") ? "MARGINAL" : "PASS",
+        },
+      ]);
+
+      setSgbSimRunning(false);
+    }, 100);
+  }, [sgbData, predevDisplacement, predevPower, predevFuelType, predevCylinders, predevRawCO, predevRawHC, predevRawNOx, predevPM, predevCpsi, predevWashcoats, predevSplits, predevDiameter, predevLength, wltpEmissionStd, predevAgingHours, predevMaxTemp, predevFuelSulfur]);
+
+  const handleAskAI = useCallback(async () => {
+    if (!sgbSimResult) return;
+    setAiLoading(true);
+    setAiError(null);
+    try {
+      const catalyst: TransientCatalystConfig = {
+        cpsi: predevCpsi[0] || 400,
+        wallThickness_mil: getDefaultWallThickness(predevCpsi[0] || 400),
+        washcoatType: predevWashcoats[0] || "oxidation",
+        pgmLoading_g_ft3: sgbData.pgmLoading_g_ft3,
+        diameter_mm: predevDiameter,
+        length_mm: predevLength,
+        splitConfig: predevSplits[0] || "single",
+      };
+      const advice = await getAIOptimizationAdvice(sgbData, sgbSimResult, wltpEmissionStd, catalyst);
+      setAiAdvice(advice);
+      setIterationHistory((prev) => {
+        const updated = [...prev];
+        if (updated.length > 0) {
+          updated[updated.length - 1] = { ...updated[updated.length - 1], advice };
+        }
+        return updated;
+      });
+    } catch (err) {
+      setAiError(err instanceof Error ? err.message : "AI request failed");
+    } finally {
+      setAiLoading(false);
+    }
+  }, [sgbSimResult, sgbData, predevCpsi, predevWashcoats, predevDiameter, predevLength, predevSplits, wltpEmissionStd]);
+
+  const handleApplyRecommendation = useCallback((rec: AIAdvisorRecommendation) => {
+    setSgbData((prev) => {
+      const updated = { ...prev };
+      switch (rec.parameter) {
+        case "pgmLoading_g_ft3":
+          updated.pgmLoading_g_ft3 = parseFloat(rec.suggestedValue) || prev.pgmLoading_g_ft3;
+          break;
+        case "washcoatThickness_um":
+          updated.washcoatThickness_um = parseFloat(rec.suggestedValue) || prev.washcoatThickness_um;
+          break;
+        case "washcoatLoading_g_L":
+          updated.washcoatLoading_g_L = parseFloat(rec.suggestedValue) || prev.washcoatLoading_g_L;
+          break;
+        default:
+          break;
+      }
+      return updated;
+    });
+    if (rec.parameter === "cpsi") {
+      const val = parseInt(rec.suggestedValue);
+      if ([300, 400, 600, 900].includes(val)) setPredevCpsi([val]);
+    }
+    if (rec.parameter === "splitConfig") {
+      const val = rec.suggestedValue as SplitConfig;
+      if (["single", "2in_1in_2in", "2in_2in_2in"].includes(val)) setPredevSplits([val]);
+    }
+    if (rec.parameter === "diameter_mm") {
+      setPredevDiameter(parseFloat(rec.suggestedValue) || predevDiameter);
+    }
+    if (rec.parameter === "length_mm") {
+      setPredevLength(parseFloat(rec.suggestedValue) || predevLength);
+    }
+  }, [predevDiameter, predevLength]);
+
+  const VERDICT_COLORS: Record<RAGVerdict, string> = {
+    green: "#22c55e",
+    amber: "#f59e0b",
+    red: "#ef4444",
+  };
+
   return (
     <div className="flex flex-col gap-6 p-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">WLTP Cycle Simulation</h1>
+          <h1 className="text-2xl font-bold">WLTP Simulation & Pre-Development</h1>
+          <div className="inline-flex items-center gap-1.5 rounded-full bg-[#C8102E]/10 px-2.5 py-0.5 mt-1">
+            <span className="relative flex h-1.5 w-1.5"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#C8102E] opacity-75" /><span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-[#C8102E]" /></span>
+            <span className="text-[10px] font-medium tracking-wide text-[#C8102E]/80">AI Copilot — powered by BelgaLabs</span>
+          </div>
           <p className="text-sm text-muted-foreground">
-            Transient emission simulation over WLTP, NEDC, or custom drive cycles
+            Aftermarket transient cycle simulation and parametric catalyst optimization
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {results && (
+          {mainTab === "simulation" && results && (
             <Button variant="outline" size="sm" onClick={handleReset}>
               <RotateCcw className="mr-1.5 h-4 w-4" />
               Reset
             </Button>
           )}
-          <Button
-            size="sm"
-            onClick={handleRunSimulation}
-            disabled={isRunning || (cycleType === "custom" && !customCycle)}
-            className="bg-[#C8102E] hover:bg-[#A00D24] text-white"
-          >
-            {isRunning ? (
-              <>
-                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-                Simulating… {progress}%
-              </>
-            ) : (
-              <>
-                <Play className="mr-1.5 h-4 w-4" />
-                Run Simulation
-              </>
-            )}
-          </Button>
+          {mainTab === "simulation" && (
+            <Button
+              size="sm"
+              onClick={handleRunSimulation}
+              disabled={isRunning || (cycleType === "custom" && !customCycle)}
+              className="bg-[#C8102E] hover:bg-[#A00D24] text-white"
+            >
+              {isRunning ? (
+                <>
+                  <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                  Simulating… {progress}%
+                </>
+              ) : (
+                <>
+                  <Play className="mr-1.5 h-4 w-4" />
+                  Run Simulation
+                </>
+              )}
+            </Button>
+          )}
         </div>
       </div>
+
+      {/* Top-Level Tabs */}
+      <Tabs value={mainTab} onValueChange={(v) => setMainTab(v as "simulation" | "predev")}>
+        <TabsList className="w-full max-w-md">
+          <TabsTrigger value="simulation" className="flex-1 gap-1.5">
+            <Gauge className="h-4 w-4" />
+            Cycle Simulation
+          </TabsTrigger>
+          <TabsTrigger value="predev" className="flex-1 gap-1.5">
+            <FlaskConical className="h-4 w-4" />
+            Pre-Development
+          </TabsTrigger>
+        </TabsList>
+
+        {/* ═══════════════════ SIMULATION TAB ═══════════════════ */}
+        <TabsContent value="simulation" className="mt-4 space-y-6">
 
       {/* Progress bar */}
       {isRunning && (
@@ -1385,6 +1776,1163 @@ export default function WLTPPage() {
           </CardContent>
         </Card>
       )}
+        </TabsContent>
+
+        {/* ═══════════════════ PRE-DEVELOPMENT TAB ═══════════════════ */}
+        <TabsContent value="predev" className="mt-4 space-y-6">
+
+          {/* Sub-tabs: Transient Simulation | Parametric Sweep */}
+          <Tabs value={predevDetailTab} onValueChange={(v) => setPredevDetailTab(v as typeof predevDetailTab)}>
+            <TabsList className="w-full max-w-2xl">
+              <TabsTrigger value="transient" className="flex-1 gap-1.5 text-xs">
+                <Activity className="h-3.5 w-3.5" />
+                WLTP Transient Sim
+              </TabsTrigger>
+              <TabsTrigger value="sgb_advisor" className="flex-1 gap-1.5 text-xs">
+                <Zap className="h-3.5 w-3.5" />
+                SGB & AI Advisor
+              </TabsTrigger>
+              <TabsTrigger value="parametric" className="flex-1 gap-1.5 text-xs">
+                <TrendingUp className="h-3.5 w-3.5" />
+                Parametric Sweep
+              </TabsTrigger>
+              <TabsTrigger value="deactivation" className="flex-1 gap-1.5 text-xs">
+                <Shield className="h-3.5 w-3.5" />
+                Aging Analysis
+              </TabsTrigger>
+            </TabsList>
+
+            {/* ──────── TRANSIENT WLTP SIMULATION ──────── */}
+            <TabsContent value="transient" className="mt-4 space-y-4">
+              {/* Engine Preset + Catalyst Config */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                {/* Engine Preset */}
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-sm font-medium flex items-center gap-2">
+                      <Database className="h-4 w-4 text-[#C8102E]" />
+                      Engine Preset
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <Select onValueChange={(v) => applyLightDutyPreset(parseInt(v))}>
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue placeholder="Select light-duty engine..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Diesel</div>
+                        {LIGHT_DUTY_PRESETS.filter(p => p.fuelType === "diesel").map((p, i) => {
+                          const globalIdx = LIGHT_DUTY_PRESETS.indexOf(p);
+                          return <SelectItem key={globalIdx} value={String(globalIdx)} className="text-xs">{p.name}</SelectItem>;
+                        })}
+                        <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider border-t mt-1 pt-1">Gasoline</div>
+                        {LIGHT_DUTY_PRESETS.filter(p => p.fuelType === "gasoline").map((p) => {
+                          const globalIdx = LIGHT_DUTY_PRESETS.indexOf(p);
+                          return <SelectItem key={globalIdx} value={String(globalIdx)} className="text-xs">{p.name}</SelectItem>;
+                        })}
+                      </SelectContent>
+                    </Select>
+                    {selectedPresetIdx !== null && (
+                      <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                        <Badge variant="outline" className="text-[10px] h-5">
+                          {LIGHT_DUTY_PRESETS[selectedPresetIdx].fuelType === "diesel" ? "🟡 Diesel" : "🔴 Gasoline"}
+                        </Badge>
+                        <span>{LIGHT_DUTY_PRESETS[selectedPresetIdx].displacement_L}L / {LIGHT_DUTY_PRESETS[selectedPresetIdx].power_kW} kW</span>
+                      </div>
+                    )}
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-1">
+                        <Label className="text-[10px] text-muted-foreground">Displacement (L)</Label>
+                        <Input type="number" value={predevDisplacement} onChange={(e) => setPredevDisplacement(+e.target.value || 0)} className="h-7 text-xs" step="0.1" />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-[10px] text-muted-foreground">Power (kW)</Label>
+                        <Input type="number" value={predevPower} onChange={(e) => setPredevPower(+e.target.value || 0)} className="h-7 text-xs" />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-[10px] text-muted-foreground">Fuel Type</Label>
+                        <Select value={predevFuelType} onValueChange={(v) => {
+                          setPredevFuelType(v as "diesel" | "gasoline");
+                          setWltpEmissionStd(v === "diesel" ? "euro_6d_diesel" : "euro_6d_gasoline");
+                        }}>
+                          <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="diesel" className="text-xs">Diesel</SelectItem>
+                            <SelectItem value="gasoline" className="text-xs">Gasoline</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-[10px] text-muted-foreground">Fuel S (ppm)</Label>
+                        <Input type="number" value={predevFuelSulfur} onChange={(e) => setPredevFuelSulfur(+e.target.value || 0)} className="h-7 text-xs" />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-4 gap-2">
+                      <div className="space-y-1">
+                        <Label className="text-[10px] text-muted-foreground">CO (ppm)</Label>
+                        <Input type="number" value={predevRawCO} onChange={(e) => setPredevRawCO(+e.target.value || 0)} className="h-7 text-xs" />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-[10px] text-muted-foreground">HC (ppm)</Label>
+                        <Input type="number" value={predevRawHC} onChange={(e) => setPredevRawHC(+e.target.value || 0)} className="h-7 text-xs" />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-[10px] text-muted-foreground">NOx (ppm)</Label>
+                        <Input type="number" value={predevRawNOx} onChange={(e) => setPredevRawNOx(+e.target.value || 0)} className="h-7 text-xs" />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-[10px] text-muted-foreground">PM (mg/Nm³)</Label>
+                        <Input type="number" value={predevPM} onChange={(e) => setPredevPM(+e.target.value || 0)} className="h-7 text-xs" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Catalyst Config */}
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-sm font-medium flex items-center gap-2">
+                      <FlaskConical className="h-4 w-4 text-[#C8102E]" />
+                      Catalyst Design
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-1">
+                        <Label className="text-[10px] text-muted-foreground">CPSI</Label>
+                        <Select value={String(predevCpsi[0] || 400)} onValueChange={(v) => setPredevCpsi([parseInt(v)])}>
+                          <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {[300, 400, 600, 900].map((c) => (
+                              <SelectItem key={c} value={String(c)} className="text-xs">{c} cpsi</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-[10px] text-muted-foreground">PGM (g/ft³)</Label>
+                        <Input type="number" value={predevPgmMin} onChange={(e) => setPredevPgmMin(+e.target.value || 0)} className="h-7 text-xs" />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-[10px] text-muted-foreground">Ø Diameter (mm)</Label>
+                        <Input type="number" value={predevDiameter} onChange={(e) => setPredevDiameter(+e.target.value || 0)} className="h-7 text-xs" />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-[10px] text-muted-foreground">Length (mm)</Label>
+                        <Input type="number" value={predevLength} onChange={(e) => setPredevLength(+e.target.value || 0)} className="h-7 text-xs" />
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-[10px] text-muted-foreground">Washcoat</Label>
+                      <Select value={predevWashcoats[0] || "oxidation"} onValueChange={(v) => setPredevWashcoats([v as WashcoatType])}>
+                        <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="oxidation" className="text-xs">Oxidation (Pt-Pd/Al₂O₃)</SelectItem>
+                          <SelectItem value="ceria" className="text-xs">Ceria (Pd-Rh/CeZrO₂)</SelectItem>
+                          <SelectItem value="alumina" className="text-xs">Alumina (Pt/Al₂O₃)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-[10px] text-muted-foreground">Split Config</Label>
+                      <Select value={predevSplits[0] || "single"} onValueChange={(v) => setPredevSplits([v as SplitConfig])}>
+                        <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="single" className="text-xs">Single Brick</SelectItem>
+                          <SelectItem value="2in_1in_2in" className="text-xs">2&quot; + 1&quot; gap + 2&quot;</SelectItem>
+                          <SelectItem value="2in_2in_2in" className="text-xs">2&quot; + 2&quot; gap + 2&quot;</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Aging & Standard */}
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-sm font-medium flex items-center gap-2">
+                      <Shield className="h-4 w-4 text-[#C8102E]" />
+                      Aging & Standard
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="space-y-1">
+                      <Label className="text-[10px] text-muted-foreground">Emission Standard (UNECE R83)</Label>
+                      <Select value={wltpEmissionStd} onValueChange={(v) => setWltpEmissionStd(v as WLTPEmissionStandard)}>
+                        <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {Object.entries(WLTP_EMISSION_LIMITS)
+                            .filter(([key]) => key.endsWith(predevFuelType))
+                            .map(([key, lim]) => (
+                              <SelectItem key={key} value={key} className="text-xs">{lim.label}</SelectItem>
+                            ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="rounded-md bg-muted/50 p-2 text-[10px] text-muted-foreground space-y-0.5">
+                      <div className="font-medium text-foreground">Limits (g/km):</div>
+                      {(() => {
+                        const lim = WLTP_EMISSION_LIMITS[wltpEmissionStd];
+                        return lim ? (
+                          <div className="grid grid-cols-4 gap-1">
+                            <span>CO: {lim.CO}</span>
+                            <span>HC: {lim.HC}</span>
+                            <span>NOx: {lim.NOx}</span>
+                            <span>PM: {lim.PM < 100 ? lim.PM : "n/a"}</span>
+                          </div>
+                        ) : null;
+                      })()}
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-1">
+                        <Label className="text-[10px] text-muted-foreground">Aging (hours)</Label>
+                        <Input type="number" value={predevAgingHours} onChange={(e) => setPredevAgingHours(+e.target.value || 0)} className="h-7 text-xs" />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-[10px] text-muted-foreground">Max Temp (°C)</Label>
+                        <Input type="number" value={predevMaxTemp} onChange={(e) => setPredevMaxTemp(+e.target.value || 0)} className="h-7 text-xs" />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                      <div className="space-y-1">
+                        <Label className="text-[10px] text-muted-foreground">O₂ %</Label>
+                        <Input type="number" value={predevO2} onChange={(e) => setPredevO2(+e.target.value || 0)} className="h-7 text-xs" step="0.5" />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-[10px] text-muted-foreground">H₂O %</Label>
+                        <Input type="number" value={predevH2O} onChange={(e) => setPredevH2O(+e.target.value || 0)} className="h-7 text-xs" step="0.5" />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-[10px] text-muted-foreground">CO₂ %</Label>
+                        <Input type="number" value={predevCO2} onChange={(e) => setPredevCO2(+e.target.value || 0)} className="h-7 text-xs" step="0.5" />
+                      </div>
+                    </div>
+                    <Button
+                      onClick={handleRunTransient}
+                      disabled={transientRunning}
+                      className="w-full bg-[#C8102E] hover:bg-[#A00D24] text-white h-9"
+                    >
+                      {transientRunning ? (
+                        <><Loader2 className="mr-1.5 h-4 w-4 animate-spin" />Simulating WLTP…</>
+                      ) : (
+                        <><Play className="mr-1.5 h-4 w-4" />Run WLTP Homologation Sim</>
+                      )}
+                    </Button>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Transient Results */}
+              {transientResult && (() => {
+                const tr = transientResult;
+                const chartData = tr.steps.filter((_, i) => i % 3 === 0); // downsample
+                return (
+                  <>
+                    {/* Homologation Verdict */}
+                    <Card className={tr.overallVerdict === "green" ? "border-emerald-300 bg-emerald-50/30 dark:border-emerald-800 dark:bg-emerald-950/20" : tr.overallVerdict === "red" ? "border-red-300 bg-red-50/30 dark:border-red-800 dark:bg-red-950/20" : "border-amber-300 bg-amber-50/30 dark:border-amber-800 dark:bg-amber-950/20"}>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm font-medium flex items-center gap-2">
+                          {tr.overallVerdict === "green" ? <CheckCircle2 className="h-5 w-5 text-emerald-600" /> : tr.overallVerdict === "red" ? <XCircle className="h-5 w-5 text-red-600" /> : <AlertTriangle className="h-5 w-5 text-amber-600" />}
+                          Homologation Verdict: {tr.overallVerdict === "green" ? "PASS" : tr.overallVerdict === "red" ? "FAIL" : "MARGINAL"}
+                        </CardTitle>
+                        <CardDescription className="text-xs">
+                          {WLTP_EMISSION_LIMITS[wltpEmissionStd]?.label ?? wltpEmissionStd} · {tr.totalDistance_km.toFixed(1)} km · {tr.totalDuration_s}s · Aging: {(tr.agingFactor * 100).toFixed(0)}% · Light-off: {tr.lightOffTime_s}s · Vol: {tr.catalystVolume_L.toFixed(1)}L
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="grid grid-cols-4 gap-3">
+                          {tr.homologation.map((h) => (
+                            <div key={h.species} className="flex items-center gap-3 p-2 rounded-lg border bg-background">
+                              <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: VERDICT_COLORS[h.verdict] }}>
+                                <span className="text-white text-[10px] font-bold">{h.species}</span>
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-xs font-bold font-mono">{h.cumulative_g_km < 0.001 ? h.cumulative_g_km.toExponential(2) : h.cumulative_g_km.toFixed(4)}</p>
+                                <p className="text-[9px] text-muted-foreground">Limit: {h.limit_g_km} · Margin: {h.margin_percent.toFixed(0)}%</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <Badge variant="outline" className="text-[10px]">GHSV peak: {Math.round(tr.peakGHSV_h).toLocaleString()} h⁻¹</Badge>
+                          <Badge variant="outline" className="text-[10px]">GHSV avg: {Math.round(tr.avgGHSV_h).toLocaleString()} h⁻¹</Badge>
+                          <Badge variant="outline" className="text-[10px]">T50 CO: {tr.T50_reached_s.CO}s</Badge>
+                          <Badge variant="outline" className="text-[10px]">T50 HC: {tr.T50_reached_s.HC}s</Badge>
+                          <Badge variant="outline" className="text-[10px]">T50 NOx: {tr.T50_reached_s.NOx}s</Badge>
+                          <Badge variant="outline" className="text-[10px]">Cold start CO: {tr.coldStartPenalty_g_km.CO.toFixed(0)}%</Badge>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    {/* Temperature & Conversion Charts */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                      <Card>
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-xs font-medium">Catalyst Temperature & Exhaust Flow</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="h-52">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <LineChart data={chartData} margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
+                                <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                                <XAxis dataKey="time" tick={{ fontSize: 9 }} label={{ value: "Time (s)", position: "insideBottomRight", offset: -5, fontSize: 9 }} />
+                                <YAxis yAxisId="temp" tick={{ fontSize: 9 }} label={{ value: "°C", angle: -90, position: "insideLeft", fontSize: 9 }} />
+                                <YAxis yAxisId="flow" orientation="right" tick={{ fontSize: 9 }} label={{ value: "kg/h", angle: 90, position: "insideRight", fontSize: 9 }} />
+                                <Tooltip contentStyle={{ fontSize: 10 }} />
+                                <Line yAxisId="temp" type="monotone" dataKey="exhaustTemp_C" stroke="#f59e0b" dot={false} strokeWidth={1} name="Exhaust T" />
+                                <Line yAxisId="temp" type="monotone" dataKey="catalystTemp_C" stroke="#ef4444" dot={false} strokeWidth={1.5} name="Catalyst T" />
+                                <Line yAxisId="flow" type="monotone" dataKey="exhaustFlow_kg_h" stroke="#3b82f6" dot={false} strokeWidth={1} strokeDasharray="3 3" name="Flow" />
+                                <Legend wrapperStyle={{ fontSize: 9 }} />
+                              </LineChart>
+                            </ResponsiveContainer>
+                          </div>
+                        </CardContent>
+                      </Card>
+
+                      <Card>
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-xs font-medium">Conversion Efficiency (Aged)</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="h-52">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <AreaChart data={chartData} margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
+                                <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                                <XAxis dataKey="time" tick={{ fontSize: 9 }} />
+                                <YAxis domain={[0, 100]} tick={{ fontSize: 9 }} label={{ value: "%", angle: -90, position: "insideLeft", fontSize: 9 }} />
+                                <Tooltip contentStyle={{ fontSize: 10 }} formatter={(v: number) => `${v.toFixed(1)}%`} />
+                                <Area type="monotone" dataKey="convCO_aged" stroke="#ef4444" fill="#ef4444" fillOpacity={0.1} dot={false} strokeWidth={1.5} name="CO" />
+                                <Area type="monotone" dataKey="convHC_aged" stroke="#f59e0b" fill="#f59e0b" fillOpacity={0.1} dot={false} strokeWidth={1.5} name="HC" />
+                                <Area type="monotone" dataKey="convNOx_aged" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.1} dot={false} strokeWidth={1.5} name="NOx" />
+                                <ReferenceLine y={50} stroke="#888" strokeDasharray="3 3" strokeWidth={0.5} label={{ value: "T50", fontSize: 8, fill: "#888" }} />
+                                <Legend wrapperStyle={{ fontSize: 9 }} />
+                              </AreaChart>
+                            </ResponsiveContainer>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
+
+                    {/* Cumulative g/km with limits */}
+                    <Card>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-xs font-medium">Cumulative Emissions (g/km) vs Homologation Limits</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                          <div className="h-52">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <LineChart data={chartData} margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
+                                <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                                <XAxis dataKey="time" tick={{ fontSize: 9 }} label={{ value: "Time (s)", position: "insideBottomRight", offset: -5, fontSize: 9 }} />
+                                <YAxis tick={{ fontSize: 9 }} label={{ value: "g/km", angle: -90, position: "insideLeft", fontSize: 9 }} />
+                                <Tooltip contentStyle={{ fontSize: 10 }} formatter={(v: number) => `${v.toFixed(4)} g/km`} />
+                                <Line type="monotone" dataKey="cumCO_g_km" stroke="#ef4444" dot={false} strokeWidth={1.5} name="CO" />
+                                <Line type="monotone" dataKey="cumHC_g_km" stroke="#f59e0b" dot={false} strokeWidth={1.5} name="HC" />
+                                {tr.homologation.find((h) => h.species === "CO") && (
+                                  <ReferenceLine y={tr.homologation.find((h) => h.species === "CO")!.limit_g_km} stroke="#ef4444" strokeDasharray="5 5" strokeWidth={1} label={{ value: `CO limit`, fontSize: 8, fill: "#ef4444" }} />
+                                )}
+                                {tr.homologation.find((h) => h.species === "HC") && (
+                                  <ReferenceLine y={tr.homologation.find((h) => h.species === "HC")!.limit_g_km} stroke="#f59e0b" strokeDasharray="5 5" strokeWidth={1} label={{ value: `HC limit`, fontSize: 8, fill: "#f59e0b" }} />
+                                )}
+                                <Legend wrapperStyle={{ fontSize: 9 }} />
+                              </LineChart>
+                            </ResponsiveContainer>
+                          </div>
+                          <div className="h-52">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <LineChart data={chartData} margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
+                                <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                                <XAxis dataKey="time" tick={{ fontSize: 9 }} />
+                                <YAxis tick={{ fontSize: 9 }} label={{ value: "g/km", angle: -90, position: "insideLeft", fontSize: 9 }} />
+                                <Tooltip contentStyle={{ fontSize: 10 }} formatter={(v: number) => `${v.toFixed(4)} g/km`} />
+                                <Line type="monotone" dataKey="cumNOx_g_km" stroke="#3b82f6" dot={false} strokeWidth={1.5} name="NOx" />
+                                <Line type="monotone" dataKey="cumPM_g_km" stroke="#a855f7" dot={false} strokeWidth={1.5} name="PM" />
+                                {tr.homologation.find((h) => h.species === "NOx") && (
+                                  <ReferenceLine y={tr.homologation.find((h) => h.species === "NOx")!.limit_g_km} stroke="#3b82f6" strokeDasharray="5 5" strokeWidth={1} label={{ value: `NOx limit`, fontSize: 8, fill: "#3b82f6" }} />
+                                )}
+                                {tr.homologation.find((h) => h.species === "PM") && (
+                                  <ReferenceLine y={tr.homologation.find((h) => h.species === "PM")!.limit_g_km} stroke="#a855f7" strokeDasharray="5 5" strokeWidth={1} label={{ value: `PM limit`, fontSize: 8, fill: "#a855f7" }} />
+                                )}
+                                <Legend wrapperStyle={{ fontSize: 9 }} />
+                              </LineChart>
+                            </ResponsiveContainer>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    {/* Phase Breakdown */}
+                    <Card>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-xs font-medium">Phase Breakdown</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead className="text-[10px]">Phase</TableHead>
+                              <TableHead className="text-[10px] text-right">Duration</TableHead>
+                              <TableHead className="text-[10px] text-right">Distance</TableHead>
+                              <TableHead className="text-[10px] text-right">Avg Cat T</TableHead>
+                              <TableHead className="text-[10px] text-right">Avg η CO</TableHead>
+                              <TableHead className="text-[10px] text-right">Avg η HC</TableHead>
+                              <TableHead className="text-[10px] text-right">Avg η NOx</TableHead>
+                              <TableHead className="text-[10px] text-right">CO g/km</TableHead>
+                              <TableHead className="text-[10px] text-right">NOx g/km</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {tr.phases.map((p) => (
+                              <TableRow key={p.phase}>
+                                <TableCell className="text-xs font-medium">{p.phase}</TableCell>
+                                <TableCell className="text-xs text-right font-mono">{p.duration_s}s</TableCell>
+                                <TableCell className="text-xs text-right font-mono">{p.distance_km.toFixed(2)} km</TableCell>
+                                <TableCell className="text-xs text-right font-mono">{p.avgCatalystTemp_C.toFixed(0)}°C</TableCell>
+                                <TableCell className="text-xs text-right font-mono">{p.avgConvCO.toFixed(1)}%</TableCell>
+                                <TableCell className="text-xs text-right font-mono">{p.avgConvHC.toFixed(1)}%</TableCell>
+                                <TableCell className="text-xs text-right font-mono">{p.avgConvNOx.toFixed(1)}%</TableCell>
+                                <TableCell className="text-xs text-right font-mono">{p.CO_g_km.toFixed(4)}</TableCell>
+                                <TableCell className="text-xs text-right font-mono">{p.NOx_g_km.toFixed(4)}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </CardContent>
+                    </Card>
+                  </>
+                );
+              })()}
+
+              {/* Empty state */}
+              {!transientResult && !transientRunning && (
+                <Card className="border-dashed">
+                  <CardContent className="flex flex-col items-center justify-center py-12">
+                    <Activity className="h-10 w-10 text-muted-foreground/40 mb-3" />
+                    <p className="text-sm font-medium text-muted-foreground">No transient simulation results</p>
+                    <p className="text-xs text-muted-foreground/70 mt-1">
+                      Select an engine preset, configure the catalyst, and run the WLTP homologation simulation
+                    </p>
+                  </CardContent>
+                </Card>
+              )}
+            </TabsContent>
+
+            {/* ──────── SGB & AI ADVISOR ──────── */}
+            <TabsContent value="sgb_advisor" className="mt-4 space-y-4">
+              {/* Mode toggle + Example loader */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => handleLoadSGBExample(EXAMPLE_SGB_DOC)}>
+                  Load DOC Example
+                </Button>
+                <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => handleLoadSGBExample(EXAMPLE_SGB_TWC)}>
+                  Load TWC Example
+                </Button>
+                <Button variant={sgbJsonMode ? "default" : "outline"} size="sm" className="h-7 text-xs" onClick={() => setSgbJsonMode(!sgbJsonMode)}>
+                  {sgbJsonMode ? "Switch to Form" : "Paste JSON"}
+                </Button>
+                {sgbProfile && (
+                  <Badge variant="outline" className="text-[10px] h-5 ml-auto">
+                    Profile: {sgbProfile.name}
+                  </Badge>
+                )}
+              </div>
+
+              {sgbJsonMode ? (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm">Paste SGB Bench Report (JSON)</CardTitle>
+                    <CardDescription className="text-xs">Paste the structured JSON from your lab system or SGB report</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <textarea
+                      className="w-full h-48 text-xs font-mono p-3 rounded-md border bg-muted/30 resize-y"
+                      value={sgbJsonText}
+                      onChange={(e) => setSgbJsonText(e.target.value)}
+                      placeholder='{"supplierName": "...", "sampleId": "...", ...}'
+                    />
+                    <Button onClick={handleParseSGBJson} className="bg-[#C8102E] hover:bg-[#A00D24] text-white h-8 text-xs">
+                      Parse & Load
+                    </Button>
+                  </CardContent>
+                </Card>
+              ) : (
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                  {/* SGB Metadata */}
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium flex items-center gap-2">
+                        <Database className="h-4 w-4 text-[#C8102E]" />
+                        Sample Info
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-2">
+                      <div className="space-y-1">
+                        <Label className="text-[10px] text-muted-foreground">Supplier Name</Label>
+                        <Input value={sgbData.supplierName} onChange={(e) => handleSGBFieldChange("supplierName", e.target.value)} className="h-7 text-xs" />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-[10px] text-muted-foreground">Sample ID</Label>
+                        <Input value={sgbData.sampleId} onChange={(e) => handleSGBFieldChange("sampleId", e.target.value)} className="h-7 text-xs" />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-[10px] text-muted-foreground">Catalyst Type</Label>
+                        <Select value={sgbData.catalystType} onValueChange={(v) => handleSGBFieldChange("catalystType", v as SGBenchData["catalystType"])}>
+                          <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="DOC" className="text-xs">DOC</SelectItem>
+                            <SelectItem value="TWC" className="text-xs">TWC</SelectItem>
+                            <SelectItem value="SCR" className="text-xs">SCR</SelectItem>
+                            <SelectItem value="ASC" className="text-xs">ASC</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                          <Label className="text-[10px] text-muted-foreground">PGM (g/ft³)</Label>
+                          <Input type="number" value={sgbData.pgmLoading_g_ft3} onChange={(e) => handleSGBFieldChange("pgmLoading_g_ft3", +e.target.value || 0)} className="h-7 text-xs" />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-[10px] text-muted-foreground">Bench GHSV</Label>
+                          <Input type="number" value={sgbData.GHSV_bench} onChange={(e) => handleSGBFieldChange("GHSV_bench", +e.target.value || 0)} className="h-7 text-xs" />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="space-y-1">
+                          <Label className="text-[10px] text-muted-foreground">Pt %</Label>
+                          <Input type="number" value={sgbData.pgm_ratio.Pt} onChange={(e) => handleSGBFieldChange("pgm_ratio", { ...sgbData.pgm_ratio, Pt: +e.target.value || 0 })} className="h-7 text-xs" />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-[10px] text-muted-foreground">Pd %</Label>
+                          <Input type="number" value={sgbData.pgm_ratio.Pd} onChange={(e) => handleSGBFieldChange("pgm_ratio", { ...sgbData.pgm_ratio, Pd: +e.target.value || 0 })} className="h-7 text-xs" />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-[10px] text-muted-foreground">Rh %</Label>
+                          <Input type="number" value={sgbData.pgm_ratio.Rh} onChange={(e) => handleSGBFieldChange("pgm_ratio", { ...sgbData.pgm_ratio, Rh: +e.target.value || 0 })} className="h-7 text-xs" />
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Species Kinetics */}
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium flex items-center gap-2">
+                        <FlaskConical className="h-4 w-4 text-[#C8102E]" />
+                        Species Kinetics (SGB Measured)
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      {sgbData.species.map((sp, idx) => (
+                        <div key={sp.name} className="p-2 rounded-lg border space-y-1.5">
+                          <p className="text-xs font-semibold text-[#C8102E]">{sp.name}</p>
+                          <div className="grid grid-cols-3 gap-1.5">
+                            <div className="space-y-0.5">
+                              <Label className="text-[9px] text-muted-foreground">Ea (kJ/mol)</Label>
+                              <Input type="number" value={sp.Ea_kJ_mol} onChange={(e) => handleSGBSpeciesChange(idx, "Ea_kJ_mol", +e.target.value || 0)} className="h-6 text-[10px]" />
+                            </div>
+                            <div className="space-y-0.5">
+                              <Label className="text-[9px] text-muted-foreground">TOF (s⁻¹)</Label>
+                              <Input type="number" value={sp.TOF_s1} onChange={(e) => handleSGBSpeciesChange(idx, "TOF_s1", +e.target.value || 0)} className="h-6 text-[10px]" step="0.1" />
+                            </div>
+                            <div className="space-y-0.5">
+                              <Label className="text-[9px] text-muted-foreground">T_ref (°C)</Label>
+                              <Input type="number" value={sp.T_ref_C} onChange={(e) => handleSGBSpeciesChange(idx, "T_ref_C", +e.target.value || 0)} className="h-6 text-[10px]" />
+                            </div>
+                            <div className="space-y-0.5">
+                              <Label className="text-[9px] text-muted-foreground">T50 (°C)</Label>
+                              <Input type="number" value={sp.T50_C} onChange={(e) => handleSGBSpeciesChange(idx, "T50_C", +e.target.value || 0)} className="h-6 text-[10px]" />
+                            </div>
+                            <div className="space-y-0.5">
+                              <Label className="text-[9px] text-muted-foreground">T90 (°C)</Label>
+                              <Input type="number" value={sp.T90_C} onChange={(e) => handleSGBSpeciesChange(idx, "T90_C", +e.target.value || 0)} className="h-6 text-[10px]" />
+                            </div>
+                            <div className="space-y-0.5">
+                              <Label className="text-[9px] text-muted-foreground">Max Conv %</Label>
+                              <Input type="number" value={sp.maxConversion_pct} onChange={(e) => handleSGBSpeciesChange(idx, "maxConversion_pct", +e.target.value || 0)} className="h-6 text-[10px]" />
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </CardContent>
+                  </Card>
+
+                  {/* Chemisorption & Washcoat */}
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium flex items-center gap-2">
+                        <Microscope className="h-4 w-4 text-[#C8102E]" />
+                        Chemisorption & Washcoat
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-2">
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                          <Label className="text-[10px] text-muted-foreground">Dispersion (%)</Label>
+                          <Input type="number" value={sgbData.dispersion_pct} onChange={(e) => handleSGBFieldChange("dispersion_pct", +e.target.value || 0)} className="h-7 text-xs" />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-[10px] text-muted-foreground">Metallic SA (m²/gPGM)</Label>
+                          <Input type="number" value={sgbData.metallicSA_m2_gPGM} onChange={(e) => handleSGBFieldChange("metallicSA_m2_gPGM", +e.target.value || 0)} className="h-7 text-xs" />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-[10px] text-muted-foreground">Particle Size (nm)</Label>
+                          <Input type="number" value={sgbData.avgParticleSize_nm} onChange={(e) => handleSGBFieldChange("avgParticleSize_nm", +e.target.value || 0)} className="h-7 text-xs" step="0.1" />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-[10px] text-muted-foreground">BET (m²/g)</Label>
+                          <Input type="number" value={sgbData.BET_m2_g} onChange={(e) => handleSGBFieldChange("BET_m2_g", +e.target.value || 0)} className="h-7 text-xs" />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                          <Label className="text-[10px] text-muted-foreground">WC Loading (g/L)</Label>
+                          <Input type="number" value={sgbData.washcoatLoading_g_L} onChange={(e) => handleSGBFieldChange("washcoatLoading_g_L", +e.target.value || 0)} className="h-7 text-xs" />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-[10px] text-muted-foreground">WC Thickness (µm)</Label>
+                          <Input type="number" value={sgbData.washcoatThickness_um} onChange={(e) => handleSGBFieldChange("washcoatThickness_um", +e.target.value || 0)} className="h-7 text-xs" />
+                        </div>
+                      </div>
+                      <p className="text-[10px] font-medium mt-2">Gas Composition</p>
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="space-y-1">
+                          <Label className="text-[9px] text-muted-foreground">O₂ %</Label>
+                          <Input type="number" value={sgbData.gasComposition.O2_pct} onChange={(e) => handleSGBFieldChange("gasComposition", { ...sgbData.gasComposition, O2_pct: +e.target.value || 0 })} className="h-6 text-[10px]" step="0.5" />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-[9px] text-muted-foreground">H₂O %</Label>
+                          <Input type="number" value={sgbData.gasComposition.H2O_pct} onChange={(e) => handleSGBFieldChange("gasComposition", { ...sgbData.gasComposition, H2O_pct: +e.target.value || 0 })} className="h-6 text-[10px]" step="0.5" />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-[9px] text-muted-foreground">CO₂ %</Label>
+                          <Input type="number" value={sgbData.gasComposition.CO2_pct} onChange={(e) => handleSGBFieldChange("gasComposition", { ...sgbData.gasComposition, CO2_pct: +e.target.value || 0 })} className="h-6 text-[10px]" step="0.5" />
+                        </div>
+                      </div>
+
+                      <div className="pt-2 border-t mt-3">
+                        <Button
+                          onClick={handleBuildAndSimulate}
+                          disabled={sgbSimRunning}
+                          className="w-full bg-[#C8102E] hover:bg-[#A00D24] text-white h-9"
+                        >
+                          {sgbSimRunning ? (
+                            <><Loader2 className="mr-1.5 h-4 w-4 animate-spin" />Building Profile & Simulating…</>
+                          ) : (
+                            <><Play className="mr-1.5 h-4 w-4" />Build Profile & Run WLTP Sim</>
+                          )}
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
+              {/* Error display */}
+              {aiError && (
+                <Card className="border-red-300 bg-red-50/30 dark:border-red-800 dark:bg-red-950/20">
+                  <CardContent className="py-3">
+                    <p className="text-xs text-red-600 flex items-center gap-2">
+                      <XCircle className="h-4 w-4" /> {aiError}
+                    </p>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Simulation Results + AI Advisor */}
+              {sgbSimResult && (
+                <>
+                  {/* Verdict Banner */}
+                  <Card className={sgbSimResult.homologation.some((h) => h.verdict === "red") ? "border-red-300 bg-red-50/30 dark:border-red-800 dark:bg-red-950/20" : sgbSimResult.homologation.some((h) => h.verdict === "amber") ? "border-amber-300 bg-amber-50/30 dark:border-amber-800 dark:bg-amber-950/20" : "border-emerald-300 bg-emerald-50/30 dark:border-emerald-800 dark:bg-emerald-950/20"}>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium flex items-center gap-2">
+                        {sgbSimResult.homologation.some((h) => h.verdict === "red") ? <XCircle className="h-5 w-5 text-red-600" /> : sgbSimResult.homologation.some((h) => h.verdict === "amber") ? <AlertTriangle className="h-5 w-5 text-amber-600" /> : <CheckCircle2 className="h-5 w-5 text-emerald-600" />}
+                        SGB Catalyst Homologation: {sgbSimResult.homologation.some((h) => h.verdict === "red") ? "FAIL" : sgbSimResult.homologation.some((h) => h.verdict === "amber") ? "MARGINAL" : "PASS"}
+                      </CardTitle>
+                      <CardDescription className="text-xs">
+                        {sgbData.supplierName} / {sgbData.sampleId} — {WLTP_EMISSION_LIMITS[wltpEmissionStd]?.label} — Light-off: {sgbSimResult.lightOffTime_s}s — Aging: {(sgbSimResult.agingFactor * 100).toFixed(0)}%
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-4 gap-3">
+                        {sgbSimResult.homologation.map((h) => (
+                          <div key={h.species} className="flex items-center gap-3 p-2 rounded-lg border bg-background">
+                            <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: VERDICT_COLORS[h.verdict] }}>
+                              <span className="text-[10px] font-bold text-white">{h.species}</span>
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-xs font-bold font-mono">{h.cumulative_g_km < 0.001 ? h.cumulative_g_km.toExponential(2) : h.cumulative_g_km.toFixed(4)}</p>
+                              <p className="text-[9px] text-muted-foreground">Limit: {h.limit_g_km} · Margin: {h.margin_percent.toFixed(0)}%</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="grid grid-cols-4 gap-3 mt-3 text-[10px]">
+                        <div><span className="text-muted-foreground">Peak GHSV:</span> <span className="font-mono">{sgbSimResult.peakGHSV_h.toFixed(0)} h⁻¹</span></div>
+                        <div><span className="text-muted-foreground">Avg GHSV:</span> <span className="font-mono">{sgbSimResult.avgGHSV_h.toFixed(0)} h⁻¹</span></div>
+                        <div><span className="text-muted-foreground">Cat Volume:</span> <span className="font-mono">{sgbSimResult.catalystVolume_L.toFixed(2)} L</span></div>
+                        <div><span className="text-muted-foreground">Distance:</span> <span className="font-mono">{sgbSimResult.totalDistance_km.toFixed(1)} km</span></div>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* AI Advisor Button */}
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium flex items-center gap-2">
+                        <Zap className="h-4 w-4 text-[#C8102E]" />
+                        AI Catalyst Advisor — powered by BelgaLabs
+                      </CardTitle>
+                      <CardDescription className="text-xs">
+                        AI analyzes the simulation gap and recommends specific catalyst modifications to achieve homologation
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <div className="flex items-center gap-2">
+                        <Button
+                          onClick={handleAskAI}
+                          disabled={aiLoading}
+                          className="bg-gradient-to-r from-[#C8102E] to-[#8B0000] hover:from-[#A00D24] hover:to-[#6B0000] text-white h-9"
+                        >
+                          {aiLoading ? (
+                            <><Loader2 className="mr-1.5 h-4 w-4 animate-spin" />Analyzing with AI…</>
+                          ) : (
+                            <><Zap className="mr-1.5 h-4 w-4" />Ask AI for Optimization Guidance</>
+                          )}
+                        </Button>
+                        {aiAdvice?.tokensUsed && (
+                          <Badge variant="outline" className="text-[10px] h-5">{aiAdvice.tokensUsed} tokens</Badge>
+                        )}
+                      </div>
+
+                      {/* AI Response */}
+                      {aiAdvice && (
+                        <div className="space-y-4">
+                          {/* Diagnosis */}
+                          <div className="p-3 rounded-lg border bg-muted/30">
+                            <p className="text-xs font-semibold mb-1 flex items-center gap-1.5">
+                              <Info className="h-3.5 w-3.5 text-blue-500" />
+                              Diagnosis: <Badge variant="outline" className="text-[10px]">{aiAdvice.diagnosis.primaryLimitation.replace("_", " ")}</Badge>
+                            </p>
+                            <p className="text-[11px] text-muted-foreground leading-relaxed">{aiAdvice.diagnosis.summary}</p>
+                            {aiAdvice.diagnosis.failingSpecies.length > 0 && (
+                              <div className="flex gap-1 mt-1.5">
+                                {aiAdvice.diagnosis.failingSpecies.map((sp) => (
+                                  <Badge key={sp} variant="destructive" className="text-[9px] h-4">{sp}</Badge>
+                                ))}
+                              </div>
+                            )}
+                            <div className="grid grid-cols-2 gap-2 mt-2 text-[10px]">
+                              <div><span className="text-muted-foreground">Kinetic:</span> {aiAdvice.diagnosis.detailedAnalysis.kinetic.slice(0, 100)}</div>
+                              <div><span className="text-muted-foreground">Mass Transfer:</span> {aiAdvice.diagnosis.detailedAnalysis.massTransfer.slice(0, 100)}</div>
+                              <div><span className="text-muted-foreground">Thermal:</span> {aiAdvice.diagnosis.detailedAnalysis.thermal.slice(0, 100)}</div>
+                              <div><span className="text-muted-foreground">Aging:</span> {aiAdvice.diagnosis.detailedAnalysis.aging.slice(0, 100)}</div>
+                            </div>
+                          </div>
+
+                          {/* Recommendations */}
+                          <div>
+                            <p className="text-xs font-semibold mb-2">Recommendations (ranked by impact)</p>
+                            <div className="space-y-2">
+                              {aiAdvice.recommendations.map((rec, i) => (
+                                <div key={i} className="p-3 rounded-lg border bg-background hover:bg-muted/20 transition-colors">
+                                  <div className="flex items-start justify-between gap-2">
+                                    <div className="flex-1">
+                                      <div className="flex items-center gap-2 mb-1">
+                                        <Badge className="text-[9px] h-4 bg-[#C8102E]">#{rec.priority}</Badge>
+                                        <span className="text-xs font-medium">{rec.parameter}</span>
+                                        <Badge variant="outline" className={`text-[9px] h-4 ${rec.confidence === "high" ? "border-emerald-500 text-emerald-600" : rec.confidence === "medium" ? "border-amber-500 text-amber-600" : "border-red-500 text-red-600"}`}>
+                                          {rec.confidence}
+                                        </Badge>
+                                      </div>
+                                      <p className="text-[10px] text-muted-foreground">
+                                        <span className="font-mono">{rec.currentValue}</span> → <span className="font-mono font-bold text-foreground">{rec.suggestedValue}</span>
+                                      </p>
+                                      <p className="text-[10px] text-emerald-600 mt-0.5">{rec.expectedImprovement}</p>
+                                      <p className="text-[10px] text-muted-foreground mt-0.5">{rec.rationale}</p>
+                                      {rec.tradeoffs && <p className="text-[10px] text-amber-600 mt-0.5">Tradeoffs: {rec.tradeoffs}</p>}
+                                    </div>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-7 text-[10px] shrink-0"
+                                      onClick={() => {
+                                        handleApplyRecommendation(rec);
+                                      }}
+                                    >
+                                      Apply & Re-sim
+                                    </Button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Alternative Formulation */}
+                          {aiAdvice.alternativeFormulation && (
+                            <div className="p-3 rounded-lg border border-dashed">
+                              <p className="text-xs font-semibold mb-1">Alternative Formulation</p>
+                              <p className="text-[10px] text-muted-foreground">{aiAdvice.alternativeFormulation.description}</p>
+                              <div className="flex gap-3 mt-1 text-[10px]">
+                                <span>Pt:{aiAdvice.alternativeFormulation.pgm_ratio.Pt}% Pd:{aiAdvice.alternativeFormulation.pgm_ratio.Pd}% Rh:{aiAdvice.alternativeFormulation.pgm_ratio.Rh}%</span>
+                                <span>PGM: {aiAdvice.alternativeFormulation.pgmLoading_g_ft3} g/ft³</span>
+                                <span>WC: {aiAdvice.alternativeFormulation.washcoatType}</span>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Overall Assessment */}
+                          <div className={`p-3 rounded-lg border ${aiAdvice.overallAssessment.canPassWithModifications ? "border-emerald-300 bg-emerald-50/20" : "border-red-300 bg-red-50/20"}`}>
+                            <p className="text-xs font-semibold mb-1">
+                              {aiAdvice.overallAssessment.canPassWithModifications ? "✓ Can pass with modifications" : "✗ Fundamental reformulation needed"}
+                            </p>
+                            <p className="text-[10px] text-muted-foreground">{aiAdvice.overallAssessment.summary}</p>
+                            <div className="flex gap-3 mt-1 text-[10px]">
+                              <span>Est. iterations: {aiAdvice.overallAssessment.estimatedIterations}</span>
+                              <span>Cost impact: {aiAdvice.overallAssessment.costImpact}</span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  {/* Iteration History */}
+                  {iterationHistory.length > 1 && (
+                    <Card>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm font-medium flex items-center gap-2">
+                          <RotateCcw className="h-4 w-4 text-[#C8102E]" />
+                          Iteration History ({iterationHistory.length} runs)
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead className="text-[10px] w-12">#</TableHead>
+                              <TableHead className="text-[10px]">Verdict</TableHead>
+                              <TableHead className="text-[10px]">CO (g/km)</TableHead>
+                              <TableHead className="text-[10px]">HC (g/km)</TableHead>
+                              <TableHead className="text-[10px]">NOx (g/km)</TableHead>
+                              <TableHead className="text-[10px]">PGM (g/ft³)</TableHead>
+                              <TableHead className="text-[10px]">Light-off (s)</TableHead>
+                              <TableHead className="text-[10px]">AI Diagnosis</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {iterationHistory.map((it) => {
+                              const co = it.result.homologation.find((h) => h.species === "CO");
+                              const hc = it.result.homologation.find((h) => h.species === "HC");
+                              const nox = it.result.homologation.find((h) => h.species === "NOx");
+                              return (
+                                <TableRow key={it.iteration}>
+                                  <TableCell className="text-[10px] font-mono">{it.iteration}</TableCell>
+                                  <TableCell>
+                                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: it.verdict === "PASS" ? "#22c55e" : it.verdict === "FAIL" ? "#ef4444" : "#f59e0b" }} />
+                                  </TableCell>
+                                  <TableCell className="text-[10px] font-mono">{co?.cumulative_g_km.toFixed(4)}</TableCell>
+                                  <TableCell className="text-[10px] font-mono">{hc?.cumulative_g_km.toFixed(4)}</TableCell>
+                                  <TableCell className="text-[10px] font-mono">{nox?.cumulative_g_km.toFixed(4)}</TableCell>
+                                  <TableCell className="text-[10px] font-mono">{(it.config as SGBenchData).pgmLoading_g_ft3}</TableCell>
+                                  <TableCell className="text-[10px] font-mono">{it.result.lightOffTime_s}s</TableCell>
+                                  <TableCell className="text-[10px]">{it.advice?.diagnosis.primaryLimitation ?? "—"}</TableCell>
+                                </TableRow>
+                              );
+                            })}
+                          </TableBody>
+                        </Table>
+                      </CardContent>
+                    </Card>
+                  )}
+                </>
+              )}
+
+              {/* Empty state */}
+              {!sgbSimResult && !sgbSimRunning && (
+                <Card className="border-dashed">
+                  <CardContent className="flex flex-col items-center justify-center py-12">
+                    <FlaskConical className="h-10 w-10 text-muted-foreground/40 mb-3" />
+                    <p className="text-sm font-medium text-muted-foreground">Enter SGB bench data and click &quot;Build Profile & Run WLTP Sim&quot;</p>
+                    <p className="text-xs text-muted-foreground mt-1">The AI advisor will analyze results and guide you toward homologation</p>
+                  </CardContent>
+                </Card>
+              )}
+            </TabsContent>
+
+            {/* ──────── PARAMETRIC SWEEP ──────── */}
+            <TabsContent value="parametric" className="mt-4 space-y-4">
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm font-medium flex items-center gap-2">
+                    <FlaskConical className="h-4 w-4 text-[#C8102E]" />
+                    Parametric Sweep Configuration
+                  </CardTitle>
+                  <CardDescription className="text-xs">
+                    Sweep CPSI, washcoat, PGM loading, and split to find optimal catalyst design
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div>
+                      <p className="text-[10px] font-semibold mb-1.5 text-muted-foreground uppercase">CPSI</p>
+                      <div className="flex flex-wrap gap-1">
+                        {[300, 400, 600, 900].map((c) => (
+                          <button key={c} onClick={() => setPredevCpsi((prev) => prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c])}
+                            className={`px-2 py-1 rounded text-[10px] font-medium border transition-colors ${predevCpsi.includes(c) ? "bg-[#C8102E] text-white border-[#C8102E]" : "bg-background border-border hover:border-[#C8102E]/50"}`}>
+                            {c}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-semibold mb-1.5 text-muted-foreground uppercase">Washcoat</p>
+                      <div className="flex flex-wrap gap-1">
+                        {([{ key: "oxidation" as WashcoatType, label: "Ox" }, { key: "ceria" as WashcoatType, label: "Ce" }, { key: "alumina" as WashcoatType, label: "Al" }]).map(({ key, label }) => (
+                          <button key={key} onClick={() => setPredevWashcoats((prev) => prev.includes(key) ? prev.filter((x) => x !== key) : [...prev, key])}
+                            className={`px-2 py-1 rounded text-[10px] font-medium border transition-colors ${predevWashcoats.includes(key) ? "bg-[#C8102E] text-white border-[#C8102E]" : "bg-background border-border hover:border-[#C8102E]/50"}`}>
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-semibold mb-1.5 text-muted-foreground uppercase">PGM (g/ft³)</p>
+                      <div className="flex gap-1">
+                        <Input type="number" value={predevPgmMin} onChange={(e) => setPredevPgmMin(+e.target.value || 0)} className="h-6 text-[10px] w-14" placeholder="Min" />
+                        <Input type="number" value={predevPgmMax} onChange={(e) => setPredevPgmMax(+e.target.value || 0)} className="h-6 text-[10px] w-14" placeholder="Max" />
+                        <Input type="number" value={predevPgmStep} onChange={(e) => setPredevPgmStep(+e.target.value || 1)} className="h-6 text-[10px] w-12" placeholder="Step" />
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-semibold mb-1.5 text-muted-foreground uppercase">Split</p>
+                      <div className="flex flex-wrap gap-1">
+                        {([{ key: "single" as SplitConfig, label: "1×" }, { key: "2in_1in_2in" as SplitConfig, label: "2+1+2" }, { key: "2in_2in_2in" as SplitConfig, label: "2+2+2" }]).map(({ key, label }) => (
+                          <button key={key} onClick={() => setPredevSplits((prev) => prev.includes(key) ? prev.filter((x) => x !== key) : [...prev, key])}
+                            className={`px-2 py-1 rounded text-[10px] font-medium border transition-colors ${predevSplits.includes(key) ? "bg-[#C8102E] text-white border-[#C8102E]" : "bg-background border-border hover:border-[#C8102E]/50"}`}>
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Button onClick={handleRunPredev} disabled={predevRunning || predevCpsi.length === 0 || predevWashcoats.length === 0} className="bg-[#C8102E] hover:bg-[#A00D24] text-white h-8 text-xs">
+                      {predevRunning ? <><Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />Running…</> : <><TrendingUp className="mr-1 h-3.5 w-3.5" />Sweep ({predevConfigCount} configs)</>}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Parametric Results */}
+              {predevResults.length > 0 && (() => {
+                const best = predevResults[0];
+                const selected = predevSelectedIdx !== null ? predevResults[predevSelectedIdx] : best;
+                return (
+                  <>
+                    {/* Traffic Light */}
+                    <div className="grid grid-cols-3 gap-3">
+                      {best.species.map((sp) => (
+                        <div key={sp.species} className="flex items-center gap-3 p-3 rounded-lg border">
+                          <div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: VERDICT_COLORS[sp.verdict] }}>
+                            <span className="text-white text-[10px] font-bold">{sp.species}</span>
+                          </div>
+                          <div>
+                            <p className="text-xs font-bold font-mono">{sp.agedConversion_percent.toFixed(1)}%</p>
+                            <p className="text-[9px] text-muted-foreground">{sp.tailpipeAged_g_kWh.toFixed(3)} / {sp.limit_g_kWh.toFixed(1)} g/kWh</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Results Table */}
+                    <Card>
+                      <CardContent className="pt-4">
+                        <div className="max-h-[300px] overflow-auto border rounded-md">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead className="text-[10px] sticky top-0 bg-background">#</TableHead>
+                                <TableHead className="text-[10px] sticky top-0 bg-background">CPSI</TableHead>
+                                <TableHead className="text-[10px] sticky top-0 bg-background">WC</TableHead>
+                                <TableHead className="text-[10px] sticky top-0 bg-background">PGM</TableHead>
+                                <TableHead className="text-[10px] sticky top-0 bg-background">Split</TableHead>
+                                <TableHead className="text-[10px] sticky top-0 bg-background text-right">CO%</TableHead>
+                                <TableHead className="text-[10px] sticky top-0 bg-background text-right">HC%</TableHead>
+                                <TableHead className="text-[10px] sticky top-0 bg-background text-right">NOx%</TableHead>
+                                <TableHead className="text-[10px] sticky top-0 bg-background text-center">V</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {predevResults.map((r, idx) => {
+                                const co = r.species.find((s) => s.species === "CO");
+                                const hc = r.species.find((s) => s.species === "HC");
+                                const nox = r.species.find((s) => s.species === "NOx");
+                                return (
+                                  <TableRow key={idx} className={`cursor-pointer hover:bg-accent/50 ${predevSelectedIdx === idx ? "bg-accent" : ""}`} onClick={() => setPredevSelectedIdx(idx)}>
+                                    <TableCell className="text-[10px] font-mono">{idx + 1}</TableCell>
+                                    <TableCell className="text-[10px] font-mono">{r.config.cpsi}</TableCell>
+                                    <TableCell className="text-[10px]">{r.config.washcoatType.slice(0, 2).toUpperCase()}</TableCell>
+                                    <TableCell className="text-[10px] font-mono">{r.config.pgmLoading_g_ft3}</TableCell>
+                                    <TableCell className="text-[10px]">{r.config.splitConfig === "single" ? "—" : r.config.splitConfig.replace(/_/g, "+").replace(/in/g, '"')}</TableCell>
+                                    <TableCell className="text-[10px] font-mono text-right">{co?.agedConversion_percent.toFixed(1)}</TableCell>
+                                    <TableCell className="text-[10px] font-mono text-right">{hc?.agedConversion_percent.toFixed(1)}</TableCell>
+                                    <TableCell className="text-[10px] font-mono text-right">{nox?.agedConversion_percent.toFixed(1)}</TableCell>
+                                    <TableCell className="text-center"><div className="w-3.5 h-3.5 rounded-full mx-auto" style={{ backgroundColor: VERDICT_COLORS[r.overallVerdict] }} /></TableCell>
+                                  </TableRow>
+                                );
+                              })}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    {/* Light-Off Curves */}
+                    <Card>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-xs font-medium">Light-Off Curves — {selected.configLabel}</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="grid grid-cols-3 gap-3">
+                          {(["CO", "HC", "NOx"] as const).map((sp) => {
+                            const freshKey = `${sp}_conversion_fresh` as keyof typeof selected.lightOffCurve[0];
+                            const agedKey = `${sp}_conversion_aged` as keyof typeof selected.lightOffCurve[0];
+                            const color = sp === "CO" ? "#ef4444" : sp === "HC" ? "#f59e0b" : "#3b82f6";
+                            return (
+                              <div key={sp} className="h-44">
+                                <p className="text-[10px] font-medium text-center mb-1">{sp}</p>
+                                <ResponsiveContainer width="100%" height="90%">
+                                  <LineChart data={selected.lightOffCurve} margin={{ top: 2, right: 5, bottom: 2, left: 0 }}>
+                                    <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
+                                    <XAxis dataKey="temperature_C" tick={{ fontSize: 8 }} />
+                                    <YAxis domain={[0, 100]} tick={{ fontSize: 8 }} />
+                                    <Tooltip contentStyle={{ fontSize: 9 }} formatter={(v: number) => `${v.toFixed(1)}%`} />
+                                    <Line type="monotone" dataKey={freshKey} stroke={color} strokeDasharray="4 4" dot={false} strokeWidth={1} name="Fresh" />
+                                    <Line type="monotone" dataKey={agedKey} stroke={color} dot={false} strokeWidth={1.5} name="Aged" />
+                                    <ReferenceLine y={50} stroke="#888" strokeDasharray="3 3" strokeWidth={0.5} />
+                                  </LineChart>
+                                </ResponsiveContainer>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </>
+                );
+              })()}
+            </TabsContent>
+
+            {/* ──────── AGING ANALYSIS ──────── */}
+            <TabsContent value="deactivation" className="mt-4 space-y-4">
+              {predevResults.length > 0 && (() => {
+                const selected = predevSelectedIdx !== null ? predevResults[predevSelectedIdx] : predevResults[0];
+                const d = selected.deactivation;
+                return (
+                  <>
+                    <Card>
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-sm font-medium flex items-center gap-2">
+                          <Shield className="h-4 w-4 text-[#C8102E]" />
+                          Deactivation Mechanism Breakdown — {selected.configLabel}
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+                          {[
+                            { label: "Overall", value: d.overallActivity, color: d.overallActivity > 0.85 ? "#22c55e" : d.overallActivity > 0.7 ? "#f59e0b" : "#ef4444" },
+                            { label: "Sulfur", value: d.sulfurActivity, color: "#f59e0b" },
+                            { label: "Phosphorus", value: d.phosphorusActivity, color: "#a855f7" },
+                            { label: "Thermal", value: d.thermalActivity, color: "#ef4444" },
+                            { label: "Chemical", value: d.chemicalActivity, color: "#3b82f6" },
+                          ].map((m) => (
+                            <div key={m.label} className="text-center p-3 rounded-lg border">
+                              <p className="text-[10px] text-muted-foreground mb-1">{m.label}</p>
+                              <p className="text-lg font-bold font-mono" style={{ color: m.color }}>{(m.value * 100).toFixed(1)}%</p>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <div className="flex justify-between text-xs"><span className="text-muted-foreground">S loading</span><span className="font-mono">{d.sulfurLoading_g_L.toFixed(2)} g/L</span></div>
+                            <div className="flex justify-between text-xs"><span className="text-muted-foreground">P loading</span><span className="font-mono">{d.phosphorusLoading_g_L.toFixed(2)} g/L</span></div>
+                            <div className="flex justify-between text-xs"><span className="text-muted-foreground">Particle size</span><span className="font-mono">{d.particleSize_nm.toFixed(1)} nm</span></div>
+                          </div>
+                          <div className="space-y-2">
+                            <div className="flex justify-between text-xs"><span className="text-muted-foreground">Equiv. aging</span><span className="font-mono">{d.equivalentAging_h.toFixed(0)} h @800°C</span></div>
+                            <div className="flex justify-between text-xs"><span className="text-muted-foreground">End of life</span><span className="font-mono">{d.endOfLife_hours.toFixed(0)} h</span></div>
+                            <div className="flex justify-between text-xs"><span className="text-muted-foreground">Warranty margin</span><span className="font-mono">{d.warrantyMargin_percent.toFixed(0)}%</span></div>
+                          </div>
+                        </div>
+                        {d.warnings.length > 0 && (
+                          <div className="mt-3 p-2 rounded border border-amber-200 bg-amber-50/50 dark:border-amber-800 dark:bg-amber-950/20">
+                            {d.warnings.map((w, i) => (
+                              <p key={i} className="text-[10px] text-amber-700 dark:text-amber-400">⚠ {w}</p>
+                            ))}
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+
+                    {/* Washcoat Analysis */}
+                    <Card>
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-sm font-medium flex items-center gap-2">
+                          <Microscope className="h-4 w-4 text-[#C8102E]" />
+                          Washcoat Mass Transfer Analysis
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="grid grid-cols-3 gap-3 mb-4">
+                          {selected.washcoatAnalysis.map((wa) => (
+                            <div key={wa.species} className="p-3 rounded-lg border">
+                              <p className="text-xs font-medium mb-2">{wa.species}</p>
+                              <div className="space-y-1">
+                                <div className="flex justify-between text-[10px]"><span className="text-muted-foreground">Thiele φ</span><span className="font-mono">{wa.phi.toFixed(2)}</span></div>
+                                <div className="flex justify-between text-[10px]"><span className="text-muted-foreground">η internal</span><span className="font-mono">{(wa.eta_internal * 100).toFixed(1)}%</span></div>
+                                <div className="flex justify-between text-[10px]"><span className="text-muted-foreground">η overall</span><span className="font-mono">{(wa.eta_overall * 100).toFixed(1)}%</span></div>
+                                <div className="flex justify-between text-[10px]"><span className="text-muted-foreground">Regime</span>
+                                  <Badge variant="outline" className={`text-[9px] ${wa.regime === "kinetic" ? "border-emerald-500 text-emerald-600" : wa.regime === "diffusion_limited" ? "border-red-500 text-red-600" : "border-amber-500 text-amber-600"}`}>
+                                    {wa.regime.replace("_", " ")}
+                                  </Badge>
+                                </div>
+                                <div className="flex justify-between text-[10px]"><span className="text-muted-foreground">D_eff</span><span className="font-mono">{wa.D_eff_m2_s.toExponential(2)} m²/s</span></div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        {/* Washcoat thickness sweep */}
+                        <div className="h-44">
+                          <p className="text-[10px] font-medium text-center mb-1">Effectiveness Factor vs Washcoat Thickness</p>
+                          <ResponsiveContainer width="100%" height="90%">
+                            <LineChart data={selected.washcoatSweep} margin={{ top: 2, right: 10, bottom: 2, left: 0 }}>
+                              <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
+                              <XAxis dataKey="thickness_um" tick={{ fontSize: 8 }} label={{ value: "µm", position: "insideBottomRight", offset: -5, fontSize: 8 }} />
+                              <YAxis domain={[0, 1]} tick={{ fontSize: 8 }} label={{ value: "η", angle: -90, position: "insideLeft", fontSize: 8 }} />
+                              <Tooltip contentStyle={{ fontSize: 9 }} formatter={(v: number) => v.toFixed(3)} />
+                              <Line type="monotone" dataKey="eta" stroke="#C8102E" dot={false} strokeWidth={1.5} name="η" />
+                              <ReferenceLine y={0.5} stroke="#888" strokeDasharray="3 3" strokeWidth={0.5} />
+                            </LineChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </>
+                );
+              })()}
+              {predevResults.length === 0 && (
+                <Card className="border-dashed">
+                  <CardContent className="flex flex-col items-center justify-center py-12">
+                    <Shield className="h-10 w-10 text-muted-foreground/40 mb-3" />
+                    <p className="text-sm font-medium text-muted-foreground">Run a parametric sweep first to see aging analysis</p>
+                  </CardContent>
+                </Card>
+              )}
+            </TabsContent>
+          </Tabs>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

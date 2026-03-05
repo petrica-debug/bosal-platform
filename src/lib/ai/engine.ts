@@ -74,9 +74,15 @@ async function completeWithOpenAI(
   config: AIConfig,
   request: AICompletionRequest
 ): Promise<AICompletionResponse> {
-  const apiKey = config.openaiApiKey;
+  // In browser: route through server-side proxy to protect API key
+  if (typeof window !== "undefined") {
+    return completeViaServerProxy(config, request);
+  }
+
+  // Server-side: call OpenAI directly
+  const apiKey = config.openaiApiKey ?? process.env?.OPENAI_API_KEY;
   if (!apiKey) {
-    throw new Error("OpenAI API key is required. Configure it in settings.");
+    throw new Error("BelgaLabs AI API key is required. Configure it in settings.");
   }
 
   const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -112,6 +118,41 @@ async function completeWithOpenAI(
     provider: "openai",
     model: config.openaiModel ?? DEFAULT_OPENAI_MODEL,
     tokensUsed,
+  };
+}
+
+async function completeViaServerProxy(
+  config: AIConfig,
+  request: AICompletionRequest
+): Promise<AICompletionResponse> {
+  const response = await fetch("/api/ai", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      messages: request.messages,
+      temperature: request.temperature ?? 0.7,
+      max_tokens: request.maxTokens ?? 4096,
+      model: config.openaiModel ?? DEFAULT_OPENAI_MODEL,
+    }),
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err?.error ?? `AI proxy error: ${response.status}`);
+  }
+
+  const data = (await response.json()) as {
+    content: string;
+    provider: string;
+    model: string;
+    tokensUsed?: number;
+  };
+
+  return {
+    content: data.content,
+    provider: "openai",
+    model: data.model ?? DEFAULT_OPENAI_MODEL,
+    tokensUsed: data.tokensUsed,
   };
 }
 
@@ -160,7 +201,7 @@ export async function complete(request: AICompletionRequest): Promise<AICompleti
   if (config.provider === "off") {
     return {
       content:
-        "AI is currently disabled. Enable an AI provider (OpenAI or Ollama) in settings to use AI features.",
+        "AI is currently disabled. Enable BelgaLabs AI (Cloud or Local) in settings to use AI features.",
       provider: "off",
       model: "off",
     };
@@ -175,7 +216,7 @@ export async function complete(request: AICompletionRequest): Promise<AICompleti
   }
 
   return {
-    content: `Unknown AI provider: ${config.provider}. Please configure OpenAI or Ollama.`,
+    content: `Unknown AI provider: ${config.provider}. Please configure BelgaLabs AI in settings.`,
     provider: "off",
     model: "off",
   };

@@ -772,12 +772,12 @@ export default function SettingsPage() {
                 <SelectContent>
                   <SelectItem value="openai">
                     <span className="flex items-center gap-2">
-                      <Brain className="h-3.5 w-3.5" /> OpenAI
+                      <Brain className="h-3.5 w-3.5" /> BelgaLabs AI (Cloud)
                     </span>
                   </SelectItem>
                   <SelectItem value="ollama">
                     <span className="flex items-center gap-2">
-                      <Wifi className="h-3.5 w-3.5" /> Ollama (Local)
+                      <Wifi className="h-3.5 w-3.5" /> BelgaLabs AI (Local)
                     </span>
                   </SelectItem>
                   <SelectItem value="off">
@@ -793,8 +793,8 @@ export default function SettingsPage() {
           {aiConfig.provider === "openai" && (
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">OpenAI Settings</CardTitle>
-                <CardDescription>API key and model selection</CardDescription>
+                <CardTitle className="text-base">BelgaLabs AI (Cloud) Settings</CardTitle>
+                <CardDescription>API key and model configuration for cloud AI engine</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-1.5">
@@ -831,8 +831,8 @@ export default function SettingsPage() {
           {aiConfig.provider === "ollama" && (
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Ollama Settings</CardTitle>
-                <CardDescription>Local LLM server configuration</CardDescription>
+                <CardTitle className="text-base">BelgaLabs AI (Local) Settings</CardTitle>
+                <CardDescription>Local AI engine server configuration</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-1.5">

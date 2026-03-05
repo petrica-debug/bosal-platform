@@ -51,6 +51,10 @@ export default function CatSizerPage() {
           <h1 className="text-4xl font-bold tracking-tight mt-3">
             CatSizer
           </h1>
+          <div className="mt-1 inline-flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-0.5">
+            <span className="relative flex h-1.5 w-1.5"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" /><span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-green-400" /></span>
+            <span className="text-[10px] font-medium tracking-wide text-white/80">AI Copilot — powered by BelgaLabs</span>
+          </div>
           <p className="text-lg text-white/70 mt-1 font-light">
             Catalyst Sizing & System Engineering Platform
           </p>

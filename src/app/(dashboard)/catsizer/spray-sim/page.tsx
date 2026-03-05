@@ -198,7 +198,9 @@ export default function SpraySimPage() {
     setEvapRunning(true);
     setTimeout(() => {
       const gasVelocity = (params.exhaustFlowRate / 3600) / (Math.PI * (params.pipeDiameter / 2000) ** 2) / 1.1;
-      const smd = 80 - (params.injectionPressure - 3) * 8; // higher pressure = smaller droplets
+      // Lefebvre correlation for pressure-swirl atomizers: SMD ∝ ΔP^(-0.43)
+      // Typical Bosch Denoxtronic: 30-50 µm at 5 bar, 20-35 µm at 9 bar
+      const smd = 55 * Math.pow(params.injectionPressure / 5, -0.43);
 
       const profile = computeEvaporationProfile({
         d0_um: smd,
@@ -274,6 +276,10 @@ export default function SpraySimPage() {
             <h1 className="text-2xl font-bold tracking-tight">
               Urea Spray Simulation
             </h1>
+            <div className="mt-0.5 inline-flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-0.5">
+              <span className="relative flex h-1.5 w-1.5"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" /><span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-green-400" /></span>
+              <span className="text-[10px] font-medium tracking-wide text-white/80">AI Copilot — powered by BelgaLabs</span>
+            </div>
             <p className="text-white/60 text-xs mt-0.5 max-w-xl">
               Lagrangian droplet tracking with d² evaporation, thermolysis, and
               NH₃ uniformity index — real-time 3D visualization
@@ -787,4 +793,4 @@ export default function SpraySimPage() {
   );
 }
 
-const PARTICLE_COUNT = 400;
+const PARTICLE_COUNT = 350;

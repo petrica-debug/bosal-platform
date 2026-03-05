@@ -24,6 +24,10 @@ export default function DepollutionPage() {
             <h1 className="text-3xl font-bold tracking-tight">
               Aftertreatment Catalyst Sizing
             </h1>
+            <div className="mt-1 inline-flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-0.5">
+              <span className="relative flex h-1.5 w-1.5"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" /><span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-green-400" /></span>
+              <span className="text-[10px] font-medium tracking-wide text-white/80">AI Copilot — powered by BelgaLabs</span>
+            </div>
             <p className="text-white/60 mt-2 max-w-xl text-sm leading-relaxed">
               Configure engine parameters, select your aftertreatment architecture, and generate
               RFQ-grade catalyst specifications with reaction kinetics, washcoat analysis,

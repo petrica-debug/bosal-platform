@@ -134,7 +134,7 @@ export const DEFAULT_COST_DB: CostDatabase = {
     zeolite_fe_per_kg_eur: 65.00,
     titania_per_kg_eur: 8.00,
     binder_per_kg_eur: 25.00,
-    coating_labor_per_brick_eur: 15.00,
+    coating_labor_per_brick_eur: 35.00,
   },
   pgm: {
     pt_per_troy_oz_usd: 2148,

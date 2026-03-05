@@ -65,7 +65,7 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from "@/components/ui/sidebar";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 const ICON_MAP: Record<string, LucideIcon> = {
   BookOpen,
@@ -113,6 +113,28 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
   const { profile, organization, role } = useUser();
   const [aiMode, setAiMode] = useState<AIMode>("online");
 
+  // Sync AI mode with actual AI config in localStorage
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("bosal-ai-config");
+      if (raw) {
+        const cfg = JSON.parse(raw);
+        if (cfg.provider === "openai") setAiMode("online");
+        else if (cfg.provider === "ollama") setAiMode("offline");
+        else if (cfg.provider === "off") setAiMode("off");
+      } else {
+        // Check if env key is available (provider defaults to "off" but key exists)
+        setAiMode("online");
+        localStorage.setItem("bosal-ai-config", JSON.stringify({
+          provider: "openai",
+          openaiModel: "gpt-4o",
+          ollamaUrl: "http://localhost:11434",
+          ollamaModel: "llama3.1",
+        }));
+      }
+    } catch { /* ignore */ }
+  }, []);
+
   const displayName = profile?.full_name ?? "User";
   const orgName = organization?.name ?? "BOSAL";
   const roleLabel = role ? ROLE_LABELS[role as UserRole] : "Member";
@@ -155,17 +177,38 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-48">
-              <DropdownMenuLabel className="text-xs">AI Assistant Mode</DropdownMenuLabel>
+              <DropdownMenuLabel className="text-xs">AI Copilot — powered by BelgaLabs</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => setAiMode("online")}>
+              <DropdownMenuItem onClick={() => {
+                setAiMode("online");
+                try {
+                  const raw = localStorage.getItem("bosal-ai-config");
+                  const cfg = raw ? JSON.parse(raw) : {};
+                  localStorage.setItem("bosal-ai-config", JSON.stringify({ ...cfg, provider: "openai" }));
+                } catch { /* ignore */ }
+              }}>
                 <span className="mr-2 h-2 w-2 rounded-full bg-green-500" />
-                Claude (Online)
+                BelgaLabs AI (Cloud)
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setAiMode("offline")}>
+              <DropdownMenuItem onClick={() => {
+                setAiMode("offline");
+                try {
+                  const raw = localStorage.getItem("bosal-ai-config");
+                  const cfg = raw ? JSON.parse(raw) : {};
+                  localStorage.setItem("bosal-ai-config", JSON.stringify({ ...cfg, provider: "ollama" }));
+                } catch { /* ignore */ }
+              }}>
                 <span className="mr-2 h-2 w-2 rounded-full bg-amber-500" />
-                Ollama (Offline)
+                BelgaLabs AI (Local)
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setAiMode("off")}>
+              <DropdownMenuItem onClick={() => {
+                setAiMode("off");
+                try {
+                  const raw = localStorage.getItem("bosal-ai-config");
+                  const cfg = raw ? JSON.parse(raw) : {};
+                  localStorage.setItem("bosal-ai-config", JSON.stringify({ ...cfg, provider: "off" }));
+                } catch { /* ignore */ }
+              }}>
                 <span className="mr-2 h-2 w-2 rounded-full bg-gray-500" />
                 Manual Only
               </DropdownMenuItem>
@@ -175,6 +218,14 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
       </SidebarHeader>
 
       <SidebarContent>
+        {/* AI Copilot Branding Strip */}
+        <div className="mx-3 mb-1 flex items-center gap-1.5 rounded-md bg-gradient-to-r from-[#C8102E]/10 to-transparent px-2 py-1.5">
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#C8102E] opacity-75" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-[#C8102E]" />
+          </span>
+          <span className="text-[10px] font-semibold tracking-wide text-[#C8102E]/80 uppercase">AI Copilot — powered by BelgaLabs</span>
+        </div>
         {NAV_GROUPS.map((group) => {
           const items = NAV_ITEMS.filter((item) => item.group === group);
           if (items.length === 0) return null;

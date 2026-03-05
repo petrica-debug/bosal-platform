@@ -27,6 +27,10 @@ export default function SurfaceSciencePage() {
               <span className="text-xs font-semibold uppercase tracking-wider text-white/70">Surface Science Workbench</span>
             </div>
             <h1 className="text-2xl font-bold mb-2">Catalyst Characterization & Activity Prediction</h1>
+            <div className="mb-1 inline-flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-0.5">
+              <span className="relative flex h-1.5 w-1.5"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" /><span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-green-400" /></span>
+              <span className="text-[10px] font-medium tracking-wide text-white/80">AI Copilot — powered by BelgaLabs</span>
+            </div>
             <p className="text-sm text-white/80 max-w-2xl">
               First-principles catalyst sizing from chemisorption data. Enter your lab characterization
               results — CO/H₂ uptake, BET surface area, PGM loading — and compute dispersion,

@@ -82,8 +82,10 @@ import {
   ENGINE_PRESETS,
   EMISSION_STANDARDS,
 } from "@/lib/catsizer/constants";
-import { sizeDepollutionSystem } from "@/lib/catsizer/depollution-engine";
+import { sizeDepollutionSystem, calculateExhaustFlow } from "@/lib/catsizer/depollution-engine";
 import { generateRFQ, PGM_PRICES_USD_OZ, calculatePGMCost } from "@/lib/catsizer/rfq-generator";
+import { type EmissionUnit, EMISSION_UNIT_LABELS, toPpm, fromPpm } from "@/lib/catsizer/emission-units";
+import { calculateSystemCost, type SystemCostBreakdown } from "@/lib/catsizer/system-cost-calculator";
 import { washcoatThicknessSweep, WASHCOAT_DOC_DEFAULT } from "@/lib/catsizer/washcoat";
 import { filterCatalog, STANDARD_CELL_CONFIGS, type SubstrateCatalogEntry } from "@/lib/catsizer/substrate-catalog";
 import { INJECTOR_PRESETS, assessSpraySystem, type InjectorSpec, type MixingPipeConfig, type SpraySystemResult } from "@/lib/catsizer/spray-model";
@@ -91,6 +93,8 @@ import { generateDosingMap, determineAlphaStrategy, type DosingMap } from "@/lib
 import { PGM_FORMULATIONS, recommendTechnology, conversionTemperatureSweep, findLightOff, type PGMFormulation, type TechnologyRecommendation, type ConversionPoint } from "@/lib/catsizer/catalyst-technology";
 import { CATALYST_PROFILES_DB, type DetailedCatalystProfile } from "@/lib/catsizer/catalyst-profiles";
 import { calculateExhaustMolarFlows, sizeCatalystSystemFromTOF, generateConversionProfile, generateReactorProfile, type TOFSystemSizingResult, type ConversionProfilePoint, type ReactorPositionPoint } from "@/lib/catsizer/tof-sizing-engine";
+import { getOEMAdvisorAdvice } from "@/lib/ai/catalyst-advisor";
+import type { OEMAdvisorResponse } from "@/lib/ai/types";
 
 const STEPS = [
   "Engine Input",
@@ -221,6 +225,16 @@ export function DepollutionCalculator() {
   const [tofSizingResults, setTofSizingResults] = useState<TOFSystemSizingResult[]>([]);
   const [conversionProfiles, setConversionProfiles] = useState<Record<string, ConversionProfilePoint[]>>({});
   const [reactorProfiles, setReactorProfiles] = useState<Record<string, ReactorPositionPoint[]>>({});
+  const [oemAiAdvice, setOemAiAdvice] = useState<OEMAdvisorResponse | null>(null);
+  const [oemAiLoading, setOemAiLoading] = useState(false);
+  const [oemAiError, setOemAiError] = useState<string | null>(null);
+  const [emissionUnit, setEmissionUnit] = useState<EmissionUnit>("ppm");
+  const [emissionValues, setEmissionValues] = useState<Record<string, number>>({
+    CO: 400, HC: 80, NOx: 800, PM: 30,
+  });
+  const [vehicleSpeed, setVehicleSpeed] = useState(80);
+  const [systemCost, setSystemCost] = useState<SystemCostBreakdown | null>(null);
+
 
   const { setValue } = useForm<EngineInputs>({ defaultValues: DEFAULT_ENGINE });
 
@@ -228,8 +242,23 @@ export function DepollutionCalculator() {
     const preset = ENGINE_PRESETS[index];
     const merged = { ...DEFAULT_ENGINE, ...preset.inputs } as EngineInputs;
     setEngineInputs(merged);
+    setEmissionUnit("ppm");
+    setEmissionValues({
+      CO: merged.CO_ppm,
+      HC: merged.HC_ppm,
+      NOx: merged.NOx_ppm,
+      PM: merged.PM_mg_Nm3,
+    });
     for (const [key, val] of Object.entries(merged)) {
       setValue(key as keyof EngineInputs, val as never);
+    }
+    if (merged.engineType === "gasoline") {
+      setChain([
+        { type: "TWC", enabled: true },
+        { type: "DPF", enabled: false },
+      ]);
+    } else {
+      setChain(DEFAULT_CHAIN);
     }
   };
 
@@ -243,12 +272,53 @@ export function DepollutionCalculator() {
     );
   };
 
+  const handleEmissionUnitChange = useCallback((newUnit: EmissionUnit) => {
+    const flow = calculateExhaustFlow(engineInputs);
+    const Q = flow.volumeFlow_Nm3_h;
+    const P = engineInputs.ratedPower_kW;
+
+    const newValues: Record<string, number> = {};
+    for (const pollutant of ["CO", "HC", "NOx", "PM"] as const) {
+      const currentPpm = toPpm(
+        { value: emissionValues[pollutant], unit: emissionUnit },
+        pollutant, P, Q, vehicleSpeed,
+      );
+      newValues[pollutant] = parseFloat(fromPpm(currentPpm, newUnit, pollutant, P, Q, vehicleSpeed).toFixed(4));
+    }
+    setEmissionValues(newValues);
+    setEmissionUnit(newUnit);
+  }, [engineInputs, emissionUnit, emissionValues, vehicleSpeed]);
+
   const calculate = useCallback(() => {
     setCalculating(true);
+
+    // Sync emission values to ppm before calculating
+    const flow = calculateExhaustFlow(engineInputs);
+    const Q = flow.volumeFlow_Nm3_h;
+    const P = engineInputs.ratedPower_kW;
+    const co_ppm = toPpm({ value: emissionValues.CO, unit: emissionUnit }, "CO", P, Q, vehicleSpeed);
+    const hc_ppm = toPpm({ value: emissionValues.HC, unit: emissionUnit }, "HC", P, Q, vehicleSpeed);
+    const nox_ppm = toPpm({ value: emissionValues.NOx, unit: emissionUnit }, "NOx", P, Q, vehicleSpeed);
+    const pm_mg = emissionUnit === "ppm" ? emissionValues.PM
+      : toPpm({ value: emissionValues.PM, unit: emissionUnit }, "PM", P, Q, vehicleSpeed);
+
+    const syncedInputs: EngineInputs = {
+      ...engineInputs,
+      CO_ppm: Math.round(co_ppm),
+      HC_ppm: Math.round(hc_ppm),
+      NOx_ppm: Math.round(nox_ppm),
+      PM_mg_Nm3: Math.round(pm_mg * 10) / 10,
+    };
+    setEngineInputs(syncedInputs);
+
     setTimeout(() => {
-      const base = sizeDepollutionSystem(engineInputs, chain, standard);
+      const base = sizeDepollutionSystem(syncedInputs, chain, standard);
       setBaseResult(base);
-      const rfqResult = generateRFQ(engineInputs, chain, standard, aging, scrConfig);
+
+      const hasSCR = chain.some((c) => c.enabled && c.type === "SCR");
+      const costBreakdown = calculateSystemCost(base.catalysts, hasSCR);
+      setSystemCost(costBreakdown);
+      const rfqResult = generateRFQ(syncedInputs, chain, standard, aging, scrConfig);
       setRfq(rfqResult);
 
       // Technology recommendations and conversion curves
@@ -257,29 +327,27 @@ export function DepollutionCalculator() {
       const enabledChain = chain.filter((c) => c.enabled);
 
       for (const element of enabledChain) {
-        const rec = recommendTechnology(element.type, engineInputs, standard);
+        const rec = recommendTechnology(element.type, syncedInputs, standard);
         recs.push(rec);
 
-        // Use selected formulation or recommended
         const formId = selectedFormulations[element.type];
         const formulation = formId
           ? PGM_FORMULATIONS.find((f) => f.id === formId) ?? rec.recommended
           : rec.recommended;
 
-        // Find the sized catalyst for this type
         const sized = base.catalysts.find((c) => c.type === element.type);
         if (sized && (element.type === "DOC" || element.type === "TWC" || element.type === "SCR" || element.type === "ASC")) {
-          const T_K = engineInputs.exhaustTemp_C + 273.15;
+          const T_K = syncedInputs.exhaustTemp_C + 273.15;
           const rho = 101325 / (287 * T_K);
-          const Q_m3_s = (engineInputs.exhaustFlowRate_kg_h / 3600) / rho;
+          const Q_m3_s = (syncedInputs.exhaustFlowRate_kg_h / 3600) / rho;
           const composition: Record<string, number> = {
-            CO: engineInputs.CO_ppm * 1e-6,
-            HC: engineInputs.HC_ppm * 1e-6,
-            NO: engineInputs.NOx_ppm * (1 - engineInputs.NO2_fraction) * 1e-6,
-            NO2: engineInputs.NOx_ppm * engineInputs.NO2_fraction * 1e-6,
-            O2: engineInputs.O2_percent * 0.01,
-            H2O: engineInputs.H2O_percent * 0.01,
-            NH3: element.type === "SCR" || element.type === "ASC" ? engineInputs.NOx_ppm * 1e-6 * 1.0 : 0,
+            CO: syncedInputs.CO_ppm * 1e-6,
+            HC: syncedInputs.HC_ppm * 1e-6,
+            NO: syncedInputs.NOx_ppm * (1 - syncedInputs.NO2_fraction) * 1e-6,
+            NO2: syncedInputs.NOx_ppm * syncedInputs.NO2_fraction * 1e-6,
+            O2: syncedInputs.O2_percent * 0.01,
+            H2O: syncedInputs.H2O_percent * 0.01,
+            NH3: element.type === "SCR" || element.type === "ASC" ? syncedInputs.NOx_ppm * 1e-6 * 1.0 : 0,
           };
 
           const sweep = conversionTemperatureSweep(
@@ -303,17 +371,17 @@ export function DepollutionCalculator() {
         const profiles = CATALYST_PROFILES_DB.filter((p) => p.catalystType === catType);
         if (profiles.length > 0) {
           try {
-            const tofResult = sizeCatalystSystemFromTOF(catType, engineInputs, profiles[0].id);
+            const tofResult = sizeCatalystSystemFromTOF(catType, syncedInputs, profiles[0].id);
             tofResults.push(tofResult);
 
             const sized = base.catalysts.find((c) => c.type === catType);
             if (sized) {
-              const flows = calculateExhaustMolarFlows(engineInputs);
+              const flows = calculateExhaustMolarFlows(syncedInputs);
               cProfiles[catType] = generateConversionProfile(
                 profiles[0], sized.selectedVolume_L, flows, [100, 650], 50
               );
               rProfiles[catType] = generateReactorProfile(
-                profiles[0], sized.length_mm, sized.diameter_mm, flows, engineInputs.exhaustTemp_C, 30
+                profiles[0], sized.length_mm, sized.diameter_mm, flows, syncedInputs.exhaustTemp_C, 30
               );
             }
           } catch { /* profile not available for this type */ }
@@ -325,21 +393,64 @@ export function DepollutionCalculator() {
 
       // Spray & dosing analysis (if SCR is in chain)
       if (chain.some((c) => c.enabled && c.type === "SCR")) {
-        const spray = assessSpraySystem(injector, pipe, engineInputs.exhaustTemp_C, engineInputs.exhaustFlowRate_kg_h, 1.0);
+        const spray = assessSpraySystem(injector, pipe, syncedInputs.exhaustTemp_C, syncedInputs.exhaustFlowRate_kg_h, 1.0);
         setSprayResult(spray);
-        const dm = generateDosingMap(engineInputs.NOx_ppm, engineInputs.exhaustFlowRate_kg_h, 1.0);
+        const dm = generateDosingMap(syncedInputs.NOx_ppm, syncedInputs.exhaustFlowRate_kg_h, 1.0);
         setDosingMap(dm);
       }
 
       setCalculating(false);
       setStep(4);
     }, 150);
-  }, [engineInputs, chain, standard, aging, scrConfig, injector, pipe, selectedFormulations]);
+  }, [engineInputs, chain, standard, aging, scrConfig, injector, pipe, selectedFormulations, emissionUnit, emissionValues, vehicleSpeed]);
 
   const washcoatSweep = useMemo(() => {
     const T_K = engineInputs.exhaustTemp_C + 273.15;
     return washcoatThicknessSweep(T_K, 101.325, 28, 100, WASHCOAT_DOC_DEFAULT);
   }, [engineInputs.exhaustTemp_C]);
+
+  const handleOEMAIAdvisor = useCallback(async () => {
+    if (!rfq || !baseResult) return;
+    setOemAiLoading(true);
+    setOemAiError(null);
+    try {
+      const catalysts = rfq.aftertreatmentSystem.catalysts.map((c) => ({
+        type: c.type,
+        position: c.position,
+        volume_L: c.substrate.volume_L,
+        diameter_mm: c.substrate.diameter_mm,
+        length_mm: c.substrate.length_mm,
+        cpsi: c.substrate.cellDensity_cpsi,
+        pgm: c.pgm,
+        washcoat: c.washcoat,
+      }));
+      const systemDesc = `Engine: ${engineInputs.displacement_L}L ${engineInputs.engineType}, ${engineInputs.ratedPower_kW} kW, ${engineInputs.exhaustTemp_C}°C exhaust.
+Architecture: ${rfq.aftertreatmentSystem.architecture}
+Emission standard: ${standard.replace(/_/g, " ").toUpperCase()}
+Total pressure drop: ${rfq.aftertreatmentSystem.totalPressureDrop_kPa.toFixed(2)} kPa
+Total weight: ${rfq.aftertreatmentSystem.totalSystemWeight_kg.toFixed(1)} kg
+Catalysts: ${JSON.stringify(catalysts, null, 2)}
+Cost estimate: $${rfq.costEstimate.totalPerUnit_USD.toFixed(0)} per unit${systemCost ? `, Quoted: €${systemCost.quotedPrice_eur.toFixed(0)}` : ""}
+Aging: ${(rfq.aging.results.overallActivity * 100).toFixed(0)}% activity after ${aging.targetLife_hours}h`;
+
+      const context = {
+        engineInputs,
+        standard,
+        exhaustFlow_Nm3_h: baseResult.exhaustFlowRate_Nm3_h,
+        catalysts,
+        aging: rfq.aging,
+        cost: rfq.costEstimate,
+        systemCost: systemCost ?? null,
+      };
+
+      const advice = await getOEMAdvisorAdvice(systemDesc, context);
+      setOemAiAdvice(advice);
+    } catch (err) {
+      setOemAiError(err instanceof Error ? err.message : "AI request failed");
+    } finally {
+      setOemAiLoading(false);
+    }
+  }, [rfq, baseResult, engineInputs, standard, aging, systemCost]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -377,12 +488,47 @@ export function DepollutionCalculator() {
               <CardDescription>Select a preset or enter custom values below</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="flex flex-wrap gap-2">
-                {ENGINE_PRESETS.map((p, i) => (
-                  <Button key={i} variant="outline" size="sm" onClick={() => applyPreset(i)}>
-                    {p.name}
-                  </Button>
-                ))}
+              <div className="space-y-3">
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Light-Duty Gasoline (&lt; 2L)</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {ENGINE_PRESETS.map((p, i) => p.inputs.engineType === "gasoline" ? (
+                      <Button key={i} variant="outline" size="sm" className="text-xs border-amber-300 hover:bg-amber-50" onClick={() => applyPreset(i)}>
+                        {p.name}
+                      </Button>
+                    ) : null)}
+                  </div>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Light-Duty Diesel (&lt; 2L)</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {ENGINE_PRESETS.map((p, i) => p.inputs.engineType === "diesel" && (p.inputs.displacement_L ?? 99) < 2.1 ? (
+                      <Button key={i} variant="outline" size="sm" className="text-xs border-blue-300 hover:bg-blue-50" onClick={() => applyPreset(i)}>
+                        {p.name}
+                      </Button>
+                    ) : null)}
+                  </div>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Medium / Heavy-Duty & Genset</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {ENGINE_PRESETS.map((p, i) => p.inputs.engineType === "diesel" && (p.inputs.displacement_L ?? 0) >= 2.1 ? (
+                      <Button key={i} variant="outline" size="sm" className="text-xs" onClick={() => applyPreset(i)}>
+                        {p.name}
+                      </Button>
+                    ) : null)}
+                  </div>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Natural Gas / Biogas / Dual Fuel</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {ENGINE_PRESETS.map((p, i) => p.inputs.engineType && !["diesel", "gasoline"].includes(p.inputs.engineType) ? (
+                      <Button key={i} variant="outline" size="sm" className="text-xs border-green-300 hover:bg-green-50" onClick={() => applyPreset(i)}>
+                        {p.name}
+                      </Button>
+                    ) : null)}
+                  </div>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -398,6 +544,7 @@ export function DepollutionCalculator() {
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="diesel">Diesel</SelectItem>
+                        <SelectItem value="gasoline">Gasoline</SelectItem>
                         <SelectItem value="natural_gas">Natural Gas</SelectItem>
                         <SelectItem value="dual_fuel">Dual Fuel</SelectItem>
                         <SelectItem value="biogas">Biogas</SelectItem>
@@ -457,15 +604,72 @@ export function DepollutionCalculator() {
             </Card>
 
             <Card className="md:col-span-2">
-              <CardHeader><CardTitle className="text-base">Raw Exhaust Composition</CardTitle></CardHeader>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-base">Pollutant Emissions</CardTitle>
+                  <div className="flex items-center gap-2">
+                    <Label className="text-sm text-muted-foreground">Input Unit:</Label>
+                    <Select value={emissionUnit} onValueChange={(v) => handleEmissionUnitChange(v as EmissionUnit)}>
+                      <SelectTrigger className="w-32">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(Object.entries(EMISSION_UNIT_LABELS) as [EmissionUnit, string][]).map(([key, label]) => (
+                          <SelectItem key={key} value={key}>{label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <CardDescription>
+                  Enter pollutant levels in {EMISSION_UNIT_LABELS[emissionUnit]}. Values are automatically converted for internal calculations.
+                  {emissionUnit === "g_km" && " Assumes vehicle speed for conversion."}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {(["CO", "HC", "NOx", "PM"] as const).map((pollutant) => {
+                    const labels: Record<string, string> = { CO: "CO", HC: "HC (C1 eq.)", NOx: "NOₓ", PM: "PM" };
+                    const unitLabel = pollutant === "PM" && emissionUnit === "ppm" ? "mg/Nm³" : EMISSION_UNIT_LABELS[emissionUnit];
+                    return (
+                      <NumField
+                        key={pollutant}
+                        label={labels[pollutant]}
+                        value={emissionValues[pollutant]}
+                        unit={unitLabel}
+                        onChange={(v) => setEmissionValues((prev) => ({ ...prev, [pollutant]: v }))}
+                      />
+                    );
+                  })}
+                  {emissionUnit === "g_km" && (
+                    <NumField
+                      label="Vehicle Speed"
+                      value={vehicleSpeed}
+                      unit="km/h"
+                      onChange={setVehicleSpeed}
+                    />
+                  )}
+                </div>
+                {emissionUnit !== "ppm" && (
+                  <div className="mt-3 rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground">
+                    <p className="font-medium mb-1">Converted to internal units (ppm / mg/Nm³):</p>
+                    <div className="flex gap-4 font-mono">
+                      <span>CO: {engineInputs.CO_ppm} ppm</span>
+                      <span>HC: {engineInputs.HC_ppm} ppm</span>
+                      <span>NOₓ: {engineInputs.NOx_ppm} ppm</span>
+                      <span>PM: {engineInputs.PM_mg_Nm3} mg/Nm³</span>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="md:col-span-2">
+              <CardHeader><CardTitle className="text-base">Exhaust Gas Composition</CardTitle></CardHeader>
               <CardContent>
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   {([
-                    ["CO_ppm", "CO", "ppm"],
-                    ["HC_ppm", "HC (C1 eq.)", "ppm"],
-                    ["NOx_ppm", "NOₓ", "ppm"],
                     ["NO2_fraction", "NO₂/NOₓ", "ratio"],
-                    ["PM_mg_Nm3", "PM", "mg/Nm³"],
                     ["SO2_ppm", "SO₂", "ppm"],
                     ["O2_percent", "O₂", "vol%"],
                     ["H2O_percent", "H₂O", "vol%"],
@@ -966,7 +1170,7 @@ export function DepollutionCalculator() {
               ["Total Weight", `${rfq.aftertreatmentSystem.totalSystemWeight_kg.toFixed(1)} kg`],
               ["Total Length", `${rfq.aftertreatmentSystem.totalSystemLength_mm} mm`],
               ["Exhaust Flow", `${baseResult.exhaustFlowRate_Nm3_h.toFixed(0)} Nm³/h`],
-              ["Est. Cost", `$${rfq.costEstimate.totalPerUnit_USD.toFixed(0)}`],
+              ["Quoted Price", systemCost ? `€${systemCost.quotedPrice_eur.toFixed(0)}` : `$${rfq.costEstimate.totalPerUnit_USD.toFixed(0)}`],
             ].map(([label, value]) => (
               <Card key={label}>
                 <CardHeader className="pb-2"><CardDescription>{label}</CardDescription></CardHeader>
@@ -975,8 +1179,9 @@ export function DepollutionCalculator() {
             ))}
           </div>
 
-          <Tabs defaultValue="sizing">
+          <Tabs defaultValue="overview">
             <TabsList className="flex-wrap">
+              <TabsTrigger value="overview" className="font-bold">Solution Overview</TabsTrigger>
               <TabsTrigger value="sizing">Catalyst Sizing</TabsTrigger>
               <TabsTrigger value="washcoat">Washcoat & Kinetics</TabsTrigger>
               <TabsTrigger value="aging">Aging & Durability</TabsTrigger>
@@ -991,8 +1196,486 @@ export function DepollutionCalculator() {
               <TabsTrigger value="lightoff">Light-Off Curves</TabsTrigger>
               {techRecs.length > 0 && <TabsTrigger value="technology">Technology</TabsTrigger>}
               {tofSizingResults.length > 0 && <TabsTrigger value="surface">Surface Science</TabsTrigger>}
+              <TabsTrigger value="ai_advisor">AI Advisor</TabsTrigger>
               <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
             </TabsList>
+
+            {/* ---- SOLUTION OVERVIEW TAB ---- */}
+            <TabsContent value="overview" className="mt-4">
+              <div className="flex flex-col gap-6">
+                {/* Architecture Summary */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Beaker className="h-5 w-5" />
+                      Aftertreatment Solution — {rfq.aftertreatmentSystem.architecture}
+                    </CardTitle>
+                    <CardDescription>
+                      {engineInputs.displacement_L}L {engineInputs.engineType} — {engineInputs.ratedPower_kW} kW — {rfq.projectInfo.emissionStandard.replace(/_/g, " ").toUpperCase()}
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                      <div className="rounded-lg border bg-primary/5 p-3 text-center">
+                        <p className="text-xs text-muted-foreground">Catalysts</p>
+                        <p className="text-2xl font-bold">{baseResult.catalysts.length}</p>
+                        <p className="text-xs text-muted-foreground">{baseResult.catalysts.map((c) => c.type).join(" → ")}</p>
+                      </div>
+                      <div className="rounded-lg border bg-primary/5 p-3 text-center">
+                        <p className="text-xs text-muted-foreground">Total Volume</p>
+                        <p className="text-2xl font-bold font-mono">{baseResult.catalysts.reduce((s, c) => s + c.selectedVolume_L, 0).toFixed(1)} L</p>
+                        <p className="text-xs text-muted-foreground">{baseResult.catalysts.map((c) => `${c.type}: ${c.selectedVolume_L.toFixed(1)}L`).join(", ")}</p>
+                      </div>
+                      <div className="rounded-lg border bg-primary/5 p-3 text-center">
+                        <p className="text-xs text-muted-foreground">System Weight</p>
+                        <p className="text-2xl font-bold font-mono">{baseResult.totalWeight_kg.toFixed(1)} kg</p>
+                        <p className="text-xs text-muted-foreground">Total length: {baseResult.totalLength_mm} mm</p>
+                      </div>
+                      <div className="rounded-lg border bg-primary/5 p-3 text-center">
+                        <p className="text-xs text-muted-foreground">Backpressure</p>
+                        <p className="text-2xl font-bold font-mono">{baseResult.totalPressureDrop_kPa.toFixed(2)} kPa</p>
+                        <p className="text-xs text-muted-foreground">{(baseResult.totalPressureDrop_kPa * 10.197).toFixed(0)} mmH₂O</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Catalyst Details Table */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Catalyst Brick Details</CardTitle>
+                    <CardDescription>Volume calculated via GHSV from exhaust flow rate at STP</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="rounded-md border overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="w-12">#</TableHead>
+                            <TableHead>Type</TableHead>
+                            <TableHead>GHSV [h⁻¹]</TableHead>
+                            <TableHead>Req. Vol [L]</TableHead>
+                            <TableHead>Sel. Vol [L]</TableHead>
+                            <TableHead>Ø [mm]</TableHead>
+                            <TableHead>L [mm]</TableHead>
+                            <TableHead>Bricks</TableHead>
+                            <TableHead>Cell/Wall</TableHead>
+                            <TableHead>Material</TableHead>
+                            <TableHead>PGM [g/ft³]</TableHead>
+                            <TableHead>ΔP [kPa]</TableHead>
+                            <TableHead>Weight [kg]</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {baseResult.catalysts.map((cat, idx) => (
+                            <TableRow key={idx}>
+                              <TableCell className="font-mono">{idx + 1}</TableCell>
+                              <TableCell><Badge>{cat.type}</Badge></TableCell>
+                              <TableCell className="font-mono">{cat.GHSV_design.toLocaleString()}</TableCell>
+                              <TableCell className="font-mono">{cat.requiredVolume_L.toFixed(2)}</TableCell>
+                              <TableCell className="font-mono font-bold">{cat.selectedVolume_L.toFixed(1)}</TableCell>
+                              <TableCell className="font-mono">{cat.diameter_mm}</TableCell>
+                              <TableCell className="font-mono">{cat.length_mm}</TableCell>
+                              <TableCell className="font-mono">{cat.numberOfSubstrates}</TableCell>
+                              <TableCell className="font-mono">{cat.cellDensity_cpsi}/{cat.wallThickness_mil}</TableCell>
+                              <TableCell className="capitalize">{cat.material.replace(/_/g, " ")}</TableCell>
+                              <TableCell className="font-mono">{cat.preciousMetalLoading_g_ft3 || "—"}</TableCell>
+                              <TableCell className="font-mono">{cat.pressureDrop_kPa.toFixed(3)}</TableCell>
+                              <TableCell className="font-mono">{cat.weight_kg.toFixed(1)}</TableCell>
+                            </TableRow>
+                          ))}
+                          <TableRow className="bg-muted/30 font-semibold">
+                            <TableCell colSpan={3}>TOTAL</TableCell>
+                            <TableCell className="font-mono">{baseResult.catalysts.reduce((s, c) => s + c.requiredVolume_L, 0).toFixed(2)}</TableCell>
+                            <TableCell className="font-mono">{baseResult.catalysts.reduce((s, c) => s + c.selectedVolume_L, 0).toFixed(1)}</TableCell>
+                            <TableCell colSpan={6} />
+                            <TableCell className="font-mono">{baseResult.totalPressureDrop_kPa.toFixed(3)}</TableCell>
+                            <TableCell className="font-mono">{baseResult.totalWeight_kg.toFixed(1)}</TableCell>
+                          </TableRow>
+                        </TableBody>
+                      </Table>
+                    </div>
+                    <div className="mt-3 rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground">
+                      <p><strong>Volume Sizing:</strong> V = Q_STP / GHSV, where Q_STP = {baseResult.exhaustFlowRate_Nm3_h.toFixed(0)} Nm³/h ({baseResult.exhaustFlowRate_actual_m3_h.toFixed(0)} m³/h actual at {engineInputs.exhaustTemp_C}°C)</p>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* SVG System Diagram */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">System Design</CardTitle>
+                    <CardDescription>Schematic cross-section of the aftertreatment system</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="overflow-x-auto">
+                      <svg viewBox="0 0 1000 280" className="w-full min-w-[700px]" xmlns="http://www.w3.org/2000/svg">
+                        <defs>
+                          <linearGradient id="pipeGrad" x1="0" y1="0" x2="1" y2="0">
+                            <stop offset="0%" stopColor="#94a3b8" />
+                            <stop offset="100%" stopColor="#cbd5e1" />
+                          </linearGradient>
+                          <linearGradient id="hotGrad" x1="0" y1="0" x2="1" y2="0">
+                            <stop offset="0%" stopColor="#ef4444" stopOpacity="0.15" />
+                            <stop offset="100%" stopColor="#f97316" stopOpacity="0.05" />
+                          </linearGradient>
+                          <pattern id="honeycomb" width="8" height="8" patternUnits="userSpaceOnUse">
+                            <rect width="8" height="8" fill="#e2e8f0" />
+                            <circle cx="4" cy="4" r="1.5" fill="#94a3b8" />
+                          </pattern>
+                        </defs>
+
+                        {/* Background */}
+                        <rect x="0" y="0" width="1000" height="280" fill="none" />
+
+                        {/* Engine block */}
+                        <rect x="10" y="80" width="80" height="100" rx="6" fill="#374151" stroke="#1f2937" strokeWidth="2" />
+                        <text x="50" y="120" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">ENGINE</text>
+                        <text x="50" y="135" textAnchor="middle" fill="#9ca3af" fontSize="8">{engineInputs.displacement_L}L</text>
+                        <text x="50" y="148" textAnchor="middle" fill="#9ca3af" fontSize="8">{engineInputs.ratedPower_kW} kW</text>
+                        <text x="50" y="165" textAnchor="middle" fill="#fbbf24" fontSize="9" fontWeight="bold">{engineInputs.exhaustTemp_C}°C</text>
+
+                        {/* Exhaust pipe from engine */}
+                        <rect x="90" y="118" width="30" height="24" fill="url(#pipeGrad)" rx="2" />
+                        <line x1="90" y1="118" x2="120" y2="118" stroke="#64748b" strokeWidth="1.5" />
+                        <line x1="90" y1="142" x2="120" y2="142" stroke="#64748b" strokeWidth="1.5" />
+
+                        {/* Flow arrow */}
+                        <polygon points="115,125 125,130 115,135" fill="#3b82f6" />
+
+                        {/* Catalyst elements */}
+                        {(() => {
+                          let xPos = 130;
+                          let currentTemp = engineInputs.exhaustTemp_C;
+                          const elements: React.ReactNode[] = [];
+                          const catColors: Record<string, string> = {
+                            DOC: "#dc2626", DPF: "#7c3aed", SCR: "#059669", ASC: "#d97706", TWC: "#2563eb",
+                          };
+
+                          baseResult.catalysts.forEach((cat, idx) => {
+                            const catWidth = Math.max(80, Math.min(140, cat.selectedVolume_L * 12));
+                            const catHeight = Math.max(60, Math.min(120, cat.canDiameter_mm / 3));
+                            const yCenter = 130;
+                            const yTop = yCenter - catHeight / 2;
+                            const color = catColors[cat.type] ?? "#6b7280";
+
+                            // Inlet cone
+                            elements.push(
+                              <polygon
+                                key={`cone-in-${idx}`}
+                                points={`${xPos},${yCenter - 12} ${xPos + 15},${yTop} ${xPos + 15},${yTop + catHeight} ${xPos},${yCenter + 12}`}
+                                fill="#d1d5db"
+                                stroke="#9ca3af"
+                                strokeWidth="1"
+                              />
+                            );
+                            xPos += 15;
+
+                            // Catalyst body
+                            elements.push(
+                              <g key={`cat-${idx}`}>
+                                <rect x={xPos} y={yTop} width={catWidth} height={catHeight} rx="3" fill="url(#honeycomb)" stroke={color} strokeWidth="2.5" />
+                                <rect x={xPos} y={yTop} width={catWidth} height={catHeight} rx="3" fill={color} fillOpacity="0.12" />
+                                <text x={xPos + catWidth / 2} y={yTop + 16} textAnchor="middle" fill={color} fontSize="13" fontWeight="bold">{cat.type}</text>
+                                <text x={xPos + catWidth / 2} y={yTop + 30} textAnchor="middle" fill="#374151" fontSize="8">{cat.diameter_mm}×{cat.length_mm} mm</text>
+                                <text x={xPos + catWidth / 2} y={yTop + 42} textAnchor="middle" fill="#374151" fontSize="8">{cat.selectedVolume_L.toFixed(1)} L — {cat.cellDensity_cpsi}/{cat.wallThickness_mil}</text>
+                                <text x={xPos + catWidth / 2} y={yTop + 54} textAnchor="middle" fill="#374151" fontSize="8">GHSV: {(cat.GHSV_design / 1000).toFixed(0)}k h⁻¹</text>
+                                {cat.preciousMetalLoading_g_ft3 > 0 && (
+                                  <text x={xPos + catWidth / 2} y={yTop + 66} textAnchor="middle" fill="#374151" fontSize="8">PGM: {cat.preciousMetalLoading_g_ft3} g/ft³</text>
+                                )}
+                                {cat.numberOfSubstrates > 1 && (
+                                  <text x={xPos + catWidth / 2} y={yTop + catHeight - 6} textAnchor="middle" fill="#6b7280" fontSize="7">×{cat.numberOfSubstrates} bricks</text>
+                                )}
+                              </g>
+                            );
+                            xPos += catWidth;
+
+                            // Outlet cone
+                            elements.push(
+                              <polygon
+                                key={`cone-out-${idx}`}
+                                points={`${xPos},${yTop} ${xPos + 15},${yCenter - 12} ${xPos + 15},${yCenter + 12} ${xPos},${yTop + catHeight}`}
+                                fill="#d1d5db"
+                                stroke="#9ca3af"
+                                strokeWidth="1"
+                              />
+                            );
+                            xPos += 15;
+
+                            // Temperature label below
+                            const tempDelta = cat.type === "DOC" ? 30 : cat.type === "DPF" ? -10 : cat.type === "SCR" ? -5 : 0;
+                            currentTemp += tempDelta;
+                            elements.push(
+                              <text key={`temp-${idx}`} x={xPos - catWidth / 2 - 15} y={yTop + catHeight + 18} textAnchor="middle" fill="#f59e0b" fontSize="9" fontWeight="bold">{currentTemp}°C</text>
+                            );
+                            elements.push(
+                              <text key={`dp-${idx}`} x={xPos - catWidth / 2 - 15} y={yTop + catHeight + 30} textAnchor="middle" fill="#6b7280" fontSize="7">ΔP: {cat.pressureDrop_kPa.toFixed(2)} kPa</text>
+                            );
+
+                            // DEF injector before SCR
+                            if (cat.type === "SCR") {
+                              elements.push(
+                                <g key={`def-${idx}`}>
+                                  <line x1={xPos - catWidth - 30} y1={yTop - 15} x2={xPos - catWidth - 30} y2={yTop + 5} stroke="#3b82f6" strokeWidth="2" strokeDasharray="4 2" />
+                                  <circle cx={xPos - catWidth - 30} cy={yTop - 18} r="6" fill="#3b82f6" />
+                                  <text x={xPos - catWidth - 30} y={yTop - 15} textAnchor="middle" fill="white" fontSize="6" fontWeight="bold">DEF</text>
+                                  <text x={xPos - catWidth - 30} y={yTop - 28} textAnchor="middle" fill="#3b82f6" fontSize="7">AdBlue</text>
+                                </g>
+                              );
+                            }
+
+                            // Connecting pipe
+                            if (idx < baseResult.catalysts.length - 1) {
+                              elements.push(
+                                <g key={`pipe-${idx}`}>
+                                  <rect x={xPos} y={yCenter - 12} width="20" height="24" fill="url(#pipeGrad)" rx="2" />
+                                  <polygon points={`${xPos + 14},${yCenter - 4} ${xPos + 20},${yCenter} ${xPos + 14},${yCenter + 4}`} fill="#3b82f6" />
+                                </g>
+                              );
+                              xPos += 20;
+                            }
+                          });
+
+                          // Tailpipe
+                          elements.push(
+                            <g key="tailpipe">
+                              <rect x={xPos} y={118} width="30" height="24" fill="url(#pipeGrad)" rx="2" />
+                              <polygon points={`${xPos + 24},125 ${xPos + 32},130 ${xPos + 24},135`} fill="#22c55e" />
+                              <rect x={xPos + 30} y={100} width="60" height="60" rx="6" fill="#22c55e" fillOpacity="0.1" stroke="#22c55e" strokeWidth="1.5" strokeDasharray="4 2" />
+                              <text x={xPos + 60} y={120} textAnchor="middle" fill="#16a34a" fontSize="10" fontWeight="bold">TAILPIPE</text>
+                              <text x={xPos + 60} y={134} textAnchor="middle" fill="#6b7280" fontSize="8">ΔP: {baseResult.totalPressureDrop_kPa.toFixed(2)} kPa</text>
+                              <text x={xPos + 60} y={148} textAnchor="middle" fill="#6b7280" fontSize="8">{baseResult.totalWeight_kg.toFixed(1)} kg total</text>
+                            </g>
+                          );
+
+                          return elements;
+                        })()}
+
+                        {/* Legend */}
+                        <g transform="translate(10, 250)">
+                          <text x="0" y="0" fill="#374151" fontSize="8" fontWeight="bold">Legend:</text>
+                          {[["DOC", "#dc2626"], ["DPF", "#7c3aed"], ["SCR", "#059669"], ["ASC", "#d97706"], ["TWC", "#2563eb"]].map(([name, color], i) => (
+                            <g key={name} transform={`translate(${55 + i * 65}, -4)`}>
+                              <rect x="0" y="-6" width="10" height="10" rx="2" fill={color} fillOpacity="0.3" stroke={color} strokeWidth="1" />
+                              <text x="14" y="2" fill="#374151" fontSize="8">{name}</text>
+                            </g>
+                          ))}
+                        </g>
+                      </svg>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Integrator Cost Breakdown */}
+                {systemCost && (
+                  <div className="grid gap-6 lg:grid-cols-2">
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-base flex items-center gap-2">
+                          <DollarSign className="h-5 w-5" />
+                          Integrator Cost Breakdown (EUR)
+                        </CardTitle>
+                        <CardDescription>Per-unit cost assuming BOSAL as system integrator</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="rounded-md border overflow-x-auto">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>#</TableHead>
+                                <TableHead>Component</TableHead>
+                                <TableHead className="text-right">Substrate</TableHead>
+                                <TableHead className="text-right">Washcoat</TableHead>
+                                <TableHead className="text-right">PGM</TableHead>
+                                <TableHead className="text-right">Mat</TableHead>
+                                <TableHead className="text-right">Shell</TableHead>
+                                <TableHead className="text-right">Cones</TableHead>
+                                <TableHead className="text-right">Welding</TableHead>
+                                <TableHead className="text-right font-bold">Total</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {systemCost.bricks.map((b) => (
+                                <TableRow key={b.position}>
+                                  <TableCell className="font-mono">{b.position}</TableCell>
+                                  <TableCell><Badge>{b.type}</Badge></TableCell>
+                                  <TableCell className="text-right font-mono">€{b.substrate_eur.toFixed(0)}</TableCell>
+                                  <TableCell className="text-right font-mono">€{b.washcoat_eur.toFixed(0)}</TableCell>
+                                  <TableCell className="text-right font-mono">€{b.pgm_eur.toFixed(0)}</TableCell>
+                                  <TableCell className="text-right font-mono">€{b.mountingMat_eur.toFixed(0)}</TableCell>
+                                  <TableCell className="text-right font-mono">€{b.shell_eur.toFixed(0)}</TableCell>
+                                  <TableCell className="text-right font-mono">€{b.cones_eur.toFixed(0)}</TableCell>
+                                  <TableCell className="text-right font-mono">€{b.welding_eur.toFixed(0)}</TableCell>
+                                  <TableCell className="text-right font-mono font-bold">€{b.subtotal_eur.toFixed(0)}</TableCell>
+                                </TableRow>
+                              ))}
+                              {systemCost.ureaSystem_eur > 0 && (
+                                <TableRow>
+                                  <TableCell />
+                                  <TableCell><Badge variant="outline">Urea System</Badge></TableCell>
+                                  <TableCell colSpan={7} className="text-right text-muted-foreground text-xs">Injector + pump + DCU + tank + sensors + mixer</TableCell>
+                                  <TableCell className="text-right font-mono font-bold">€{systemCost.ureaSystem_eur.toFixed(0)}</TableCell>
+                                </TableRow>
+                              )}
+                              <TableRow>
+                                <TableCell />
+                                <TableCell><Badge variant="outline">Piping & Connectors</Badge></TableCell>
+                                <TableCell colSpan={7} />
+                                <TableCell className="text-right font-mono">€{systemCost.pipingConnectors_eur.toFixed(0)}</TableCell>
+                              </TableRow>
+                              <TableRow>
+                                <TableCell />
+                                <TableCell><Badge variant="outline">Sensors</Badge></TableCell>
+                                <TableCell colSpan={7} />
+                                <TableCell className="text-right font-mono">€{systemCost.sensors_eur.toFixed(0)}</TableCell>
+                              </TableRow>
+                              <TableRow className="bg-muted/30 font-semibold border-t-2">
+                                <TableCell colSpan={2}>Material Total</TableCell>
+                                <TableCell className="text-right font-mono">€{systemCost.totalSubstrate_eur.toFixed(0)}</TableCell>
+                                <TableCell className="text-right font-mono">€{systemCost.totalWashcoat_eur.toFixed(0)}</TableCell>
+                                <TableCell className="text-right font-mono">€{systemCost.totalPGM_eur.toFixed(0)}</TableCell>
+                                <TableCell colSpan={3} className="text-right font-mono">Canning: €{systemCost.totalCanning_eur.toFixed(0)}</TableCell>
+                                <TableCell className="text-right font-mono">€{systemCost.totalWelding_eur.toFixed(0)}</TableCell>
+                                <TableCell className="text-right font-mono font-bold text-primary">€{systemCost.materialTotal_eur.toFixed(0)}</TableCell>
+                              </TableRow>
+                            </TableBody>
+                          </Table>
+                        </div>
+
+                        {/* Manufacturing overhead */}
+                        <div className="mt-4 space-y-2">
+                          {[
+                            ["Manufacturing", systemCost.manufacturing_eur],
+                            ["Quality & Inspection", systemCost.qualityInspection_eur],
+                            ["Packaging", systemCost.packaging_eur],
+                            ["Logistics", systemCost.logistics_eur],
+                            ["Overhead", systemCost.overhead_eur],
+                            ["Warranty Reserve", systemCost.warrantyReserve_eur],
+                          ].map(([label, value]) => (
+                            <div key={label as string} className="flex items-center justify-between text-sm">
+                              <span className="text-muted-foreground">{label as string}</span>
+                              <span className="font-mono">€{(value as number).toFixed(0)}</span>
+                            </div>
+                          ))}
+                          <div className="border-t pt-2 flex items-center justify-between text-sm font-semibold">
+                            <span>Cost Price</span>
+                            <span className="font-mono">€{systemCost.costPrice_eur.toFixed(0)}</span>
+                          </div>
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-muted-foreground">Profit Margin</span>
+                            <span className="font-mono">€{systemCost.profitMargin_eur.toFixed(0)}</span>
+                          </div>
+                          <div className="border-t-2 border-primary pt-2 flex items-center justify-between">
+                            <span className="text-lg font-bold">Quoted Price</span>
+                            <span className="text-2xl font-bold font-mono text-primary">€{systemCost.quotedPrice_eur.toFixed(0)}</span>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    {/* Cost Pie Chart + Welding/Canning Details */}
+                    <div className="flex flex-col gap-6">
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="text-base">Cost Distribution</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <ResponsiveContainer width="100%" height={280}>
+                            <PieChart>
+                              <Pie
+                                data={[
+                                  { name: "Substrate", value: systemCost.totalSubstrate_eur },
+                                  { name: "Washcoat", value: systemCost.totalWashcoat_eur },
+                                  { name: "PGM", value: systemCost.totalPGM_eur },
+                                  { name: "Canning", value: systemCost.totalCanning_eur },
+                                  { name: "Welding", value: systemCost.totalWelding_eur },
+                                  ...(systemCost.ureaSystem_eur > 0 ? [{ name: "Urea System", value: systemCost.ureaSystem_eur }] : []),
+                                ]}
+                                cx="50%"
+                                cy="50%"
+                                outerRadius={90}
+                                innerRadius={40}
+                                dataKey="value"
+                                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                              >
+                                {["#3b82f6", "#8b5cf6", "#ef4444", "#f59e0b", "#10b981", "#06b6d4"].map((c, i) => (
+                                  <Cell key={i} fill={c} />
+                                ))}
+                              </Pie>
+                              <Tooltip formatter={(v: number) => `€${v.toFixed(0)}`} />
+                            </PieChart>
+                          </ResponsiveContainer>
+                        </CardContent>
+                      </Card>
+
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="text-base">Canning & Welding Details</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="space-y-3">
+                            {systemCost.bricks.map((b) => (
+                              <div key={b.position} className="rounded-lg border p-3">
+                                <div className="flex items-center justify-between mb-2">
+                                  <Badge>{b.type}</Badge>
+                                  <span className="text-xs text-muted-foreground">{b.shellMaterial}</span>
+                                </div>
+                                <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                                  <span className="text-muted-foreground">Shell weight:</span>
+                                  <span className="font-mono text-right">{b.shellWeight_kg.toFixed(2)} kg</span>
+                                  <span className="text-muted-foreground">Cone weight:</span>
+                                  <span className="font-mono text-right">{b.coneWeight_kg.toFixed(2)} kg</span>
+                                  <span className="text-muted-foreground">Mat area:</span>
+                                  <span className="font-mono text-right">{b.matArea_m2.toFixed(3)} m²</span>
+                                  <span className="text-muted-foreground">Weld length:</span>
+                                  <span className="font-mono text-right">{b.weldLength_m.toFixed(2)} m</span>
+                                  <span className="text-muted-foreground">Welding cost:</span>
+                                  <span className="font-mono text-right font-semibold">€{b.welding_eur.toFixed(2)}</span>
+                                  <span className="text-muted-foreground">Canning cost:</span>
+                                  <span className="font-mono text-right font-semibold">€{(b.shell_eur + b.cones_eur + b.flanges_eur + b.mountingMat_eur + b.heatshield_eur).toFixed(2)}</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
+                  </div>
+                )}
+
+                {/* Compliance Summary */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base flex items-center gap-2">
+                      {baseResult.compliance.NOx_compliant && baseResult.compliance.PM_compliant && baseResult.compliance.CO_compliant && baseResult.compliance.HC_compliant
+                        ? <CheckCircle2 className="h-5 w-5 text-green-500" />
+                        : <XCircle className="h-5 w-5 text-destructive" />
+                      }
+                      Emission Compliance — {baseResult.compliance.standard.replace(/_/g, " ").toUpperCase()}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                      {([
+                        ["NOₓ", baseResult.compliance.tailpipeNOx_g_kWh, EMISSION_STANDARDS[standard]?.NOx_g_kWh, baseResult.compliance.NOx_compliant],
+                        ["PM", baseResult.compliance.tailpipePM_g_kWh, EMISSION_STANDARDS[standard]?.PM_g_kWh, baseResult.compliance.PM_compliant],
+                        ["CO", baseResult.compliance.tailpipeCO_g_kWh, EMISSION_STANDARDS[standard]?.CO_g_kWh, baseResult.compliance.CO_compliant],
+                        ["HC", baseResult.compliance.tailpipeHC_g_kWh, EMISSION_STANDARDS[standard]?.HC_g_kWh, baseResult.compliance.HC_compliant],
+                      ] as const).map(([name, actual, limit, ok]) => (
+                        <div key={name} className={`rounded-lg border p-3 ${ok ? "border-green-500/30 bg-green-500/5" : "border-destructive/30 bg-destructive/5"}`}>
+                          <div className="flex items-center justify-between">
+                            <span className="font-medium text-sm">{name}</span>
+                            {ok ? <CheckCircle2 className="h-4 w-4 text-green-500" /> : <XCircle className="h-4 w-4 text-destructive" />}
+                          </div>
+                          <p className="font-mono text-lg font-bold mt-1">{(actual as number).toFixed(3)} g/kWh</p>
+                          {limit != null && <p className="text-xs text-muted-foreground">Limit: {(limit as number)} g/kWh</p>}
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </TabsContent>
 
             {/* ---- CATALYST SIZING TAB ---- */}
             <TabsContent value="sizing" className="mt-4">
@@ -2609,6 +3292,7 @@ export function DepollutionCalculator() {
                 </div>
               </TabsContent>
             )}
+
             {/* ---- PROFESSIONAL DASHBOARD ---- */}
             <TabsContent value="dashboard" className="mt-4">
               <div className="grid gap-4">
@@ -2833,6 +3517,137 @@ export function DepollutionCalculator() {
                   <p>AftermarketOS CatSizer — Confidential Engineering Report</p>
                   <p>Generated {new Date().toISOString().split("T")[0]} | {rfq.projectInfo.rfqNumber} | PGM prices as of March 2026</p>
                 </div>
+              </div>
+            </TabsContent>
+
+            {/* ---- AI ADVISOR TAB ---- */}
+            <TabsContent value="ai_advisor" className="mt-4">
+              <div className="grid gap-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Activity className="h-5 w-5 text-primary" />
+                      AI Technology Advisor — powered by BelgaLabs
+                    </CardTitle>
+                    <CardDescription>
+                      AI analyzes your sized system and recommends optimizations for cost, performance, and packaging
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <Button
+                      onClick={handleOEMAIAdvisor}
+                      disabled={oemAiLoading}
+                      className="bg-gradient-to-r from-primary to-primary/80 text-primary-foreground"
+                    >
+                      {oemAiLoading ? (
+                        <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Analyzing System with AI…</>
+                      ) : (
+                        <><Activity className="mr-2 h-4 w-4" />Get AI Optimization Advice</>
+                      )}
+                    </Button>
+
+                    {oemAiError && (
+                      <div className="rounded-lg border border-red-300 bg-red-50 p-3 dark:border-red-800 dark:bg-red-950/20">
+                        <p className="text-sm text-red-600 flex items-center gap-2">
+                          <XCircle className="h-4 w-4" /> {oemAiError}
+                        </p>
+                      </div>
+                    )}
+
+                    {oemAiAdvice && (
+                      <div className="space-y-4">
+                        {/* System Review */}
+                        <div className="rounded-lg border p-4">
+                          <h4 className="text-sm font-semibold mb-2">System Review</h4>
+                          <p className="text-sm text-muted-foreground">{oemAiAdvice.systemReview.summary}</p>
+                          <div className="grid grid-cols-3 gap-4 mt-3">
+                            <div>
+                              <p className="text-xs font-medium text-emerald-600 mb-1">Strengths</p>
+                              <ul className="text-xs text-muted-foreground space-y-0.5">
+                                {oemAiAdvice.systemReview.strengths.map((s, i) => (
+                                  <li key={i} className="flex items-start gap-1"><CheckCircle2 className="h-3 w-3 mt-0.5 text-emerald-500 shrink-0" />{s}</li>
+                                ))}
+                              </ul>
+                            </div>
+                            <div>
+                              <p className="text-xs font-medium text-red-600 mb-1">Weaknesses</p>
+                              <ul className="text-xs text-muted-foreground space-y-0.5">
+                                {oemAiAdvice.systemReview.weaknesses.map((w, i) => (
+                                  <li key={i} className="flex items-start gap-1"><AlertTriangle className="h-3 w-3 mt-0.5 text-red-500 shrink-0" />{w}</li>
+                                ))}
+                              </ul>
+                            </div>
+                            <div>
+                              <p className="text-xs font-medium text-amber-600 mb-1">Cost Drivers</p>
+                              <ul className="text-xs text-muted-foreground space-y-0.5">
+                                {oemAiAdvice.systemReview.costDrivers.map((c, i) => (
+                                  <li key={i} className="flex items-start gap-1"><DollarSign className="h-3 w-3 mt-0.5 text-amber-500 shrink-0" />{c}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Recommendations */}
+                        <div>
+                          <h4 className="text-sm font-semibold mb-2">Optimization Recommendations</h4>
+                          <div className="space-y-2">
+                            {oemAiAdvice.recommendations.map((rec, i) => (
+                              <div key={i} className="rounded-lg border p-3 hover:bg-muted/20 transition-colors">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <Badge variant="outline" className="text-xs">{rec.component}</Badge>
+                                  <span className="text-sm font-medium">{rec.parameter}</span>
+                                  <Badge className={`text-[10px] ml-auto ${rec.confidence === "high" ? "bg-emerald-500" : rec.confidence === "medium" ? "bg-amber-500" : "bg-red-500"}`}>
+                                    {rec.confidence}
+                                  </Badge>
+                                </div>
+                                <p className="text-xs text-muted-foreground">
+                                  <span className="font-mono">{rec.currentValue}</span> → <span className="font-mono font-bold">{rec.suggestedValue}</span>
+                                </p>
+                                <p className="text-xs text-emerald-600 mt-0.5">{rec.expectedBenefit}</p>
+                                <p className="text-xs text-muted-foreground mt-0.5">{rec.rationale}</p>
+                                {rec.costImpact && <p className="text-xs text-amber-600 mt-0.5">Cost: {rec.costImpact}</p>}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Alternative Architecture */}
+                        {oemAiAdvice.alternativeArchitecture?.description && (
+                          <div className="rounded-lg border border-dashed p-4">
+                            <h4 className="text-sm font-semibold mb-1">Alternative Architecture</h4>
+                            <p className="text-sm text-muted-foreground">{oemAiAdvice.alternativeArchitecture.description}</p>
+                            {oemAiAdvice.alternativeArchitecture.components.length > 0 && (
+                              <div className="flex gap-1 mt-2">
+                                {oemAiAdvice.alternativeArchitecture.components.map((c, i) => (
+                                  <Badge key={i} variant="outline">{c}</Badge>
+                                ))}
+                              </div>
+                            )}
+                            <p className="text-xs text-muted-foreground mt-1">{oemAiAdvice.alternativeArchitecture.rationale}</p>
+                            {oemAiAdvice.alternativeArchitecture.estimatedCostSaving_pct > 0 && (
+                              <Badge className="mt-1 bg-emerald-500">~{oemAiAdvice.alternativeArchitecture.estimatedCostSaving_pct}% cost saving</Badge>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Overall Assessment */}
+                        <div className={`rounded-lg border p-4 ${oemAiAdvice.overallAssessment.currentSystemAdequate ? "border-emerald-300 bg-emerald-50/20 dark:border-emerald-800" : "border-amber-300 bg-amber-50/20 dark:border-amber-800"}`}>
+                          <h4 className="text-sm font-semibold mb-1">Overall Assessment</h4>
+                          <p className="text-sm text-muted-foreground">{oemAiAdvice.overallAssessment.summary}</p>
+                          <div className="flex gap-3 mt-2 text-xs">
+                            <Badge variant="outline">System: {oemAiAdvice.overallAssessment.currentSystemAdequate ? "Adequate" : "Needs Optimization"}</Badge>
+                            <Badge variant="outline">Optimization potential: {oemAiAdvice.overallAssessment.optimizationPotential}</Badge>
+                          </div>
+                        </div>
+
+                        {oemAiAdvice.tokensUsed && (
+                          <p className="text-[10px] text-muted-foreground text-right">AI tokens used: {oemAiAdvice.tokensUsed}</p>
+                        )}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
               </div>
             </TabsContent>
           </Tabs>

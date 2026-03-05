@@ -284,8 +284,8 @@ export const NAV_GROUPS: readonly NavGroup[] = [
 export type AIMode = 'online' | 'offline' | 'off';
 
 export const AI_MODE_LABELS: Record<AIMode, string> = {
-  online: 'Claude (Online)',
-  offline: 'Ollama (Offline)',
+  online: 'BelgaLabs AI (Cloud)',
+  offline: 'BelgaLabs AI (Local)',
   off: 'Manual',
 };
 
