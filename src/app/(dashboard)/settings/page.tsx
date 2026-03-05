@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -10,6 +10,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -17,6 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table,
@@ -38,6 +41,22 @@ import {
   Check,
   X,
   FileSpreadsheet,
+  Database,
+  Brain,
+  ChevronDown,
+  ChevronRight,
+  Save,
+  RotateCcw,
+  Clock,
+  Flame,
+  Layers,
+  FlaskConical,
+  Gem,
+  Droplets,
+  Thermometer,
+  Factory,
+  Wifi,
+  WifiOff,
 } from "lucide-react";
 import {
   ScatterChart,
@@ -51,8 +70,16 @@ import {
   ResponsiveContainer,
   ReferenceLine,
 } from "recharts";
+import {
+  loadCostDB,
+  saveCostDB,
+  resetCostDB,
+  DEFAULT_COST_DB,
+  type CostDatabase,
+} from "@/lib/pricing/cost-database";
 
-// Reaction definitions with literature parameters
+// ─── Calibration Constants ───────────────────────────────────────────────────
+
 const REACTIONS = [
   {
     id: "co_ox_voltz",
@@ -136,7 +163,7 @@ interface FittedResult {
   predicted: number[];
 }
 
-const R = 8.314e-3; // kJ/(mol·K)
+const R_GAS = 8.314e-3; // kJ/(mol·K)
 
 function generateDemoData(): DataPoint[] {
   const T50 = 220;
@@ -172,7 +199,7 @@ function fitArrhenius(data: DataPoint[]): FittedResult {
   let bestEa = 60;
   let bestPred: number[] = [];
 
-  const tau_nom = 1 / 30000; // h, nominal GHSV 30k
+  const tau_nom = 1 / 30000;
   const C_nom = 0.5;
 
   for (let i = 0; i <= steps_A; i++) {
@@ -186,7 +213,7 @@ function fitArrhenius(data: DataPoint[]): FittedResult {
         const T_K = pt.T_C + 273.15;
         const tau = pt.spaceVelocity ? 1 / pt.spaceVelocity : tau_nom;
         const C = pt.concentration ?? C_nom;
-        const k = A * Math.exp(-Ea / (R * T_K));
+        const k = A * Math.exp(-Ea / (R_GAS * T_K));
         const X_pred = 100 * (1 - Math.exp(-k * tau * C));
         pred.push(Math.max(0, Math.min(100, X_pred)));
         sse += (pt.conversion - pred[pred.length - 1]) ** 2;
@@ -229,7 +256,296 @@ function parseCSV(text: string): DataPoint[] {
   return out;
 }
 
+// ─── Cost Database Section Definitions ───────────────────────────────────────
+
+interface CostField {
+  key: string;
+  label: string;
+  unit: string;
+}
+
+interface CostSection {
+  id: string;
+  title: string;
+  icon: React.ReactNode;
+  dbKey: keyof CostDatabase;
+  fields: CostField[];
+}
+
+const COST_SECTIONS: CostSection[] = [
+  {
+    id: "welding",
+    title: "Welding Costs",
+    icon: <Flame className="h-4 w-4" />,
+    dbKey: "welding",
+    fields: [
+      { key: "mig_per_meter_eur", label: "MIG", unit: "€/m" },
+      { key: "tig_per_meter_eur", label: "TIG", unit: "€/m" },
+      { key: "laser_per_meter_eur", label: "Laser", unit: "€/m" },
+      { key: "robot_per_meter_eur", label: "Robot", unit: "€/m" },
+      { key: "spot_per_point_eur", label: "Spot", unit: "€/point" },
+    ],
+  },
+  {
+    id: "canning",
+    title: "Canning & Shell",
+    icon: <Layers className="h-4 w-4" />,
+    dbKey: "canning",
+    fields: [
+      { key: "shell_ss409_per_kg_eur", label: "SS409 shell", unit: "€/kg" },
+      { key: "shell_ss441_per_kg_eur", label: "SS441 shell", unit: "€/kg" },
+      { key: "shell_ss304_per_kg_eur", label: "SS304 shell", unit: "€/kg" },
+      { key: "cone_per_kg_eur", label: "Cone", unit: "€/kg" },
+      { key: "flange_vband_eur", label: "V-band flange", unit: "€" },
+      { key: "flange_bolted_eur", label: "Bolted flange", unit: "€" },
+      { key: "mounting_mat_per_m2_eur", label: "Mounting mat", unit: "€/m²" },
+      { key: "mounting_mat_interam_per_pc_eur", label: "Interam mat", unit: "€/pc" },
+      { key: "heatshield_per_kg_eur", label: "Heat shield", unit: "€/kg" },
+    ],
+  },
+  {
+    id: "substrate",
+    title: "Substrates",
+    icon: <FlaskConical className="h-4 w-4" />,
+    dbKey: "substrate",
+    fields: [
+      { key: "cordierite_per_liter_eur", label: "Cordierite", unit: "€/L" },
+      { key: "sic_per_liter_eur", label: "SiC", unit: "€/L" },
+      { key: "metallic_per_liter_eur", label: "Metallic", unit: "€/L" },
+      { key: "gpf_cordierite_per_liter_eur", label: "GPF", unit: "€/L" },
+    ],
+  },
+  {
+    id: "coating",
+    title: "Washcoat Chemicals",
+    icon: <Beaker className="h-4 w-4" />,
+    dbKey: "coating",
+    fields: [
+      { key: "alumina_per_kg_eur", label: "Alumina", unit: "€/kg" },
+      { key: "cezr_per_kg_eur", label: "CeZr", unit: "€/kg" },
+      { key: "zeolite_cu_per_kg_eur", label: "Cu-zeolite", unit: "€/kg" },
+      { key: "zeolite_fe_per_kg_eur", label: "Fe-zeolite", unit: "€/kg" },
+      { key: "titania_per_kg_eur", label: "TiO₂", unit: "€/kg" },
+      { key: "binder_per_kg_eur", label: "Binder", unit: "€/kg" },
+      { key: "coating_labor_per_brick_eur", label: "Coating labor", unit: "€/brick" },
+    ],
+  },
+  {
+    id: "pgm",
+    title: "PGM Prices",
+    icon: <Gem className="h-4 w-4" />,
+    dbKey: "pgm",
+    fields: [
+      { key: "pt_per_troy_oz_usd", label: "Pt", unit: "$/oz" },
+      { key: "pd_per_troy_oz_usd", label: "Pd", unit: "$/oz" },
+      { key: "rh_per_troy_oz_usd", label: "Rh", unit: "$/oz" },
+      { key: "ir_per_troy_oz_usd", label: "Ir", unit: "$/oz" },
+      { key: "ru_per_troy_oz_usd", label: "Ru", unit: "$/oz" },
+      { key: "eur_usd_rate", label: "EUR/USD rate", unit: "" },
+    ],
+  },
+  {
+    id: "urea",
+    title: "Urea / SCR System",
+    icon: <Droplets className="h-4 w-4" />,
+    dbKey: "urea",
+    fields: [
+      { key: "injector_eur", label: "Injector", unit: "€" },
+      { key: "pump_module_eur", label: "Pump module", unit: "€" },
+      { key: "tank_20l_eur", label: "Tank 20L", unit: "€" },
+      { key: "tank_40l_eur", label: "Tank 40L", unit: "€" },
+      { key: "dcu_eur", label: "DCU", unit: "€" },
+      { key: "nox_sensor_eur", label: "NOx sensor", unit: "€" },
+      { key: "temp_sensor_eur", label: "Temp sensor", unit: "€" },
+      { key: "mixer_blade_eur", label: "Blade mixer", unit: "€" },
+      { key: "mixer_swirl_eur", label: "Swirl mixer", unit: "€" },
+      { key: "def_line_per_meter_eur", label: "DEF line", unit: "€/m" },
+    ],
+  },
+  {
+    id: "heatExchanger",
+    title: "Heat Exchanger",
+    icon: <Thermometer className="h-4 w-4" />,
+    dbKey: "heatExchanger",
+    fields: [
+      { key: "inconel625_tube_per_kg_eur", label: "Inconel 625 tube", unit: "€/kg" },
+      { key: "ss310_tube_per_kg_eur", label: "SS310 tube", unit: "€/kg" },
+      { key: "haynes230_tube_per_kg_eur", label: "Haynes 230 tube", unit: "€/kg" },
+      { key: "shell_per_kg_eur", label: "Shell", unit: "€/kg" },
+      { key: "tubesheet_per_kg_eur", label: "Tubesheet", unit: "€/kg" },
+      { key: "baffle_per_pc_eur", label: "Baffle", unit: "€/pc" },
+      { key: "insulation_per_m2_eur", label: "Insulation", unit: "€/m²" },
+      { key: "plate_ss316_per_kg_eur", label: "Plate SS316", unit: "€/kg" },
+    ],
+  },
+  {
+    id: "manufacturing",
+    title: "Manufacturing Overhead",
+    icon: <Factory className="h-4 w-4" />,
+    dbKey: "manufacturing",
+    fields: [
+      { key: "manufacturing_pct", label: "Manufacturing", unit: "%" },
+      { key: "quality_inspection_pct", label: "QC", unit: "%" },
+      { key: "packaging_per_unit_eur", label: "Packaging", unit: "€/unit" },
+      { key: "logistics_pct", label: "Logistics", unit: "%" },
+      { key: "overhead_pct", label: "Overhead", unit: "%" },
+      { key: "profit_margin_pct", label: "Profit margin", unit: "%" },
+      { key: "warranty_reserve_pct", label: "Warranty reserve", unit: "%" },
+    ],
+  },
+];
+
+// ─── AI Config Types ─────────────────────────────────────────────────────────
+
+interface AIConfig {
+  provider: "openai" | "ollama" | "off";
+  openaiKey: string;
+  openaiModel: string;
+  ollamaUrl: string;
+  ollamaModel: string;
+}
+
+const DEFAULT_AI_CONFIG: AIConfig = {
+  provider: "off",
+  openaiKey: "",
+  openaiModel: "gpt-4o",
+  ollamaUrl: "http://localhost:11434",
+  ollamaModel: "llama3.1",
+};
+
+// ─── Collapsible Cost Section Component ──────────────────────────────────────
+
+function CostSectionCard({
+  section,
+  values,
+  onChange,
+}: {
+  section: CostSection;
+  values: Record<string, number>;
+  onChange: (key: string, value: number) => void;
+}) {
+  const [open, setOpen] = useState(true);
+
+  return (
+    <Card>
+      <CardHeader
+        className="cursor-pointer select-none"
+        onClick={() => setOpen(!open)}
+      >
+        <CardTitle className="text-base flex items-center gap-2">
+          {section.icon}
+          {section.title}
+          <span className="ml-auto">
+            {open ? (
+              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+            ) : (
+              <ChevronRight className="h-4 w-4 text-muted-foreground" />
+            )}
+          </span>
+        </CardTitle>
+      </CardHeader>
+      {open && (
+        <CardContent>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {section.fields.map((field) => (
+              <div key={field.key} className="space-y-1.5">
+                <Label htmlFor={`${section.id}-${field.key}`} className="text-xs font-medium">
+                  {field.label}
+                </Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    id={`${section.id}-${field.key}`}
+                    type="number"
+                    step="any"
+                    value={values[field.key] ?? 0}
+                    onChange={(e) => onChange(field.key, parseFloat(e.target.value) || 0)}
+                    className="h-8 font-mono text-sm"
+                  />
+                  {field.unit && (
+                    <span className="shrink-0 text-xs text-muted-foreground whitespace-nowrap">
+                      {field.unit}
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      )}
+    </Card>
+  );
+}
+
+// ─── Main Page Component ─────────────────────────────────────────────────────
+
 export default function SettingsPage() {
+  // ── Cost Database State ──
+  const [costDB, setCostDB] = useState<CostDatabase>(DEFAULT_COST_DB);
+  const [costSaveStatus, setCostSaveStatus] = useState<"idle" | "saved">("idle");
+
+  useEffect(() => {
+    setCostDB(loadCostDB());
+  }, []);
+
+  const updateCostField = (sectionKey: keyof CostDatabase, fieldKey: string, value: number) => {
+    setCostDB((prev) => ({
+      ...prev,
+      [sectionKey]: {
+        ...(prev[sectionKey] as unknown as Record<string, unknown>),
+        [fieldKey]: value,
+      },
+    }));
+  };
+
+  const handleSaveCosts = () => {
+    saveCostDB(costDB);
+    setCostDB((prev) => ({ ...prev, lastUpdated: new Date().toISOString() }));
+    setCostSaveStatus("saved");
+    setTimeout(() => setCostSaveStatus("idle"), 2500);
+  };
+
+  const handleResetCosts = () => {
+    const fresh = resetCostDB();
+    setCostDB(fresh);
+  };
+
+  // ── AI Config State ──
+  const [aiConfig, setAIConfig] = useState<AIConfig>(DEFAULT_AI_CONFIG);
+  const [aiTestStatus, setAITestStatus] = useState<"idle" | "testing" | "success" | "error">("idle");
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("bosal-ai-config");
+      if (raw) setAIConfig({ ...DEFAULT_AI_CONFIG, ...JSON.parse(raw) });
+    } catch { /* use defaults */ }
+  }, []);
+
+  const saveAIConfig = (cfg: AIConfig) => {
+    setAIConfig(cfg);
+    localStorage.setItem("bosal-ai-config", JSON.stringify(cfg));
+  };
+
+  const testAIConnection = async () => {
+    setAITestStatus("testing");
+    try {
+      if (aiConfig.provider === "openai") {
+        const res = await fetch("https://api.openai.com/v1/models", {
+          headers: { Authorization: `Bearer ${aiConfig.openaiKey}` },
+        });
+        setAITestStatus(res.ok ? "success" : "error");
+      } else if (aiConfig.provider === "ollama") {
+        const res = await fetch(`${aiConfig.ollamaUrl}/api/tags`);
+        setAITestStatus(res.ok ? "success" : "error");
+      } else {
+        setAITestStatus("error");
+      }
+    } catch {
+      setAITestStatus("error");
+    }
+    setTimeout(() => setAITestStatus("idle"), 3000);
+  };
+
+  // ── Calibration State ──
   const [activeReaction, setActiveReaction] = useState<ReactionId>("co_ox_voltz");
   const [csvData, setCsvData] = useState<DataPoint[]>([]);
   const [csvError, setCsvError] = useState<string | null>(null);
@@ -241,33 +557,30 @@ export default function SettingsPage() {
 
   const reaction = REACTIONS.find((r) => r.id === activeReaction)!;
 
-  const handleFile = useCallback(
-    (file: File | null) => {
-      setCsvError(null);
-      if (!file) {
-        setCsvData([]);
-        return;
-      }
-      const reader = new FileReader();
-      reader.onload = () => {
-        try {
-          const text = String(reader.result);
-          const parsed = parseCSV(text);
-          if (parsed.length < 2) {
-            setCsvError("Need at least 2 data points. Format: T(°C), conversion(%), [space_velocity, concentration]");
-            setCsvData([]);
-          } else {
-            setCsvData(parsed);
-          }
-        } catch {
-          setCsvError("Invalid CSV format");
+  const handleFile = useCallback((file: File | null) => {
+    setCsvError(null);
+    if (!file) {
+      setCsvData([]);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const text = String(reader.result);
+        const parsed = parseCSV(text);
+        if (parsed.length < 2) {
+          setCsvError("Need at least 2 data points. Format: T(°C), conversion(%), [space_velocity, concentration]");
           setCsvData([]);
+        } else {
+          setCsvData(parsed);
         }
-      };
-      reader.readAsText(file);
-    },
-    []
-  );
+      } catch {
+        setCsvError("Invalid CSV format");
+        setCsvData([]);
+      }
+    };
+    reader.readAsText(file);
+  }, []);
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
@@ -335,7 +648,7 @@ export default function SettingsPage() {
             const T_K = T + 273.15;
             const tau = 1 / 30000;
             const C = 0.5;
-            const k = fitResult.A_new * Math.exp(-fitResult.Ea_new / (R * T_K));
+            const k = fitResult.A_new * Math.exp(-fitResult.Ea_new / (R_GAS * T_K));
             const X = 100 * (1 - Math.exp(-k * tau * C));
             out.push({ T, fitted: Math.max(0, Math.min(100, X)) });
           }
@@ -345,31 +658,244 @@ export default function SettingsPage() {
 
   return (
     <div className="flex flex-col gap-6 p-6">
+      {/* Page Header */}
       <div className="flex items-center gap-3">
         <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-bosal-red text-white">
           <Settings className="h-5 w-5" />
         </div>
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Admin Settings</h1>
           <p className="text-sm text-muted-foreground">
-            Calibration framework and platform configuration
+            Cost database, AI configuration, calibration & platform settings
           </p>
         </div>
       </div>
 
-      <Tabs defaultValue="calibration" className="w-full">
-        <TabsList className="grid w-full max-w-md grid-cols-2">
+      <Tabs defaultValue="costs" className="w-full">
+        <TabsList className="grid w-full max-w-2xl grid-cols-4">
+          <TabsTrigger value="costs">
+            <Database className="mr-1.5 h-3.5 w-3.5" />
+            Cost Database
+          </TabsTrigger>
+          <TabsTrigger value="ai">
+            <Brain className="mr-1.5 h-3.5 w-3.5" />
+            AI Config
+          </TabsTrigger>
           <TabsTrigger value="calibration">
             <Beaker className="mr-1.5 h-3.5 w-3.5" />
             Calibration
           </TabsTrigger>
           <TabsTrigger value="general">
             <Settings className="mr-1.5 h-3.5 w-3.5" />
-            General Settings
+            General
           </TabsTrigger>
         </TabsList>
 
-        {/* Calibration Tab */}
+        {/* ═══════════════════════════════════════════════════════════════════
+            TAB 1: COST DATABASE
+            ═══════════════════════════════════════════════════════════════════ */}
+        <TabsContent value="costs" className="mt-6 space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-semibold">BOSAL Integrator Cost Database</h2>
+              <p className="text-sm text-muted-foreground">
+                Edit all material, manufacturing and overhead costs used in pricing calculations.
+              </p>
+            </div>
+            <Badge variant="outline" className="flex items-center gap-1.5">
+              <Clock className="h-3 w-3" />
+              Last updated: {costDB.lastUpdated ? new Date(costDB.lastUpdated).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "Never"}
+            </Badge>
+          </div>
+
+          <Separator />
+
+          {COST_SECTIONS.map((section) => (
+            <CostSectionCard
+              key={section.id}
+              section={section}
+              values={costDB[section.dbKey] as unknown as Record<string, number>}
+              onChange={(fieldKey, value) => updateCostField(section.dbKey, fieldKey, value)}
+            />
+          ))}
+
+          <div className="sticky bottom-0 z-10 flex items-center gap-3 rounded-lg border bg-background/95 p-4 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-background/80">
+            <Button
+              onClick={handleSaveCosts}
+              className="bg-bosal-red hover:bg-bosal-red/90 text-white"
+            >
+              {costSaveStatus === "saved" ? (
+                <>
+                  <Check className="mr-2 h-4 w-4" />
+                  Saved!
+                </>
+              ) : (
+                <>
+                  <Save className="mr-2 h-4 w-4" />
+                  Save Changes
+                </>
+              )}
+            </Button>
+            <Button variant="outline" onClick={handleResetCosts}>
+              <RotateCcw className="mr-2 h-4 w-4" />
+              Reset to Defaults
+            </Button>
+          </div>
+        </TabsContent>
+
+        {/* ═══════════════════════════════════════════════════════════════════
+            TAB 2: AI CONFIGURATION
+            ═══════════════════════════════════════════════════════════════════ */}
+        <TabsContent value="ai" className="mt-6 space-y-6">
+          <div>
+            <h2 className="text-lg font-semibold">AI Configuration</h2>
+            <p className="text-sm text-muted-foreground">
+              Configure the AI provider for intelligent suggestions and analysis.
+            </p>
+          </div>
+
+          <Separator />
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Provider</CardTitle>
+              <CardDescription>Select which AI backend to use</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Select
+                value={aiConfig.provider}
+                onValueChange={(v) => saveAIConfig({ ...aiConfig, provider: v as AIConfig["provider"] })}
+              >
+                <SelectTrigger className="w-full max-w-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="openai">
+                    <span className="flex items-center gap-2">
+                      <Brain className="h-3.5 w-3.5" /> OpenAI
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="ollama">
+                    <span className="flex items-center gap-2">
+                      <Wifi className="h-3.5 w-3.5" /> Ollama (Local)
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="off">
+                    <span className="flex items-center gap-2">
+                      <WifiOff className="h-3.5 w-3.5" /> Off
+                    </span>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </CardContent>
+          </Card>
+
+          {aiConfig.provider === "openai" && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">OpenAI Settings</CardTitle>
+                <CardDescription>API key and model selection</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="openai-key">API Key</Label>
+                  <Input
+                    id="openai-key"
+                    type="password"
+                    placeholder="sk-..."
+                    value={aiConfig.openaiKey}
+                    onChange={(e) => saveAIConfig({ ...aiConfig, openaiKey: e.target.value })}
+                    className="max-w-md font-mono"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="openai-model">Model</Label>
+                  <Select
+                    value={aiConfig.openaiModel}
+                    onValueChange={(v) => saveAIConfig({ ...aiConfig, openaiModel: v })}
+                  >
+                    <SelectTrigger className="w-full max-w-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="gpt-4o">gpt-4o</SelectItem>
+                      <SelectItem value="gpt-4o-mini">gpt-4o-mini</SelectItem>
+                      <SelectItem value="gpt-3.5-turbo">gpt-3.5-turbo</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {aiConfig.provider === "ollama" && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Ollama Settings</CardTitle>
+                <CardDescription>Local LLM server configuration</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="ollama-url">Server URL</Label>
+                  <Input
+                    id="ollama-url"
+                    type="text"
+                    placeholder="http://localhost:11434"
+                    value={aiConfig.ollamaUrl}
+                    onChange={(e) => saveAIConfig({ ...aiConfig, ollamaUrl: e.target.value })}
+                    className="max-w-md font-mono"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="ollama-model">Model</Label>
+                  <Input
+                    id="ollama-model"
+                    type="text"
+                    placeholder="llama3.1"
+                    value={aiConfig.ollamaModel}
+                    onChange={(e) => saveAIConfig({ ...aiConfig, ollamaModel: e.target.value })}
+                    className="max-w-xs font-mono"
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {aiConfig.provider !== "off" && (
+            <Button
+              onClick={testAIConnection}
+              disabled={aiTestStatus === "testing"}
+              variant="outline"
+              className="border-bosal-red text-bosal-red hover:bg-bosal-red/10"
+            >
+              {aiTestStatus === "testing" ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Testing...
+                </>
+              ) : aiTestStatus === "success" ? (
+                <>
+                  <Check className="mr-2 h-4 w-4 text-green-600" />
+                  Connected!
+                </>
+              ) : aiTestStatus === "error" ? (
+                <>
+                  <X className="mr-2 h-4 w-4 text-destructive" />
+                  Failed
+                </>
+              ) : (
+                <>
+                  <Wifi className="mr-2 h-4 w-4" />
+                  Test Connection
+                </>
+              )}
+            </Button>
+          )}
+        </TabsContent>
+
+        {/* ═══════════════════════════════════════════════════════════════════
+            TAB 3: CALIBRATION (preserved from original)
+            ═══════════════════════════════════════════════════════════════════ */}
         <TabsContent value="calibration" className="mt-6 space-y-6">
           {/* Reaction Selector */}
           <Card>
@@ -555,7 +1081,7 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
 
-          {/* Results */}
+          {/* Fit Results */}
           {fitResult && (
             <Card>
               <CardHeader>
@@ -622,7 +1148,9 @@ export default function SettingsPage() {
           )}
         </TabsContent>
 
-        {/* General Settings Tab */}
+        {/* ═══════════════════════════════════════════════════════════════════
+            TAB 4: GENERAL
+            ═══════════════════════════════════════════════════════════════════ */}
         <TabsContent value="general" className="mt-6">
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             <Card className="relative overflow-hidden">
@@ -673,6 +1201,8 @@ export default function SettingsPage() {
     </div>
   );
 }
+
+// ─── Chart Sub-Components ────────────────────────────────────────────────────
 
 function ParityChart({ parityData }: { parityData: { measured: number; predicted: number }[] }) {
   return (
