@@ -74,7 +74,7 @@ export default function SignupPage() {
       <CardHeader className="text-center">
         <CardTitle className="text-2xl">Create your account</CardTitle>
         <CardDescription>
-          Get started with AftermarketOS
+          Get started with BOSAL Chemistry Copilot
         </CardDescription>
       </CardHeader>
       <CardContent>

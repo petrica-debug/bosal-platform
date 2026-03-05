@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { redirect } from "next/navigation";
 
 export async function signIn(formData: {
@@ -27,15 +28,14 @@ export async function signUp(formData: {
   password: string;
   organizationName: string;
 }): Promise<{ error: string | null }> {
-  const supabase = await createClient();
+  const admin = createAdminClient();
 
-  const { data, error } = await supabase.auth.signUp({
+  const { data, error } = await admin.auth.admin.createUser({
     email: formData.email,
     password: formData.password,
-    options: {
-      data: {
-        full_name: formData.fullName,
-      },
+    email_confirm: true,
+    user_metadata: {
+      full_name: formData.fullName,
     },
   });
 
@@ -52,7 +52,7 @@ export async function signUp(formData: {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
 
-  const { data: org, error: orgError } = await supabase
+  const { data: org, error: orgError } = await admin
     .from("organizations")
     .insert({ name: formData.organizationName, slug })
     .select("id")
@@ -62,7 +62,7 @@ export async function signUp(formData: {
     return { error: `Failed to create organization: ${orgError.message}` };
   }
 
-  const { error: memberError } = await supabase
+  const { error: memberError } = await admin
     .from("organization_members")
     .insert({
       organization_id: org.id,
@@ -75,10 +75,21 @@ export async function signUp(formData: {
     return { error: `Failed to add user to organization: ${memberError.message}` };
   }
 
-  await supabase
+  await admin
     .from("user_profiles")
     .update({ current_organization_id: org.id })
     .eq("id", data.user.id);
+
+  // Sign the user in immediately after creation
+  const supabase = await createClient();
+  const { error: signInError } = await supabase.auth.signInWithPassword({
+    email: formData.email,
+    password: formData.password,
+  });
+
+  if (signInError) {
+    return { error: `Account created but auto-login failed: ${signInError.message}. Please sign in manually.` };
+  }
 
   redirect("/command-center");
 }
