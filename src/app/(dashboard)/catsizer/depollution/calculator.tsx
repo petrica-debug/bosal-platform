@@ -2355,18 +2355,18 @@ Aging: ${(rfq.aging.results.overallActivity * 100).toFixed(0)}% activity after $
                           <YAxis yAxisId="right" orientation="right" domain={[0, 100]} label={{ value: "DeNOₓ [%]", angle: 90, position: "insideRight" }} tick={{ fill: "#94A3B8" }} />
                           <Tooltip contentStyle={{ backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }} />
                           <Legend wrapperStyle={{ color: "#CBD5E1" }} />
-                          <Line yAxisId="left" type="monotone" dataKey="DEF" stroke="#22D3EE" strokeWidth={2} dot={false} name="DEF Rate [mL/min]" />
-                          <Line yAxisId="right" type="monotone" dataKey="DeNOx" stroke="#34D399" strokeWidth={2} dot={false} name="Expected DeNOₓ [%]" />
+                          <Line yAxisId="left" type="monotone" dataKey="DEF" stroke="#0EA5E9" strokeWidth={3} dot={{ r: 2, fill: "#0EA5E9" }} activeDot={{ r: 5 }} name="DEF Rate [mL/min]" />
+                          <Line yAxisId="right" type="monotone" dataKey="DeNOx" stroke="#10B981" strokeWidth={3} dot={{ r: 2, fill: "#10B981" }} activeDot={{ r: 5 }} name="Expected DeNOₓ [%]" />
                         </LineChart>
                       </ResponsiveContainer>
                       <div className="mt-3 grid grid-cols-3 gap-3 text-sm">
                         <div className="rounded-lg border p-2 text-center">
                           <p className="text-muted-foreground">Min Dosing Temp</p>
-                          <p className="font-mono font-bold">{dosingMap.minDosingTemp_C}°C</p>
+                          <p className="font-mono font-bold">{Math.round(dosingMap.minDosingTemp_C)}°C</p>
                         </div>
                         <div className="rounded-lg border p-2 text-center">
                           <p className="text-muted-foreground">Max Efficiency</p>
-                          <p className="font-mono font-bold">{dosingMap.maxEfficiencyTemp_C}°C</p>
+                          <p className="font-mono font-bold">{Math.round(dosingMap.maxEfficiencyTemp_C)}°C</p>
                         </div>
                         <div className="rounded-lg border p-2 text-center">
                           <p className="text-muted-foreground">DEF at Rated</p>
@@ -2395,7 +2395,7 @@ Aging: ${(rfq.aging.results.overallActivity * 100).toFixed(0)}% activity after $
                           <XAxis dataKey="temp" label={{ value: "Exhaust Temp [°C]", position: "insideBottom", offset: -5 }} tick={{ fill: "#94A3B8" }} tickFormatter={(v: number) => Math.round(v).toString()} />
                           <YAxis domain={[0, 1.2]} label={{ value: "Alpha (ANR)", angle: -90, position: "insideLeft" }} tick={{ fill: "#94A3B8" }} />
                           <Tooltip contentStyle={{ backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }} formatter={(v: number) => v.toFixed(3)} />
-                          <Line type="monotone" dataKey="alpha" stroke="#818CF8" strokeWidth={2} dot={false} name="Alpha" />
+                          <Line type="monotone" dataKey="alpha" stroke="#8B5CF6" strokeWidth={3} dot={{ r: 2, fill: "#8B5CF6" }} activeDot={{ r: 5 }} name="Alpha" />
                         </LineChart>
                       </ResponsiveContainer>
                       <div className="mt-3 rounded-lg bg-muted/50 p-3 text-sm">
