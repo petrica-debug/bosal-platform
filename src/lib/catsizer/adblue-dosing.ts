@@ -166,9 +166,9 @@ export interface AlphaStrategy {
 export function determineAlphaStrategy(
   exhaustTemp_C: number,
   NOx_ppm: number,
-  targetDeNOx: number = 0.95,
+  _targetDeNOx: number = 0.95,
   isDPFRegen: boolean = false,
-  sootLoading_g_L: number = 0,
+  _sootLoading_g_L: number = 0,
   NH3_storage_g_L: number = 0
 ): AlphaStrategy {
   const inhibitReasons: string[] = [];

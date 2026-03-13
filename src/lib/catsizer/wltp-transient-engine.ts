@@ -26,12 +26,10 @@ import {
   cpsiMassTransferFactor,
   pgmLoadingFactor,
   splitBoost,
-  getDefaultWallThickness,
   type WashcoatType,
   type SplitConfig,
   type RAGVerdict,
 } from "./predev-engine";
-import { substrateGeometry } from "./depollution-engine";
 import { assessDeactivation, type DeactivationInputs } from "./deactivation";
 
 // ============================================================
@@ -163,7 +161,7 @@ function exhaustFlowFromDriveCycle(
   speed_kmh: number,
   load: number,
   fuelType: "diesel" | "gasoline",
-  nCyl: number
+  _nCyl: number
 ): number {
   const rho_air = 1.184; // kg/m³ at 25°C
   const AFR = fuelType === "diesel" ? 25 : 14.7; // lean diesel vs stoich gasoline
@@ -418,7 +416,6 @@ export function runTransientWLTPSim(
 
   // Catalyst setup
   const profile = getProfile(catalyst.washcoatType);
-  const geo = substrateGeometry(catalyst.cpsi, catalyst.wallThickness_mil);
   const gsaFac = cpsiMassTransferFactor(catalyst.cpsi, catalyst.wallThickness_mil);
   const split = splitBoost(catalyst.splitConfig);
   const pgmFac = pgmLoadingFactor(catalyst.pgmLoading_g_ft3, profile.composition.totalPGM_g_ft3);

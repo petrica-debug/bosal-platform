@@ -21,8 +21,8 @@
  * - Johnson Matthey, BASF, Umicore published catalyst data
  */
 
-import type { ChemisorptionData, TOFEntry, CatalystProfile, DispersionResult } from "./surface-science";
-import { calculateDispersion, TOF_DATABASE, generateCatalystProfile } from "./surface-science";
+import type { ChemisorptionData, CatalystProfile } from "./surface-science";
+import { generateCatalystProfile } from "./surface-science";
 
 // ============================================================
 // DETAILED CATALYST PROFILES

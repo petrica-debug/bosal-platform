@@ -36,16 +36,11 @@ import {
   Loader2,
   Flame,
   Snowflake,
-  Zap,
   Thermometer,
-  Activity,
-  Info,
   Battery,
   Gauge,
   Droplets,
   Shield,
-  TrendingUp,
-  BarChart3,
 } from "lucide-react";
 import {
   LineChart,
@@ -77,7 +72,6 @@ import { reformerFeedComposition } from "@/lib/catsizer/gas-properties";
 import { UNITS } from "@/lib/catsizer/units";
 import {
   sizeSOFCStack,
-  polarizationCurve,
   sofcParametricSweep,
   systemHeatIntegration,
   reformerReactorProfile,
@@ -164,11 +158,11 @@ export function ReformerCalculator() {
     setInputs((prev) => ({ ...prev, ...preset.inputs }));
   };
 
-  const calculate = useCallback(() => {
+  const calculate = useCallback(async () => {
     setCalculating(true);
-    setTimeout(() => {
+    try {
       // 1. Reformer sizing
-      const res = sizeReformerSystem(inputs, catalystSelections);
+      const res = await sizeReformerSystem(inputs, catalystSelections);
       setResult(res);
 
       // 2. SOFC stack sizing
@@ -213,31 +207,44 @@ export function ReformerCalculator() {
       );
       setReactorProfile(profile);
 
-      setCalculating(false);
       setStep(4);
-    }, 150);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setCalculating(false);
+    }
   }, [inputs, sofcMaterials, cellArea, catalystSelections]);
 
   // Equilibrium sweep data
-  const equilibriumData = useMemo(() => {
-    if (!result) return [];
+  const [equilibriumData, setEquilibriumData] = useState<Record<string, number>[]>([]);
+
+  // We must fetch equilibriumData asynchronously when result/inputs change
+  useMemo(() => {
+    if (!result) {
+      setEquilibriumData([]);
+      return;
+    }
     const feed = reformerFeedComposition({
       CH4_percent: inputs.CH4_percent, C2H6_percent: inputs.C2H6_percent,
       C3H8_percent: inputs.C3H8_percent, CO2_percent: inputs.CO2_percent,
       N2_percent: inputs.N2_percent, steamToCarbonRatio: inputs.steamToCarbonRatio,
       oxygenToCarbonRatio: inputs.oxygenToCarbonRatio,
     });
-    return equilibriumSweep(UNITS.C_to_K(400), UNITS.C_to_K(1000), 40, inputs.fuelPressure_kPa, feed)
-      .map((pt) => ({
-        temp_C: Math.round(UNITS.K_to_C(pt.temperature_K)),
-        H2: +((pt.composition.H2 ?? 0) * 100).toFixed(2),
-        CO: +((pt.composition.CO ?? 0) * 100).toFixed(2),
-        CO2: +((pt.composition.CO2 ?? 0) * 100).toFixed(2),
-        CH4: +((pt.composition.CH4 ?? 0) * 100).toFixed(2),
-        H2O: +((pt.composition.H2O ?? 0) * 100).toFixed(2),
-        CH4_CO: +pt.CH4_CO_ratio.toFixed(3),
-        conversion: +(pt.CH4_conversion * 100).toFixed(1),
-      }));
+
+    equilibriumSweep(UNITS.C_to_K(400), UNITS.C_to_K(1000), 40, inputs.fuelPressure_kPa, feed)
+      .then(res => {
+        setEquilibriumData(res.map((pt) => ({
+          temp_C: Math.round(UNITS.K_to_C(pt.temperature_K)),
+          H2: +((pt.composition.H2 ?? 0) * 100).toFixed(2),
+          CO: +((pt.composition.CO ?? 0) * 100).toFixed(2),
+          CO2: +((pt.composition.CO2 ?? 0) * 100).toFixed(2),
+          CH4: +((pt.composition.CH4 ?? 0) * 100).toFixed(2),
+          H2O: +((pt.composition.H2O ?? 0) * 100).toFixed(2),
+          CH4_CO: +(pt.CH4_CO_ratio || 0).toFixed(3),
+          conversion: +((pt.CH4_conversion || 0) * 100).toFixed(1),
+        })));
+      })
+      .catch(console.error);
   }, [result, inputs]);
 
   // Carbon boundary
@@ -253,22 +260,25 @@ export function ReformerCalculator() {
   }, []);
 
   // S/C sensitivity sweep
-  const scSensitivity = useMemo(() => {
-    if (!result) return [];
-    const points: Array<{ SC: number; conversion: number; H2_yield: number; carbonRisk: string }> = [];
+  const [scSensitivity, setScSensitivity] = useState<Record<string, number | string>[]>([]);
+  useMemo(() => {
+    if (!result) {
+      setScSensitivity([]);
+      return;
+    }
+    const promises = [];
     for (let sc = 1.0; sc <= 5.0; sc += 0.25) {
       const tempInputs = { ...inputs, steamToCarbonRatio: sc };
-      try {
-        const r = sizeReformerSystem(tempInputs);
-        points.push({
-          SC: sc,
-          conversion: r.CH4_conversion_percent,
-          H2_yield: r.H2_yield_mol_per_mol_CH4,
-          carbonRisk: r.carbonFormationRisk,
-        });
-      } catch { /* skip */ }
+      promises.push(sizeReformerSystem(tempInputs).then(r => ({
+        SC: sc,
+        conversion: r.CH4_conversion_percent,
+        H2_yield: r.H2_yield_mol_per_mol_CH4,
+        carbonRisk: r.carbonFormationRisk,
+      })).catch(() => null));
     }
-    return points;
+    Promise.all(promises).then(res => {
+      setScSensitivity(res.filter(r => r !== null));
+    });
   }, [result, inputs]);
 
   return (
@@ -278,11 +288,10 @@ export function ReformerCalculator() {
         {STEPS.map((s, i) => (
           <div key={s} className="flex items-center gap-1">
             <button onClick={() => (i <= step ? setStep(i) : undefined)}
-              className={`flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-medium transition-colors whitespace-nowrap ${
-                i === step ? "bg-primary text-primary-foreground"
+              className={`flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-medium transition-colors whitespace-nowrap ${i === step ? "bg-primary text-primary-foreground"
                   : i < step ? "bg-primary/20 text-primary cursor-pointer"
                     : "bg-muted text-muted-foreground"
-              }`}>
+                }`}>
               {i + 1}. {s}
             </button>
             {i < STEPS.length - 1 && <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />}
@@ -458,25 +467,24 @@ export function ReformerCalculator() {
                   <div className="grid grid-cols-2 gap-2">
                     {(inputs.reformingStrategy === "SMR" || inputs.reformingStrategy === "internal"
                       ? [
-                          { key: "SMR_Ni", label: "Ni/α-Al₂O₃", desc: "Industrial standard", temp: "700–900°C", cost: "Low" },
-                          { key: "SMR_PM", label: "Pd-Rh/CeO₂", desc: "Compact / mobile SOFC", temp: "600–850°C", cost: "High" },
-                        ]
+                        { key: "SMR_Ni", label: "Ni/α-Al₂O₃", desc: "Industrial standard", temp: "700–900°C", cost: "Low" },
+                        { key: "SMR_PM", label: "Pd-Rh/CeO₂", desc: "Compact / mobile SOFC", temp: "600–850°C", cost: "High" },
+                      ]
                       : inputs.reformingStrategy === "POX"
                         ? [
-                            { key: "POX", label: "Rh/Al₂O₃", desc: "Partial oxidation", temp: "800–1100°C", cost: "High" },
-                          ]
+                          { key: "POX", label: "Rh/Al₂O₃", desc: "Partial oxidation", temp: "800–1100°C", cost: "High" },
+                        ]
                         : [
-                            { key: "ATR", label: "Ni-Rh/MgAl₂O₄", desc: "Autothermal reforming", temp: "700–1000°C", cost: "Medium" },
-                          ]
+                          { key: "ATR", label: "Ni-Rh/MgAl₂O₄", desc: "Autothermal reforming", temp: "700–1000°C", cost: "Medium" },
+                        ]
                     ).map((c) => {
                       const ghsv = REFORMER_GHSV[c.key];
                       const cat = REFORMER_CATALYSTS[c.key];
                       const selected = catalystSelections.mainReformer === c.key;
                       return (
                         <button key={c.key} onClick={() => setCatalystSelections((p) => ({ ...p, mainReformer: c.key }))}
-                          className={`rounded-lg border-2 p-2.5 text-left transition-all text-xs ${
-                            selected ? "border-primary bg-primary/5 ring-1 ring-primary/30" : "border-border hover:border-primary/50"
-                          }`}>
+                          className={`rounded-lg border-2 p-2.5 text-left transition-all text-xs ${selected ? "border-primary bg-primary/5 ring-1 ring-primary/30" : "border-border hover:border-primary/50"
+                            }`}>
                           <div className="flex items-center justify-between mb-1">
                             <span className="font-bold">{c.label}</span>
                             {selected && <Badge className="text-[10px] h-4 px-1.5">Selected</Badge>}
@@ -505,9 +513,8 @@ export function ReformerCalculator() {
                         const selected = catalystSelections.preReformer === c.key;
                         return (
                           <button key={c.key} onClick={() => setCatalystSelections((p) => ({ ...p, preReformer: c.key }))}
-                            className={`rounded-lg border-2 p-2.5 text-left transition-all text-xs ${
-                              selected ? "border-primary bg-primary/5 ring-1 ring-primary/30" : "border-border hover:border-primary/50"
-                            }`}>
+                            className={`rounded-lg border-2 p-2.5 text-left transition-all text-xs ${selected ? "border-primary bg-primary/5 ring-1 ring-primary/30" : "border-border hover:border-primary/50"
+                              }`}>
                             <div className="flex items-center justify-between mb-1">
                               <span className="font-bold">{c.label}</span>
                               {selected && <Badge className="text-[10px] h-4 px-1.5">Selected</Badge>}
@@ -536,9 +543,8 @@ export function ReformerCalculator() {
                         const selected = catalystSelections[c.field] === c.key;
                         return (
                           <button key={c.key} onClick={() => setCatalystSelections((p) => ({ ...p, [c.field]: c.key }))}
-                            className={`rounded-lg border-2 p-2.5 text-left transition-all text-xs ${
-                              selected ? "border-primary bg-primary/5 ring-1 ring-primary/30" : "border-border hover:border-primary/50"
-                            }`}>
+                            className={`rounded-lg border-2 p-2.5 text-left transition-all text-xs ${selected ? "border-primary bg-primary/5 ring-1 ring-primary/30" : "border-border hover:border-primary/50"
+                              }`}>
                             <div className="flex items-center justify-between mb-1">
                               <span className="font-bold">{c.label}</span>
                               {selected && <Badge className="text-[10px] h-4 px-1.5">Selected</Badge>}
@@ -1282,10 +1288,12 @@ export function ReformerCalculator() {
                         N2: result.reformateComposition.N2_percent / 100,
                       };
                       const sweep = sofcParametricSweep(
-                        { cellActiveArea_cm2: cellArea, operatingTemp_C: inputs.SOFC_operatingTemp_C,
+                        {
+                          cellActiveArea_cm2: cellArea, operatingTemp_C: inputs.SOFC_operatingTemp_C,
                           operatingPressure_atm: inputs.fuelPressure_kPa / 101.325,
                           currentDensity_A_cm2: inputs.SOFC_currentDensity_A_cm2,
-                          fuelUtilization: inputs.SOFC_fuelUtilization, materials: sofcMaterials },
+                          fuelUtilization: inputs.SOFC_fuelUtilization, materials: sofcMaterials
+                        },
                         inputs.SOFC_power_kW, reformateComp, "temperature", [600, 950], 25
                       );
                       return (

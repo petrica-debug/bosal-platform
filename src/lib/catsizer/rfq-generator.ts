@@ -14,7 +14,7 @@
 
 import { UNITS } from "./units";
 import { exhaustComposition, gasViscosity, gasDensity } from "./gas-properties";
-import { getDesignGHSV, LIGHT_OFF_TEMPS, WASHCOAT_DEFAULTS, EMISSION_STANDARDS } from "./constants";
+import { EMISSION_STANDARDS } from "./constants";
 import { plugFlowConversion } from "./kinetics";
 import {
   analyzeWashcoat,
@@ -36,7 +36,6 @@ import type {
   CatalystType,
   AgingConfig,
   SCRConfig,
-  DPFConfig,
   RFQOutput,
   RFQCatalystItem,
   SubstrateSpec,

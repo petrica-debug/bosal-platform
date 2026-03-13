@@ -304,7 +304,6 @@ export function sizeSOFCStack(
   // Partial pressures from reformate (wet basis)
   const pH2 = reformateComposition.H2 ?? 0.4;
   const pH2O = reformateComposition.H2O ?? 0.2;
-  const pCO = reformateComposition.CO ?? 0.1;
   const pO2 = 0.21 * config.operatingPressure_atm;
 
   // Account for fuel utilization: average pH2 across cell
@@ -610,9 +609,6 @@ export function reformerReactorProfile(
     // Equilibrium constant for SMR: K_SMR = exp(-ΔG°/RT)
     const dG_SMR = 206000 - 214 * T_K; // simplified
     const K_SMR = Math.exp(-dG_SMR / (R_GAS * T_K));
-
-    // Equilibrium constant for WGS
-    const K_WGS = Math.exp(4577.8 / T_K - 4.33);
 
     // Current conversion
     const CH4_initial = 1 / totalMoles;

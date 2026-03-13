@@ -3,7 +3,6 @@
 import { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Card,
@@ -29,7 +28,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
-  DollarSign,
   Plus,
   Download,
   TrendingUp,
@@ -42,7 +40,6 @@ import {
   loadCostDB,
   calculateBrickCost,
   calculateSystemPricing,
-  type CostDatabase,
   type SystemPricingResult,
 } from "@/lib/pricing/cost-database";
 import {
@@ -54,10 +51,6 @@ import {
   Tooltip,
   ResponsiveContainer,
   Legend,
-  LineChart,
-  Line,
-  ComposedChart,
-  Area,
 } from "recharts";
 
 // ============================================================
@@ -231,8 +224,8 @@ const DEFAULT_CONFIGS: SystemConfig[] = [
 export default function PricingPage() {
   const [configs] = useState<SystemConfig[]>(DEFAULT_CONFIGS);
   const [selectedId, setSelectedId] = useState(configs[0].id);
-  const [pgmSlider, setPgmSlider] = useState(0);
-  const [volumeSlider, setVolumeSlider] = useState(0);
+  const [_pgmSlider, _setPgmSlider] = useState(0);
+  const [_volumeSlider, _setVolumeSlider] = useState(0);
 
   const integratorPricing = useMemo<SystemPricingResult | null>(() => {
     const db = loadCostDB();

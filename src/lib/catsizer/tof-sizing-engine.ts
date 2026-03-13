@@ -18,20 +18,17 @@
  * This is compared against the empirical GHSV method to validate and cross-check.
  */
 
-import { R_GAS, UNITS, MW } from "./units";
-import type { EngineInputs, CatalystType, EmissionStandard } from "./types";
+import type { EngineInputs, CatalystType } from "./types";
+import { MW } from "./units";
 import type { DetailedCatalystProfile } from "./catalyst-profiles";
-import { CATALYST_PROFILES_DB, getProfilesByType } from "./catalyst-profiles";
+import { getProfilesByType } from "./catalyst-profiles";
 import {
   calculateDispersion,
   tofAtTemperature,
-  sizeCatalystFromTOF,
   generateActivityProfile,
-  type TOFSizingResult,
   type ActivityPoint,
   type TOFEntry,
   type DispersionResult,
-  TOF_DATABASE,
 } from "./surface-science";
 
 const AVOGADRO = 6.022e23;

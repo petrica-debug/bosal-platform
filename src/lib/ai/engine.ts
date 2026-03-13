@@ -2,8 +2,6 @@ import {
   CHEMISTRY_EXPERT_PROMPT,
   EVAPORATION_PROMPT,
   KINETICS_PROMPT,
-  PRICING_PROMPT,
-  RFQ_EXTRACTION_PROMPT,
 } from "./prompts";
 import type {
   AIConfig,

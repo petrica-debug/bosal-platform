@@ -159,7 +159,7 @@ export function calculateEvaporation(
   pipe: MixingPipeConfig,
   exhaustTemp_C: number,
   exhaustVelocity_m_s: number,
-  exhaustDensity_kg_m3: number
+  _exhaustDensity_kg_m3: number
 ): EvaporationResult {
   const T_K = exhaustTemp_C + 273.15;
 

@@ -1,9 +1,17 @@
 "use client";
 
-import { useRef, useMemo, useCallback } from "react";
+import { useRef, useMemo, useCallback, useEffect } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { OrbitControls, Line } from "@react-three/drei";
 import * as THREE from "three";
+
+function seededRandom(seed: number) {
+  let s = seed;
+  return () => {
+    s = (s * 16807 + 0) % 2147483647;
+    return (s - 1) / 2147483646;
+  };
+}
 
 export interface SimParams {
   injectionAngle: number;
@@ -52,8 +60,10 @@ function Particles({ params, onMetrics }: { params: SimParams; onMetrics: (m: Si
   const scrZ = params.injectorToSCR / 1000;
   const mxZ = scrZ * 0.35;
 
-  const cols = useMemo(() => new Float32Array(N * 3), []);
+  const colsRef = useRef(new Float32Array(N * 3));
+  const cols = colsRef.current;
   const ps = useRef<P[]>([]);
+  const initialized = useRef(false);
 
   const mk = useCallback((): P => {
     const aRad = (params.injectionAngle * Math.PI) / 180;
@@ -61,7 +71,6 @@ function Particles({ params, onMetrics }: { params: SimParams; onMetrics: (m: Si
     const sp = Math.pow(Math.random(), 0.5) * (0.05 + params.injectionPressure * 0.018);
     const rv = Math.sin(aRad) * sp * 2.2;
 
-    // Size: large enough to see clearly, varies 2x
     const baseR = pR * (0.025 + Math.random() * 0.025);
 
     return {
@@ -77,11 +86,28 @@ function Particles({ params, onMetrics }: { params: SimParams; onMetrics: (m: Si
     };
   }, [params.injectionAngle, params.injectionPressure, params.exhaustFlowRate, pR]);
 
-  if (ps.current.length === 0) {
+  useEffect(() => {
+    if (initialized.current) return;
+    initialized.current = true;
+    const rng = seededRandom(42);
     for (let i = 0; i < N; i++) {
-      const p = mk();
-      // stagger so pipe isn't empty on load
-      const pre = Math.random() * 0.8;
+      const aRad = (params.injectionAngle * Math.PI) / 180;
+      const th = rng() * Math.PI * 2;
+      const sp = Math.pow(rng(), 0.5) * (0.05 + params.injectionPressure * 0.018);
+      const rv = Math.sin(aRad) * sp * 2.2;
+      const baseR = pR * (0.025 + rng() * 0.025);
+      const p: P = {
+        x: (rng() - 0.5) * 0.003,
+        y: pR * 0.78 + (rng() - 0.5) * 0.003,
+        z: (rng() - 0.5) * 0.002,
+        vx: rv * Math.cos(th),
+        vy: rv * Math.sin(th) - 0.3,
+        vz: (0.4 + (params.exhaustFlowRate / 1000) * 1.2) * (0.7 + rng() * 0.6),
+        d: 1.0,
+        baseR,
+        stuck: false, stuckT: 0, mixer: false, age: 0,
+      };
+      const pre = rng() * 0.8;
       p.age = pre;
       p.z += p.vz * pre * 0.3;
       p.y += p.vy * pre * 0.3;
@@ -89,7 +115,8 @@ function Particles({ params, onMetrics }: { params: SimParams; onMetrics: (m: Si
       p.d = Math.max(0.05, 1 - pre * 1.2);
       ps.current.push(p);
     }
-  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const fr = useRef(0);
 
@@ -271,7 +298,10 @@ function Deposits({ params }: { params: SimParams }) {
       z.push({ p: 0.03, w: 0.5 }, { p: 0.06, w: 0.35 });
       if (params.mixerType !== "none") z.push({ p: mxZ + 0.01, w: 0.45 }, { p: mxZ + 0.025, w: 0.25 });
     }
-    if (params.exhaustTemp < 200) for (let v = 0.02; v < scrZ * 0.5; v += 0.03) z.push({ p: v, w: 0.2 + Math.random() * 0.2 });
+    if (params.exhaustTemp < 200) {
+      const rng = seededRandom(7);
+      for (let v = 0.02; v < scrZ * 0.5; v += 0.03) z.push({ p: v, w: 0.2 + rng() * 0.2 });
+    }
     return z;
   }, [params.exhaustTemp, params.mixerType, mxZ, scrZ]);
   if (!zones.length) return null;

@@ -447,7 +447,7 @@ export function ascReactionRates(
   T_K: number,
   C_NH3: number,
   C_O2: number,
-  C_NO: number
+  _C_NO: number
 ): {
   r_NH3_to_N2: number;   // Selective oxidation
   r_NH3_to_NO: number;   // Non-selective oxidation
@@ -503,7 +503,6 @@ export function plugFlowConversion(
   effectivenessFactor: number = 0.7
 ): Record<string, number> {
   const N_STEPS = 50;
-  const dz = length_m / N_STEPS;
   const S_v = gsa_m2_L * 1000; // m²/m³ catalyst
   const tau = (volume_L * 1e-3) / Q_m3_s; // residence time [s]
   const dt = tau / N_STEPS;

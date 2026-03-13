@@ -128,10 +128,6 @@ export function optimizeANR(
   fuelConsumption_L_h: number = 0,
   speed_km_h: number = 0
 ): ANROptimizationResult {
-  // Fast SCR fraction: depends on NO₂/NOₓ ratio
-  // Optimal at NO₂/NOₓ = 0.5 (equimolar NO:NO₂)
-  const fastSCR_fraction = Math.min(2 * NO2_NOx_ratio, 2 * (1 - NO2_NOx_ratio));
-
   // Temperature-dependent maximum achievable conversion
   const T_K = T_C + 273.15;
   const k_eff = 1e6 * Math.exp(-45000 / (8.314 * T_K));

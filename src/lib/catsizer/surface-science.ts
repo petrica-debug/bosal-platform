@@ -40,7 +40,6 @@ import { R_GAS } from "./units";
 // ============================================================
 
 const AVOGADRO = 6.022e23;                // molecules/mol
-const BOLTZMANN = 1.381e-23;              // J/K
 
 /** Atomic masses [g/mol] */
 const ATOMIC_MASS = {
@@ -126,9 +125,7 @@ export function calculateDispersion(data: ChemisorptionData): DispersionResult {
 
   // Metallic surface area [m²/g_PGM]
   const sigma = SURFACE_ATOM_DENSITY[metal] ?? 1.25e19;
-  const S_met = (dispersion * AVOGADRO) / (M * sigma) * 1e-4;
-  // convert: (atoms/mol) / (g/mol × atoms/m²) = m²/g, then ×1e-4 for correct scaling
-  // Actually: S_met = D × N_A / (M × σ_s)
+  // S_met = D × N_A / (M × σ_s)
   const S_met_correct = (dispersion * AVOGADRO) / (M * sigma);
 
   // Particle size from dispersion (spherical approximation)
@@ -673,7 +670,6 @@ export function generateActivityProfile(
   const points: ActivityPoint[] = [];
   const dt = (tempRange[1] - tempRange[0]) / (steps - 1);
 
-  const catalystMass_g = catalystVolume_L * washcoatLoading_g_L;
   const sites_per_gCat = dispResult.surfaceSites_per_gCat;
 
   for (let i = 0; i < steps; i++) {

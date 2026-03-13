@@ -53,15 +53,12 @@ import {
   Loader2,
   RotateCcw,
   FlaskConical,
-  Layers,
   TrendingUp,
   AlertTriangle,
   Zap,
   Shield,
-  DollarSign,
   Microscope,
   Activity,
-  Settings2,
   Database,
   Info,
 } from "lucide-react";
@@ -74,11 +71,6 @@ import {
   type WashcoatType,
   type SplitConfig,
   type RAGVerdict,
-  type WashcoatAnalysisSummary,
-  type DeactivationBreakdown,
-  type GHSVAnalysis,
-  type SubstrateAnalysis,
-  type TechnologyMatch,
 } from "@/lib/catsizer/predev-engine";
 import type { EmissionStandard } from "@/lib/catsizer/types";
 import { AreaChart, Area } from "recharts";
@@ -90,7 +82,6 @@ import {
   type TransientSimConfig,
   type TransientCatalystConfig,
   type WLTPEmissionStandard,
-  type LightDutyEnginePreset,
 } from "@/lib/catsizer/wltp-transient-engine";
 import {
   type SGBenchData,
@@ -100,7 +91,7 @@ import {
   EXAMPLE_SGB_DOC,
   EXAMPLE_SGB_TWC,
 } from "@/lib/catsizer/sgb-data";
-import { CATALYST_PROFILES_DB, type DetailedCatalystProfile } from "@/lib/catsizer/catalyst-profiles";
+import { type DetailedCatalystProfile } from "@/lib/catsizer/catalyst-profiles";
 import {
   getAIOptimizationAdvice,
 } from "@/lib/ai/catalyst-advisor";
@@ -312,7 +303,7 @@ interface PhaseResult {
 
 // ─── Simulation Engine ────────────────────────────────────────────────────────
 
-function runSimulation(
+function _runSimulation(
   cycle: CyclePoint[],
   engine: EngineConfig,
   catalyst: CatalystConfig,
@@ -577,14 +568,14 @@ export default function WLTPPage() {
   const [predevPgmStep, setPredevPgmStep] = useState(20);
   const [predevDiameter, setPredevDiameter] = useState(267);
   const [predevLength, setPredevLength] = useState(254);
-  const [predevExhaustFlow, setPredevExhaustFlow] = useState(900);
-  const [predevExhaustTemp, setPredevExhaustTemp] = useState(350);
+  const [predevExhaustFlow, _setPredevExhaustFlow] = useState(900);
+  const [predevExhaustTemp, _setPredevExhaustTemp] = useState(350);
   const [predevPower, setPredevPower] = useState(250);
   const [predevRawNOx, setPredevRawNOx] = useState(800);
   const [predevRawCO, setPredevRawCO] = useState(400);
   const [predevRawHC, setPredevRawHC] = useState(120);
-  const [predevOemNOx, setPredevOemNOx] = useState(0);
-  const [predevEmissionStd, setPredevEmissionStd] = useState<EmissionStandard>("euro_vi_e");
+  const [predevOemNOx, _setPredevOemNOx] = useState(0);
+  const [predevEmissionStd, _setPredevEmissionStd] = useState<EmissionStandard>("euro_vi_e");
   const [wltpEmissionStd, setWltpEmissionStd] = useState<WLTPEmissionStandard>("euro_6d_diesel");
   const [selectedPresetIdx, setSelectedPresetIdx] = useState<number | null>(null);
   const [predevDisplacement, setPredevDisplacement] = useState(1.6);
@@ -597,7 +588,7 @@ export default function WLTPPage() {
   const [predevO2, setPredevO2] = useState(10);
   const [predevH2O, setPredevH2O] = useState(8);
   const [predevCO2, setPredevCO2] = useState(7);
-  const [predevSO2, setPredevSO2] = useState(5);
+  const [predevSO2, _setPredevSO2] = useState(5);
   const [predevResults, setPredevResults] = useState<PreDevResult[]>([]);
   const [predevRunning, setPredevRunning] = useState(false);
   const [predevSelectedIdx, setPredevSelectedIdx] = useState<number | null>(null);
@@ -1821,7 +1812,7 @@ export default function WLTPPage() {
                       </SelectTrigger>
                       <SelectContent>
                         <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Diesel</div>
-                        {LIGHT_DUTY_PRESETS.filter(p => p.fuelType === "diesel").map((p, i) => {
+                        {LIGHT_DUTY_PRESETS.filter(p => p.fuelType === "diesel").map((p) => {
                           const globalIdx = LIGHT_DUTY_PRESETS.indexOf(p);
                           return <SelectItem key={globalIdx} value={String(globalIdx)} className="text-xs">{p.name}</SelectItem>;
                         })}

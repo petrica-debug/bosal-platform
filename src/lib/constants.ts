@@ -152,6 +152,15 @@ export const NAV_ITEMS: readonly NavItem[] = [
     group: 'Overview',
   },
   {
+    title: 'Catalyst Predictor',
+    href: '/catsizer/predictor',
+    icon: 'Activity',
+    phase: 'P0',
+    description: '1D reactor simulation — profiles, light-off, transient cycles, DOE',
+    requiredRoles: ALL_ROLES,
+    group: 'Engineering',
+  },
+  {
     title: 'OEM Sizing',
     href: '/catsizer/depollution',
     icon: 'FlaskConical',

@@ -2,7 +2,6 @@ import { UNITS, T_STP, P_STP, volumeFlowSTPtoActual } from "./units";
 import {
   exhaustComposition,
   gasViscosity,
-  gasDensity,
   mixtureMW,
 } from "./gas-properties";
 import {
@@ -181,8 +180,6 @@ function sizeSingleCatalyst(
     diameter_mm?: number;
   }
 ): CatalystSizingResult {
-  const warnings: string[] = [];
-
   // GHSV
   const ghsv = ghsvOverride ?? getDesignGHSV(type, application);
 
@@ -382,7 +379,6 @@ export function sizeDepollutionSystem(
 
   // Calculate exhaust flow
   const flow = calculateExhaustFlow(inputs);
-  const T_K = UNITS.C_to_K(inputs.exhaustTemp_C);
   const composition = exhaustComposition(inputs);
 
   // Light-off warning

@@ -87,11 +87,11 @@ import { generateRFQ, PGM_PRICES_USD_OZ, calculatePGMCost } from "@/lib/catsizer
 import { type EmissionUnit, EMISSION_UNIT_LABELS, toPpm, fromPpm } from "@/lib/catsizer/emission-units";
 import { calculateSystemCost, type SystemCostBreakdown } from "@/lib/catsizer/system-cost-calculator";
 import { washcoatThicknessSweep, WASHCOAT_DOC_DEFAULT } from "@/lib/catsizer/washcoat";
-import { filterCatalog, STANDARD_CELL_CONFIGS, type SubstrateCatalogEntry } from "@/lib/catsizer/substrate-catalog";
+import { filterCatalog } from "@/lib/catsizer/substrate-catalog";
 import { INJECTOR_PRESETS, assessSpraySystem, type InjectorSpec, type MixingPipeConfig, type SpraySystemResult } from "@/lib/catsizer/spray-model";
 import { generateDosingMap, determineAlphaStrategy, type DosingMap } from "@/lib/catsizer/adblue-dosing";
-import { PGM_FORMULATIONS, recommendTechnology, conversionTemperatureSweep, findLightOff, type PGMFormulation, type TechnologyRecommendation, type ConversionPoint } from "@/lib/catsizer/catalyst-technology";
-import { CATALYST_PROFILES_DB, type DetailedCatalystProfile } from "@/lib/catsizer/catalyst-profiles";
+import { PGM_FORMULATIONS, recommendTechnology, conversionTemperatureSweep, findLightOff, type TechnologyRecommendation, type ConversionPoint } from "@/lib/catsizer/catalyst-technology";
+import { CATALYST_PROFILES_DB } from "@/lib/catsizer/catalyst-profiles";
 import { calculateExhaustMolarFlows, sizeCatalystSystemFromTOF, generateConversionProfile, generateReactorProfile, type TOFSystemSizingResult, type ConversionProfilePoint, type ReactorPositionPoint } from "@/lib/catsizer/tof-sizing-engine";
 import { getOEMAdvisorAdvice } from "@/lib/ai/catalyst-advisor";
 import type { OEMAdvisorResponse } from "@/lib/ai/types";
@@ -2597,7 +2597,6 @@ Aging: ${(rfq.aging.results.overallActivity * 100).toFixed(0)}% activity after $
 
                       {/* Catalyst elements */}
                       {rfq.aftertreatmentSystem.catalysts.map((cat, idx) => {
-                        const tempDrop = cat.type === "DOC" ? 30 : cat.type === "DPF" ? -10 : cat.type === "SCR" ? -5 : 0;
                         const cumTemp = engineInputs.exhaustTemp_C + rfq.aftertreatmentSystem.catalysts.slice(0, idx + 1).reduce((s, c) => {
                           return s + (c.type === "DOC" ? 30 : c.type === "DPF" ? -10 : c.type === "SCR" ? -5 : 0);
                         }, 0);

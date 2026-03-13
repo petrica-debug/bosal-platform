@@ -50,8 +50,6 @@ import {
   Tooltip,
   ResponsiveContainer,
   Legend,
-  BarChart,
-  Bar,
   ReferenceLine,
 } from "recharts";
 import {
@@ -59,7 +57,6 @@ import {
   tofAtTemperature,
   generateActivityProfile,
   TOF_DATABASE,
-  PRESET_PROFILES,
   type ChemisorptionData,
   type DispersionResult,
   type ActivityPoint,

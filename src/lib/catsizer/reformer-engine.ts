@@ -1,10 +1,8 @@
-import { UNITS, T_STP, P_STP, R_GAS, volumeFlowSTPtoActual } from "./units";
+import { UNITS, volumeFlowSTPtoActual } from "./units";
 import {
   reformerFeedComposition,
   gasViscosity,
   gasDensity,
-  mixtureCp,
-  mixtureH,
 } from "./gas-properties";
 import {
   solveEquilibrium,
@@ -18,7 +16,6 @@ import type {
   CatalystBedResult,
   ReformateComposition,
   ReformerSizingResult,
-  CarbonRisk,
 } from "./types";
 
 // ============================================================
@@ -125,10 +122,10 @@ export interface ReformerCatalystSelections {
   ltWGS?: string;
 }
 
-export function sizeReformerSystem(
+export async function sizeReformerSystem(
   inputs: FuelInputs,
   catalystSelections?: ReformerCatalystSelections
-): ReformerSizingResult {
+): Promise<ReformerSizingResult> {
   const warnings: string[] = [];
 
   // H₂S check
@@ -174,7 +171,7 @@ export function sizeReformerSystem(
   const T_outlet_K = UNITS.C_to_K(reformerOutletTemp_C);
 
   // Solve equilibrium at reformer outlet
-  const equilibrium = solveEquilibrium(
+  const equilibrium = await solveEquilibrium(
     T_outlet_K,
     inputs.fuelPressure_kPa,
     feedComp
@@ -310,7 +307,6 @@ export function sizeReformerSystem(
   }
 
   // Heat duty calculations
-  const T_in_K = UNITS.C_to_K(reformerInletTemp_C);
   const dH_smr = smrEnthalpy(T_outlet_K); // kJ/mol
   const dH_wgs = wgsEnthalpy(UNITS.C_to_K(400)); // kJ/mol
 

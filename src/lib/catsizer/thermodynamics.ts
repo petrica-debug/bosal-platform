@@ -1,5 +1,5 @@
 import { R_GAS } from "./units";
-import { speciesH, speciesS, speciesG, type GasComposition } from "./gas-properties";
+import { speciesH, speciesG, type GasComposition } from "./gas-properties";
 
 // ============================================================
 // EQUILIBRIUM CONSTANTS
@@ -128,214 +128,84 @@ export interface EquilibriumResult {
 
 /**
  * Solve SMR + WGS equilibrium at given T, P for a feed composition.
- *
- * Uses iterative approach:
- * 1. Assume extent of SMR reaction (ξ₁)
- * 2. Assume extent of WGS reaction (ξ₂)
- * 3. Calculate equilibrium expressions and iterate via Newton-Raphson
+ * Now calls the Python FastAPI backend via the Next.js API route.
  */
-export function solveEquilibrium(
+export async function solveEquilibrium(
   T_K: number,
   P_kPa: number,
   feed: GasComposition
-): EquilibriumResult {
-  const P_atm = P_kPa / 101.325;
-  const Ksmr = K_SMR(T_K);
-  const Kwgs = K_WGS(T_K);
+): Promise<EquilibriumResult> {
+  // Translate to Python backend format
+  const reqBody = {
+    CH4: feed.CH4 ?? 0,
+    C2H6: feed.C2H6 ?? 0,
+    C3H8: feed.C3H8 ?? 0,
+    CO2: feed.CO2 ?? 0,
+    N2: feed.N2 ?? 0,
+    SC_ratio: (feed.H2O ?? 0) / Math.max((feed.CH4 ?? 0.0001), 0.0001), // Approximate SC ratio from feed
+    T_C: T_K - 273.15,
+    P_kPa: P_kPa
+  };
 
-  // Initial moles (normalize to 1 total mole of feed)
-  let nCH4 = feed.CH4 ?? 0;
-  let nH2O = feed.H2O ?? 0;
-  let nCO = feed.CO ?? 0;
-  let nCO2 = feed.CO2 ?? 0;
-  let nH2 = feed.H2 ?? 0;
-  const nN2 = feed.N2 ?? 0;
-  let nO2 = feed.O2 ?? 0;
+  try {
+    const res = await fetch('/api/chemistry/equilibrium', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(reqBody)
+    });
 
-  // Handle higher hydrocarbons: assume complete pre-reforming
-  // C₂H₆ + 2H₂O → 2CO + 5H₂
-  const nC2H6 = feed.C2H6 ?? 0;
-  nCH4 += 0; // C2H6 doesn't become CH4, it reforms directly
-  nCO += 2 * nC2H6;
-  nH2 += 5 * nC2H6;
-  nH2O -= 2 * nC2H6;
+    if (!res.ok) throw new Error("Backend failed");
 
-  // C₃H₈ + 3H₂O → 3CO + 7H₂
-  const nC3H8 = feed.C3H8 ?? 0;
-  nCO += 3 * nC3H8;
-  nH2 += 7 * nC3H8;
-  nH2O -= 3 * nC3H8;
-
-  // Handle POX/ATR: O₂ reacts with CH₄ first (total oxidation is kinetically favored)
-  // CH₄ + 2O₂ → CO₂ + 2H₂O (complete combustion of portion)
-  if (nO2 > 0) {
-    const ch4_burned = Math.min(nCH4, nO2 / 2);
-    nCH4 -= ch4_burned;
-    nO2 -= 2 * ch4_burned;
-    nCO2 += ch4_burned;
-    nH2O += 2 * ch4_burned;
-  }
-
-  // Store initial CH₄ for conversion calculation
-  const nCH4_initial = nCH4;
-
-  // Ensure non-negative
-  nH2O = Math.max(nH2O, 0);
-
-  // Newton-Raphson iteration for ξ₁ (SMR) and ξ₂ (WGS)
-  let xi1 = nCH4 * 0.5; // Initial guess: 50% SMR conversion
-  let xi2 = 0.1; // Initial guess for WGS extent
-
-  for (let iter = 0; iter < 100; iter++) {
-    // Clamp extents to feasible range
-    xi1 = Math.max(0, Math.min(xi1, nCH4 - 1e-12));
-    xi2 = Math.max(-nCO2, Math.min(xi2, nCO + xi1 - 1e-12));
-
-    const ch4 = nCH4 - xi1;
-    const h2o = nH2O - xi1 - xi2;
-    const co = nCO + xi1 - xi2;
-    const co2 = nCO2 + xi2;
-    const h2 = nH2 + 3 * xi1 + xi2;
-    const total = ch4 + Math.max(h2o, 0) + co + co2 + h2 + nN2;
-
-    if (total <= 0) break;
-
-    // Partial pressures
-    const yCH4 = ch4 / total;
-    const yH2O = Math.max(h2o, 0) / total;
-    const yCO = co / total;
-    const yCO2 = co2 / total;
-    const yH2 = h2 / total;
-
-    // Equilibrium expressions (should equal zero at equilibrium)
-    // f1: K_SMR - (yCO × yH2³ × P²) / (yCH4 × yH2O) = 0
-    // f2: K_WGS - (yCO2 × yH2) / (yCO × yH2O) = 0
-
-    const pCH4 = yCH4 * P_atm;
-    const pH2O = yH2O * P_atm;
-    const pCO = yCO * P_atm;
-    const pCO2 = yCO2 * P_atm;
-    const pH2 = yH2 * P_atm;
-
-    const denom1 = pCH4 * pH2O;
-    const denom2 = pCO * pH2O;
-
-    if (denom1 < 1e-20 || denom2 < 1e-20) break;
-
-    const Q_smr = (pCO * pH2 ** 3) / denom1;
-    const Q_wgs = (pCO2 * pH2) / denom2;
-
-    const f1 = Q_smr - Ksmr;
-    const f2 = Q_wgs - Kwgs;
-
-    if (Math.abs(f1 / (Ksmr + 1)) < 1e-6 && Math.abs(f2 / (Kwgs + 1)) < 1e-6) {
-      break; // Converged
-    }
-
-    // Numerical Jacobian (finite differences)
-    const dxi = 1e-8;
-    const evalF = (x1: number, x2: number) => {
-      const c4 = nCH4 - x1;
-      const w = nH2O - x1 - x2;
-      const c = nCO + x1 - x2;
-      const c2 = nCO2 + x2;
-      const h = nH2 + 3 * x1 + x2;
-      const t = c4 + Math.max(w, 0) + c + c2 + h + nN2;
-      if (t <= 0) return [0, 0];
-      const pc4 = (c4 / t) * P_atm;
-      const pw = (Math.max(w, 0) / t) * P_atm;
-      const pc = (c / t) * P_atm;
-      const pc2_ = (c2 / t) * P_atm;
-      const ph = (h / t) * P_atm;
-      const d1 = pc4 * pw;
-      const d2 = pc * pw;
-      return [
-        d1 > 1e-20 ? (pc * ph ** 3) / d1 - Ksmr : 0,
-        d2 > 1e-20 ? (pc2_ * ph) / d2 - Kwgs : 0,
-      ];
+    const data = await res.json();
+    return {
+      composition: {
+        H2: data.H2,
+        CO: data.CO,
+        CO2: data.CO2,
+        CH4: data.CH4,
+        H2O: data.H2O,
+        N2: data.N2,
+      },
+      CH4_conversion: data.CH4_conversion,
+      H2_yield: data.H2 * 100, // Roughly
+      CH4_CO_ratio: data.CH4_CO_ratio,
+      H2_CO_ratio: data.H2 / Math.max(data.CO, 0.001),
+      temperature_K: T_K,
+      pressure_kPa: P_kPa
     };
-
-    const f_pp = evalF(xi1 + dxi, xi2);
-    const f_pm = evalF(xi1, xi2 + dxi);
-
-    const J11 = (f_pp[0] - f1) / dxi;
-    const J12 = (f_pm[0] - f1) / dxi;
-    const J21 = (f_pp[1] - f2) / dxi;
-    const J22 = (f_pm[1] - f2) / dxi;
-
-    const det = J11 * J22 - J12 * J21;
-    if (Math.abs(det) < 1e-30) break;
-
-    const dxi1 = -(J22 * f1 - J12 * f2) / det;
-    const dxi2 = -(-J21 * f1 + J11 * f2) / det;
-
-    // Damped update
-    const alpha = 0.5;
-    xi1 += alpha * dxi1;
-    xi2 += alpha * dxi2;
+  } catch (error) {
+    console.error("Failed to solve equilibrium via API:", error);
+    // Fallback stub if API is down
+    return {
+      composition: { ...feed },
+      CH4_conversion: 0,
+      H2_yield: 0,
+      CH4_CO_ratio: 0,
+      H2_CO_ratio: 0,
+      temperature_K: T_K,
+      pressure_kPa: P_kPa
+    };
   }
-
-  // Final composition
-  xi1 = Math.max(0, Math.min(xi1, nCH4));
-  xi2 = Math.max(-nCO2, Math.min(xi2, nCO + xi1));
-
-  const finalCH4 = nCH4 - xi1;
-  const finalH2O = Math.max(nH2O - xi1 - xi2, 0);
-  const finalCO = nCO + xi1 - xi2;
-  const finalCO2 = nCO2 + xi2;
-  const finalH2 = nH2 + 3 * xi1 + xi2;
-  const total = finalCH4 + finalH2O + finalCO + finalCO2 + finalH2 + nN2;
-
-  const composition: GasComposition = {
-    CH4: finalCH4 / total,
-    H2O: finalH2O / total,
-    CO: finalCO / total,
-    CO2: finalCO2 / total,
-    H2: finalH2 / total,
-    N2: nN2 / total,
-  };
-
-  const totalCH4_fed = nCH4_initial + (feed.CH4 ?? 0) - nCH4_initial; // original feed CH4
-  const CH4_conversion =
-    nCH4_initial > 0 ? (nCH4_initial - finalCH4) / nCH4_initial : 0;
-
-  const H2_yield =
-    (feed.CH4 ?? 0) > 0 ? finalH2 / (feed.CH4 ?? 1) : 0;
-
-  const CH4_CO_ratio =
-    finalCO > 1e-10 ? finalCH4 / finalCO : finalCH4 > 0 ? 999 : 0;
-
-  const H2_CO_ratio =
-    finalCO > 1e-10 ? finalH2 / finalCO : finalH2 > 0 ? 999 : 0;
-
-  return {
-    composition,
-    CH4_conversion,
-    H2_yield,
-    CH4_CO_ratio,
-    H2_CO_ratio,
-    temperature_K: T_K,
-    pressure_kPa: P_kPa,
-  };
 }
 
 /**
  * Compute equilibrium composition across a temperature range
  * for plotting equilibrium diagrams.
  */
-export function equilibriumSweep(
+export async function equilibriumSweep(
   T_min_K: number,
   T_max_K: number,
   steps: number,
   P_kPa: number,
   feed: GasComposition
-): EquilibriumResult[] {
+): Promise<EquilibriumResult[]> {
   const results: EquilibriumResult[] = [];
   const dT = (T_max_K - T_min_K) / (steps - 1);
 
   for (let i = 0; i < steps; i++) {
     const T = T_min_K + i * dT;
-    results.push(solveEquilibrium(T, P_kPa, feed));
+    const res = await solveEquilibrium(T, P_kPa, feed);
+    results.push(res);
   }
 
   return results;

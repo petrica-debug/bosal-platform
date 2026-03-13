@@ -13,8 +13,7 @@
  */
 
 import type { CatalystType, EmissionStandard, EngineInputs } from "./types";
-import { UNITS } from "./units";
-import { docReactionRates, scrReactionRates, twcReactionRates, ascReactionRates, plugFlowConversion, type DOCKineticParams, DOC_KINETICS_DEFAULT, type SCRKineticParams, SCR_KINETICS_CU_ZEOLITE } from "./kinetics";
+import { plugFlowConversion } from "./kinetics";
 
 // ============================================================
 // PGM FORMULATION DATABASE

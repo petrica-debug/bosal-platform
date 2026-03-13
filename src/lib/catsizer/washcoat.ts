@@ -16,7 +16,7 @@
  * - Heck, Farrauto & Gulati, "Catalytic Air Pollution Control" (2009)
  */
 
-import { R_GAS, MW } from "./units";
+import { R_GAS } from "./units";
 
 // ============================================================
 // WASHCOAT PHYSICAL PROPERTIES

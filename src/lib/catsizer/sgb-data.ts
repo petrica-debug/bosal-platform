@@ -12,7 +12,6 @@
 
 import {
   type DetailedCatalystProfile,
-  CATALYST_PROFILES_DB,
 } from "./catalyst-profiles";
 
 // ============================================================

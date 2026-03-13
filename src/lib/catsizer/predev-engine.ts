@@ -19,15 +19,13 @@ import {
   CATALYST_PROFILES_DB,
   type DetailedCatalystProfile,
 } from "./catalyst-profiles";
-import { assessDeactivation, type DeactivationInputs, type DeactivationResult } from "./deactivation";
+import { assessDeactivation, type DeactivationInputs } from "./deactivation";
 import { calculateExhaustMolarFlows } from "./tof-sizing-engine";
 import {
   analyzeWashcoat,
-  type WashcoatAnalysisResult,
   type WashcoatProperties,
   WASHCOAT_DOC_DEFAULT,
   WASHCOAT_TWC_DEFAULT,
-  WASHCOAT_SCR_DEFAULT,
   washcoatThicknessSweep,
 } from "./washcoat";
 import {
@@ -318,8 +316,6 @@ export function predictConversion(
   // GHSV correction: higher cpsi/PGM/split → more effective catalyst → lower effective GHSV
   const GHSV_eff = GHSV_STP / (gsaFactor * pgmFactor * splitFactor);
 
-  const T_K = T_C + 273.15;
-
   // ── T50 shift ──
   const T50_base = reaction.T50_lightOff_C;
   const dT_pgm = -20 * Math.log2(Math.max(0.25, pgmFactor));
@@ -414,7 +410,7 @@ const SPECIES_MW: Record<string, number> = { CO: 28.01, HC: 44.096, NOx: 46.006 
 
 const PGM_PRICE_USD_G: Record<string, number> = { Pt: 32, Pd: 42, Rh: 145 };
 
-function matchTechnology(config: PreDevConfig, profile: DetailedCatalystProfile): TechnologyMatch | null {
+function matchTechnology(config: PreDevConfig, _profile: DetailedCatalystProfile): TechnologyMatch | null {
   const candidates = PGM_FORMULATIONS.filter((f) =>
     f.catalystTypes.includes(config.catalystType as "DOC" | "TWC" | "SCR")
   );

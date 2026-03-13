@@ -65,7 +65,7 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from "@/components/ui/sidebar";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 
 const ICON_MAP: Record<string, LucideIcon> = {
   BookOpen,
@@ -111,20 +111,16 @@ function getInitials(name: string): string {
 export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname();
   const { profile, organization, role } = useUser();
-  const [aiMode, setAiMode] = useState<AIMode>("online");
-
-  // Sync AI mode with actual AI config in localStorage
-  useEffect(() => {
+  const [aiMode, setAiMode] = useState<AIMode>(() => {
+    if (typeof window === "undefined") return "online";
     try {
       const raw = localStorage.getItem("bosal-ai-config");
       if (raw) {
         const cfg = JSON.parse(raw);
-        if (cfg.provider === "openai") setAiMode("online");
-        else if (cfg.provider === "ollama") setAiMode("offline");
-        else if (cfg.provider === "off") setAiMode("off");
+        if (cfg.provider === "openai") return "online";
+        if (cfg.provider === "ollama") return "offline";
+        if (cfg.provider === "off") return "off";
       } else {
-        // Check if env key is available (provider defaults to "off" but key exists)
-        setAiMode("online");
         localStorage.setItem("bosal-ai-config", JSON.stringify({
           provider: "openai",
           openaiModel: "gpt-4o",
@@ -133,10 +129,11 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
         }));
       }
     } catch { /* ignore */ }
-  }, []);
+    return "online";
+  });
 
   const displayName = profile?.full_name ?? "User";
-  const orgName = organization?.name ?? "BOSAL";
+  const _orgName = organization?.name ?? "BOSAL";
   const roleLabel = role ? ROLE_LABELS[role as UserRole] : "Member";
 
   return (

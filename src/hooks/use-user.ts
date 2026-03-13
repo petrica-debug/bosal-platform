@@ -6,7 +6,7 @@ import type { Tables } from '@/types/database';
 import type { UserRole } from '@/lib/constants';
 
 type UserProfile = Tables<'user_profiles'>;
-type OrganizationMember = Tables<'organization_members'>;
+type _OrganizationMember = Tables<'organization_members'>;
 type Organization = Tables<'organizations'>;
 
 export interface UserData {
