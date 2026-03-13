@@ -781,12 +781,12 @@ export function ReformerCalculator() {
                   <CardContent>
                     <ResponsiveContainer width="100%" height={320}>
                       <ComposedChart data={sofcResult.polarizationData}>
-                        <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                        <XAxis dataKey="j_A_cm2" label={{ value: "Current Density [A/cm²]", position: "insideBottom", offset: -5 }} />
-                        <YAxis yAxisId="v" domain={[0, 1.2]} label={{ value: "Voltage [V]", angle: -90, position: "insideLeft" }} />
-                        <YAxis yAxisId="p" orientation="right" label={{ value: "Power [W/cm²]", angle: 90, position: "insideRight" }} />
-                        <Tooltip formatter={(v: number, name: string) => [v.toFixed(4), name]} />
-                        <Legend />
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 30%)" strokeOpacity={0.6} />
+                        <XAxis dataKey="j_A_cm2" label={{ value: "Current Density [A/cm²]", position: "insideBottom", offset: -5 }} tick={{ fill: "#94A3B8" }} />
+                        <YAxis yAxisId="v" domain={[0, 1.2]} label={{ value: "Voltage [V]", angle: -90, position: "insideLeft" }} tick={{ fill: "#94A3B8" }} />
+                        <YAxis yAxisId="p" orientation="right" label={{ value: "Power [W/cm²]", angle: 90, position: "insideRight" }} tick={{ fill: "#94A3B8" }} />
+                        <Tooltip contentStyle={{ backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }} formatter={(v: number, name: string) => [v.toFixed(4), name]} />
+                        <Legend wrapperStyle={{ color: "#CBD5E1" }} />
                         <Line yAxisId="v" type="monotone" dataKey="V_cell" name="Cell Voltage [V]" stroke="#2563EB" strokeWidth={2.5} dot={false} />
                         <Line yAxisId="v" type="monotone" dataKey="E_nernst" name="Nernst OCV [V]" stroke="#94A3B8" strokeWidth={1} strokeDasharray="5 5" dot={false} />
                         <Area yAxisId="p" type="monotone" dataKey="P_W_cm2" name="Power [W/cm²]" fill="#10B981" fillOpacity={0.15} stroke="#10B981" strokeWidth={2} dot={false} />
@@ -805,11 +805,11 @@ export function ReformerCalculator() {
                   <CardContent>
                     <ResponsiveContainer width="100%" height={320}>
                       <AreaChart data={sofcResult.polarizationData}>
-                        <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                        <XAxis dataKey="j_A_cm2" label={{ value: "Current Density [A/cm²]", position: "insideBottom", offset: -5 }} />
-                        <YAxis domain={[0, 1.2]} label={{ value: "Voltage [V]", angle: -90, position: "insideLeft" }} />
-                        <Tooltip formatter={(v: number) => `${v.toFixed(4)} V`} />
-                        <Legend />
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 30%)" strokeOpacity={0.6} />
+                        <XAxis dataKey="j_A_cm2" label={{ value: "Current Density [A/cm²]", position: "insideBottom", offset: -5 }} tick={{ fill: "#94A3B8" }} />
+                        <YAxis domain={[0, 1.2]} label={{ value: "Voltage [V]", angle: -90, position: "insideLeft" }} tick={{ fill: "#94A3B8" }} />
+                        <Tooltip contentStyle={{ backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }} formatter={(v: number) => `${v.toFixed(4)} V`} />
+                        <Legend wrapperStyle={{ color: "#CBD5E1" }} />
                         <Area type="monotone" dataKey="eta_conc" name="Concentration Loss" stackId="1" fill="#EF4444" fillOpacity={0.6} stroke="#EF4444" />
                         <Area type="monotone" dataKey="eta_act_cathode" name="Cathode Activation" stackId="1" fill="#F59E0B" fillOpacity={0.6} stroke="#F59E0B" />
                         <Area type="monotone" dataKey="eta_act_anode" name="Anode Activation" stackId="1" fill="#8B5CF6" fillOpacity={0.6} stroke="#8B5CF6" />
@@ -964,11 +964,11 @@ export function ReformerCalculator() {
                   <CardContent>
                     <ResponsiveContainer width="100%" height={350}>
                       <LineChart data={equilibriumData}>
-                        <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                        <XAxis dataKey="temp_C" label={{ value: "Temperature [°C]", position: "insideBottom", offset: -5 }} />
-                        <YAxis label={{ value: "mol%", angle: -90, position: "insideLeft" }} />
-                        <Tooltip formatter={(v: number) => `${v.toFixed(2)} mol%`} />
-                        <Legend />
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 30%)" strokeOpacity={0.6} />
+                        <XAxis dataKey="temp_C" label={{ value: "Temperature [°C]", position: "insideBottom", offset: -5 }} tick={{ fill: "#94A3B8" }} tickFormatter={(v: number) => Math.round(v).toString()} />
+                        <YAxis label={{ value: "mol%", angle: -90, position: "insideLeft" }} tick={{ fill: "#94A3B8" }} />
+                        <Tooltip contentStyle={{ backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }} formatter={(v: number) => `${v.toFixed(2)} mol%`} />
+                        <Legend wrapperStyle={{ color: "#CBD5E1" }} />
                         <Line type="monotone" dataKey="H2" name="H₂" stroke="#3B82F6" strokeWidth={2.5} dot={false} />
                         <Line type="monotone" dataKey="CO" name="CO" stroke="#EF4444" strokeWidth={2} dot={false} />
                         <Line type="monotone" dataKey="CO2" name="CO₂" stroke="#F59E0B" strokeWidth={2} dot={false} />
@@ -987,12 +987,12 @@ export function ReformerCalculator() {
                   <CardContent>
                     <ResponsiveContainer width="100%" height={350}>
                       <ComposedChart data={equilibriumData}>
-                        <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                        <XAxis dataKey="temp_C" label={{ value: "Temperature [°C]", position: "insideBottom", offset: -5 }} />
-                        <YAxis yAxisId="conv" domain={[0, 100]} label={{ value: "Conversion [%]", angle: -90, position: "insideLeft" }} />
-                        <YAxis yAxisId="ratio" orientation="right" scale="log" domain={[0.001, 100]} label={{ value: "CH₄/CO", angle: 90, position: "insideRight" }} />
-                        <Tooltip />
-                        <Legend />
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 30%)" strokeOpacity={0.6} />
+                        <XAxis dataKey="temp_C" label={{ value: "Temperature [°C]", position: "insideBottom", offset: -5 }} tick={{ fill: "#94A3B8" }} tickFormatter={(v: number) => Math.round(v).toString()} />
+                        <YAxis yAxisId="conv" domain={[0, 100]} label={{ value: "Conversion [%]", angle: -90, position: "insideLeft" }} tick={{ fill: "#94A3B8" }} />
+                        <YAxis yAxisId="ratio" orientation="right" scale="log" domain={[0.001, 100]} label={{ value: "CH₄/CO", angle: 90, position: "insideRight" }} tick={{ fill: "#94A3B8" }} />
+                        <Tooltip contentStyle={{ backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }} />
+                        <Legend wrapperStyle={{ color: "#CBD5E1" }} />
                         <Line yAxisId="conv" type="monotone" dataKey="conversion" name="CH₄ Conversion [%]" stroke="#10B981" strokeWidth={2.5} dot={false} />
                         <Line yAxisId="ratio" type="monotone" dataKey="CH4_CO" name="CH₄/CO Ratio" stroke="#8B5CF6" strokeWidth={2} dot={false} />
                         <ReferenceLine yAxisId="conv" x={result.reformerOutletTemp_C} stroke="#EF4444" strokeDasharray="3 3" />
@@ -1014,11 +1014,11 @@ export function ReformerCalculator() {
                   <CardContent>
                     <ResponsiveContainer width="100%" height={350}>
                       <LineChart data={reactorProfile}>
-                        <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                        <XAxis dataKey="position_fraction" label={{ value: "Reactor Position (z/L)", position: "insideBottom", offset: -5 }} tickFormatter={(v: number) => v.toFixed(1)} />
-                        <YAxis label={{ value: "mol%", angle: -90, position: "insideLeft" }} />
-                        <Tooltip formatter={(v: number) => `${v.toFixed(2)} mol%`} />
-                        <Legend />
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 30%)" strokeOpacity={0.6} />
+                        <XAxis dataKey="position_fraction" label={{ value: "Reactor Position (z/L)", position: "insideBottom", offset: -5 }} tickFormatter={(v: number) => v.toFixed(1)} tick={{ fill: "#94A3B8" }} />
+                        <YAxis label={{ value: "mol%", angle: -90, position: "insideLeft" }} tick={{ fill: "#94A3B8" }} />
+                        <Tooltip contentStyle={{ backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }} formatter={(v: number) => `${v.toFixed(2)} mol%`} />
+                        <Legend wrapperStyle={{ color: "#CBD5E1" }} />
                         <Line type="monotone" dataKey="H2_mol_percent" name="H₂" stroke="#3B82F6" strokeWidth={2.5} dot={false} />
                         <Line type="monotone" dataKey="CO_mol_percent" name="CO" stroke="#EF4444" strokeWidth={2} dot={false} />
                         <Line type="monotone" dataKey="CO2_mol_percent" name="CO₂" stroke="#F59E0B" strokeWidth={2} dot={false} />
@@ -1037,12 +1037,12 @@ export function ReformerCalculator() {
                   <CardContent>
                     <ResponsiveContainer width="100%" height={350}>
                       <ComposedChart data={reactorProfile}>
-                        <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                        <XAxis dataKey="position_fraction" label={{ value: "Reactor Position (z/L)", position: "insideBottom", offset: -5 }} tickFormatter={(v: number) => v.toFixed(1)} />
-                        <YAxis yAxisId="t" label={{ value: "Temperature [°C]", angle: -90, position: "insideLeft" }} />
-                        <YAxis yAxisId="c" orientation="right" domain={[0, 100]} label={{ value: "Conversion [%]", angle: 90, position: "insideRight" }} />
-                        <Tooltip />
-                        <Legend />
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 30%)" strokeOpacity={0.6} />
+                        <XAxis dataKey="position_fraction" label={{ value: "Reactor Position (z/L)", position: "insideBottom", offset: -5 }} tickFormatter={(v: number) => v.toFixed(1)} tick={{ fill: "#94A3B8" }} />
+                        <YAxis yAxisId="t" label={{ value: "Temperature [°C]", angle: -90, position: "insideLeft" }} tick={{ fill: "#94A3B8" }} />
+                        <YAxis yAxisId="c" orientation="right" domain={[0, 100]} label={{ value: "Conversion [%]", angle: 90, position: "insideRight" }} tick={{ fill: "#94A3B8" }} />
+                        <Tooltip contentStyle={{ backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }} />
+                        <Legend wrapperStyle={{ color: "#CBD5E1" }} />
                         <Line yAxisId="t" type="monotone" dataKey="temperature_C" name="Temperature [°C]" stroke="#EF4444" strokeWidth={2.5} dot={false} />
                         <Area yAxisId="c" type="monotone" dataKey="CH4_conversion" name="CH₄ Conversion [%]" fill="#10B981" fillOpacity={0.15} stroke="#10B981" strokeWidth={2} dot={false} />
                       </ComposedChart>
@@ -1059,10 +1059,10 @@ export function ReformerCalculator() {
                   <CardContent>
                     <ResponsiveContainer width="100%" height={250}>
                       <AreaChart data={reactorProfile}>
-                        <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                        <XAxis dataKey="position_fraction" tickFormatter={(v: number) => v.toFixed(1)} />
-                        <YAxis tickFormatter={(v: number) => v.toExponential(0)} />
-                        <Tooltip formatter={(v: number) => v.toExponential(3)} />
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 30%)" strokeOpacity={0.6} />
+                        <XAxis dataKey="position_fraction" tickFormatter={(v: number) => v.toFixed(1)} tick={{ fill: "#94A3B8" }} />
+                        <YAxis tickFormatter={(v: number) => v.toExponential(0)} tick={{ fill: "#94A3B8" }} />
+                        <Tooltip contentStyle={{ backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }} formatter={(v: number) => v.toExponential(3)} />
                         <Area type="monotone" dataKey="reactionRate_mol_m3_s" name="Rate [mol/(m³·s)]" fill="#8B5CF6" fillOpacity={0.3} stroke="#8B5CF6" strokeWidth={2} />
                       </AreaChart>
                     </ResponsiveContainer>
@@ -1127,10 +1127,10 @@ export function ReformerCalculator() {
                     <p className="text-sm font-semibold mb-2">Pressure Drop Waterfall</p>
                     <ResponsiveContainer width="100%" height={200}>
                       <BarChart data={result.catalystBeds.map((b) => ({ name: b.stage, dP: +b.pressureDrop_kPa.toFixed(3) }))}>
-                        <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                        <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                        <YAxis label={{ value: "ΔP [kPa]", angle: -90, position: "insideLeft" }} />
-                        <Tooltip />
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 30%)" strokeOpacity={0.6} />
+                        <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#94A3B8" }} />
+                        <YAxis label={{ value: "ΔP [kPa]", angle: -90, position: "insideLeft" }} tick={{ fill: "#94A3B8" }} />
+                        <Tooltip contentStyle={{ backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }} />
                         <Bar dataKey="dP" name="ΔP [kPa]" fill="#3B82F6" radius={[4, 4, 0, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
@@ -1225,15 +1225,15 @@ export function ReformerCalculator() {
                 <CardContent>
                   <ResponsiveContainer width="100%" height={400}>
                     <ScatterChart>
-                      <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                      <XAxis dataKey="temp_C" type="number" name="Temperature" unit="°C" domain={[400, 1000]} label={{ value: "Temperature [°C]", position: "insideBottom", offset: -5 }} />
-                      <YAxis dataKey="SC" type="number" name="S/C Ratio" domain={[0.5, 5]} label={{ value: "S/C Ratio", angle: -90, position: "insideLeft" }} />
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 30%)" strokeOpacity={0.6} />
+                      <XAxis dataKey="temp_C" type="number" name="Temperature" unit="°C" domain={[400, 1000]} label={{ value: "Temperature [°C]", position: "insideBottom", offset: -5 }} tick={{ fill: "#94A3B8" }} />
+                      <YAxis dataKey="SC" type="number" name="S/C Ratio" domain={[0.5, 5]} label={{ value: "S/C Ratio", angle: -90, position: "insideLeft" }} tick={{ fill: "#94A3B8" }} />
                       <ZAxis dataKey="safe" range={[20, 20]} />
-                      <Tooltip />
+                      <Tooltip contentStyle={{ backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }} />
                       <Scatter name="Safe" data={carbonBoundaryData.filter((d) => d.safe)} fill="#22C55E" opacity={0.3} />
                       <Scatter name="Carbon Risk" data={carbonBoundaryData.filter((d) => !d.safe)} fill="#EF4444" opacity={0.3} />
                       <Scatter name="Operating Point" data={[{ temp_C: result.reformerOutletTemp_C, SC: inputs.steamToCarbonRatio, safe: result.carbonFormationRisk === "low" ? 1 : 0 }]} fill="#2563EB" shape="star" />
-                      <Legend />
+                      <Legend wrapperStyle={{ color: "#CBD5E1" }} />
                     </ScatterChart>
                   </ResponsiveContainer>
                 </CardContent>
@@ -1251,12 +1251,12 @@ export function ReformerCalculator() {
                   <CardContent>
                     <ResponsiveContainer width="100%" height={300}>
                       <ComposedChart data={scSensitivity}>
-                        <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                        <XAxis dataKey="SC" label={{ value: "S/C Ratio", position: "insideBottom", offset: -5 }} />
-                        <YAxis yAxisId="c" domain={[0, 100]} label={{ value: "Conversion [%]", angle: -90, position: "insideLeft" }} />
-                        <YAxis yAxisId="y" orientation="right" domain={[0, 4]} label={{ value: "H₂ Yield [mol/mol]", angle: 90, position: "insideRight" }} />
-                        <Tooltip />
-                        <Legend />
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 30%)" strokeOpacity={0.6} />
+                        <XAxis dataKey="SC" label={{ value: "S/C Ratio", position: "insideBottom", offset: -5 }} tick={{ fill: "#94A3B8" }} />
+                        <YAxis yAxisId="c" domain={[0, 100]} label={{ value: "Conversion [%]", angle: -90, position: "insideLeft" }} tick={{ fill: "#94A3B8" }} />
+                        <YAxis yAxisId="y" orientation="right" domain={[0, 4]} label={{ value: "H₂ Yield [mol/mol]", angle: 90, position: "insideRight" }} tick={{ fill: "#94A3B8" }} />
+                        <Tooltip contentStyle={{ backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }} />
+                        <Legend wrapperStyle={{ color: "#CBD5E1" }} />
                         <Line yAxisId="c" type="monotone" dataKey="conversion" name="CH₄ Conversion [%]" stroke="#10B981" strokeWidth={2.5} dot={false} />
                         <Line yAxisId="y" type="monotone" dataKey="H2_yield" name="H₂ Yield [mol/mol]" stroke="#3B82F6" strokeWidth={2} dot={false} />
                         <ReferenceLine yAxisId="c" x={inputs.steamToCarbonRatio} stroke="#EF4444" strokeDasharray="3 3" label={{ value: "Design", position: "top" }} />
@@ -1299,12 +1299,12 @@ export function ReformerCalculator() {
                       return (
                         <ResponsiveContainer width="100%" height={300}>
                           <ComposedChart data={sweep}>
-                            <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                            <XAxis dataKey="value" label={{ value: "Temperature [°C]", position: "insideBottom", offset: -5 }} />
-                            <YAxis yAxisId="v" domain={[0.4, 1.0]} label={{ value: "Cell Voltage [V]", angle: -90, position: "insideLeft" }} />
-                            <YAxis yAxisId="n" orientation="right" label={{ value: "# Cells", angle: 90, position: "insideRight" }} />
-                            <Tooltip />
-                            <Legend />
+                            <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 30%)" strokeOpacity={0.6} />
+                            <XAxis dataKey="value" label={{ value: "Temperature [°C]", position: "insideBottom", offset: -5 }} tick={{ fill: "#94A3B8" }} tickFormatter={(v: number) => Math.round(v).toString()} />
+                            <YAxis yAxisId="v" domain={[0.4, 1.0]} label={{ value: "Cell Voltage [V]", angle: -90, position: "insideLeft" }} tick={{ fill: "#94A3B8" }} />
+                            <YAxis yAxisId="n" orientation="right" label={{ value: "# Cells", angle: 90, position: "insideRight" }} tick={{ fill: "#94A3B8" }} />
+                            <Tooltip contentStyle={{ backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }} />
+                            <Legend wrapperStyle={{ color: "#CBD5E1" }} />
                             <Line yAxisId="v" type="monotone" dataKey="cellVoltage" name="Cell Voltage [V]" stroke="#3B82F6" strokeWidth={2.5} dot={false} />
                             <Line yAxisId="v" type="monotone" dataKey="efficiency" name="Efficiency (LHV)" stroke="#10B981" strokeWidth={2} dot={false} />
                             <Bar yAxisId="n" dataKey="numberOfCells" name="# Cells" fill="#8B5CF6" fillOpacity={0.3} />

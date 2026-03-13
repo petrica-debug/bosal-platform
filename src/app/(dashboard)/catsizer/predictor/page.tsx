@@ -289,7 +289,7 @@ function generate1DProfile(
         continue;
       }
 
-      const conv = plugFlowConversion(
+      const outlet = plugFlowConversion(
         brick.type as "DOC" | "SCR" | "TWC" | "ASC",
         sliceLength,
         gsa,
@@ -301,19 +301,24 @@ function generate1DProfile(
         0.7
       );
 
+      const convCO = inlet.CO > 0 ? (inlet.CO - (outlet["CO"] ?? 0)) / inlet.CO : 0;
+      const convHC = inlet.HC > 0 ? (inlet.HC - (outlet["HC"] ?? 0)) / inlet.HC : 0;
+      const inNOx = (inlet.NO ?? 0) + (inlet.NO2 ?? 0);
+      const outNOx = (outlet["NO"] ?? 0) + (outlet["NO2"] ?? 0);
+      const convNOx = inNOx > 0 ? (inNOx - outNOx) / inNOx : 0;
+
       const exotherm =
         brick.type === "DOC" || brick.type === "TWC"
-          ? (conv["CO"] ?? 0) * 40 + (conv["HC"] ?? 0) * 60
+          ? convCO * 40 + convHC * 60
           : 0;
 
       points.push({
         position: frac,
         position_mm: Math.round(frac * brick.length_mm),
         T_C: Math.round((system.exhaustTemp_C + exotherm) * 10) / 10,
-        CO_pct: Math.round((conv["CO"] ?? 0) * 1000) / 10,
-        HC_pct: Math.round((conv["HC"] ?? 0) * 1000) / 10,
-        NOx_pct:
-          Math.round((conv["NOx"] ?? conv["NO"] ?? 0) * 1000) / 10,
+        CO_pct: Math.round(convCO * 1000) / 10,
+        HC_pct: Math.round(convHC * 1000) / 10,
+        NOx_pct: Math.round(convNOx * 1000) / 10,
       });
     }
   } else {
@@ -1308,7 +1313,7 @@ export default function CatalystPredictorPage() {
                       <ResponsiveContainer width="100%" height={220}>
                         <ComposedChart data={profile} margin={{ top: 5, right: 5, bottom: 5, left: -10 }}>
                           <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 30%)" strokeOpacity={0.6} />
-                          <XAxis dataKey="position_mm" tick={{ fontSize: 10, fill: "#94A3B8" }} label={{ value: "Position [mm]", fontSize: 10, position: "bottom" }} />
+                          <XAxis dataKey="position_mm" tick={{ fontSize: 10, fill: "#94A3B8" }} tickFormatter={(v: number) => Math.round(v).toString()} label={{ value: "Position [mm]", fontSize: 10, position: "bottom" }} />
                           <YAxis yAxisId="conv" domain={[0, 100]} tick={{ fontSize: 10, fill: "#94A3B8" }} label={{ value: "Conversion [%]", angle: -90, fontSize: 10, position: "insideLeft" }} />
                           <YAxis yAxisId="temp" orientation="right" domain={["auto", "auto"]} tick={{ fontSize: 10, fill: "#94A3B8" }} label={{ value: "T [°C]", angle: 90, fontSize: 10, position: "insideRight" }} />
                           <Tooltip contentStyle={{ fontSize: 11, backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }} />
@@ -1362,7 +1367,7 @@ export default function CatalystPredictorPage() {
                           margin={{ top: 5, right: 5, bottom: 5, left: -10 }}
                         >
                           <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 30%)" strokeOpacity={0.6} />
-                          <XAxis dataKey="temperature_C" tick={{ fontSize: 10, fill: "#94A3B8" }} label={{ value: "Temperature [°C]", fontSize: 10, position: "bottom" }} />
+                          <XAxis dataKey="temperature_C" tick={{ fontSize: 10, fill: "#94A3B8" }} tickFormatter={(v: number) => Math.round(v).toString()} label={{ value: "Temperature [°C]", fontSize: 10, position: "bottom" }} />
                           <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: "#94A3B8" }} label={{ value: "Conversion [%]", angle: -90, fontSize: 10, position: "insideLeft" }} />
                           <Tooltip contentStyle={{ fontSize: 11, backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }} />
                           <Legend wrapperStyle={{ fontSize: 10, color: "#CBD5E1" }} />
@@ -1507,7 +1512,7 @@ export default function CatalystPredictorPage() {
                         <ResponsiveContainer width="100%" height={200}>
                           <ComposedChart data={downsample(transientResult.steps, 300)} margin={{ top: 5, right: 5, bottom: 5, left: -10 }}>
                             <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 30%)" strokeOpacity={0.5} />
-                            <XAxis dataKey="time" tick={{ fontSize: 9, fill: "#94A3B8" }} label={{ value: "Time [s]", fontSize: 9, position: "bottom" }} />
+                            <XAxis dataKey="time" tick={{ fontSize: 9, fill: "#94A3B8" }} tickFormatter={(v: number) => Math.round(v).toString()} label={{ value: "Time [s]", fontSize: 9, position: "bottom" }} />
                             <YAxis yAxisId="spd" domain={[0, 140]} tick={{ fontSize: 9, fill: "#94A3B8" }} />
                             <YAxis yAxisId="tmp" orientation="right" tick={{ fontSize: 9, fill: "#94A3B8" }} />
                             <Tooltip contentStyle={{ fontSize: 10, backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }} />
@@ -1529,7 +1534,7 @@ export default function CatalystPredictorPage() {
                         <ResponsiveContainer width="100%" height={200}>
                           <LineChart data={downsample(transientResult.steps, 300)} margin={{ top: 5, right: 5, bottom: 5, left: -10 }}>
                             <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 30%)" strokeOpacity={0.5} />
-                            <XAxis dataKey="time" tick={{ fontSize: 9, fill: "#94A3B8" }} />
+                            <XAxis dataKey="time" tick={{ fontSize: 9, fill: "#94A3B8" }} tickFormatter={(v: number) => Math.round(v).toString()} />
                             <YAxis domain={[0, 100]} tick={{ fontSize: 9, fill: "#94A3B8" }} />
                             <Tooltip contentStyle={{ fontSize: 10, backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }} />
                             <Legend wrapperStyle={{ fontSize: 9, color: "#CBD5E1" }} />
@@ -1550,7 +1555,7 @@ export default function CatalystPredictorPage() {
                         <ResponsiveContainer width="100%" height={200}>
                           <LineChart data={downsample(transientResult.steps, 300)} margin={{ top: 5, right: 5, bottom: 5, left: -10 }}>
                             <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 30%)" strokeOpacity={0.5} />
-                            <XAxis dataKey="time" tick={{ fontSize: 9, fill: "#94A3B8" }} />
+                            <XAxis dataKey="time" tick={{ fontSize: 9, fill: "#94A3B8" }} tickFormatter={(v: number) => Math.round(v).toString()} />
                             <YAxis tick={{ fontSize: 9, fill: "#94A3B8" }} />
                             <Tooltip contentStyle={{ fontSize: 10, backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }} />
                             <Legend wrapperStyle={{ fontSize: 9, color: "#CBD5E1" }} />
@@ -1695,7 +1700,7 @@ export default function CatalystPredictorPage() {
                       <ResponsiveContainer width="100%" height={300}>
                         <LineChart data={sweepData} margin={{ top: 5, right: 5, bottom: 5, left: -10 }}>
                           <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 30%)" strokeOpacity={0.6} />
-                          <XAxis dataKey="param" tick={{ fontSize: 10, fill: "#94A3B8" }} label={{
+                          <XAxis dataKey="param" tick={{ fontSize: 10, fill: "#94A3B8" }} tickFormatter={(v: number) => typeof v === 'number' ? Math.round(v).toString() : String(v)} label={{
                             value: sweepParam === "temperature" ? "Temperature [°C]" : sweepParam === "ghsv" ? "GHSV [h⁻¹]" : sweepParam === "pgm_loading" ? "PGM Loading [g/ft³]" : "Washcoat Thickness [µm]",
                             fontSize: 10, position: "bottom"
                           }} />
@@ -1723,7 +1728,7 @@ export default function CatalystPredictorPage() {
                       <ResponsiveContainer width="100%" height={300}>
                         <BarChart data={sweepData} margin={{ top: 5, right: 5, bottom: 5, left: -10 }}>
                           <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 30%)" strokeOpacity={0.6} />
-                          <XAxis dataKey="param" tick={{ fontSize: 10, fill: "#94A3B8" }} />
+                          <XAxis dataKey="param" tick={{ fontSize: 10, fill: "#94A3B8" }} tickFormatter={(v: number) => typeof v === 'number' ? Math.round(v).toString() : String(v)} />
                           <YAxis tick={{ fontSize: 10, fill: "#94A3B8" }} label={{ value: "T₅₀ [°C]", angle: -90, fontSize: 10, position: "insideLeft" }} />
                           <Tooltip contentStyle={{ fontSize: 11, backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }} />
                           <Legend wrapperStyle={{ fontSize: 10, color: "#CBD5E1" }} />

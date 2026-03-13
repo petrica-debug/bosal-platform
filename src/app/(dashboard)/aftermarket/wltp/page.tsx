@@ -1393,18 +1393,18 @@ export default function WLTPPage() {
                   <div className="h-48">
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart data={chartData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 30%)" strokeOpacity={0.6} />
                         <XAxis
                           dataKey="time"
-                          tick={{ fontSize: 10 }}
+                          tick={{ fontSize: 10, fill: "#94A3B8" }}
                           label={{ value: "Time (s)", position: "insideBottom", offset: -2, fontSize: 10 }}
                         />
                         <YAxis
-                          tick={{ fontSize: 10 }}
+                          tick={{ fontSize: 10, fill: "#94A3B8" }}
                           label={{ value: "km/h", angle: -90, position: "insideLeft", fontSize: 10 }}
                         />
                         <Tooltip
-                          contentStyle={{ fontSize: 11 }}
+                          contentStyle={{ fontSize: 11, backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }}
                           formatter={(value: number) => [`${value.toFixed(1)} km/h`, "Speed"]}
                           labelFormatter={(label) => `t = ${label}s`}
                         />
@@ -1431,18 +1431,18 @@ export default function WLTPPage() {
                   <div className="h-48">
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart data={chartData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 30%)" strokeOpacity={0.6} />
                         <XAxis
                           dataKey="time"
-                          tick={{ fontSize: 10 }}
+                          tick={{ fontSize: 10, fill: "#94A3B8" }}
                           label={{ value: "Time (s)", position: "insideBottom", offset: -2, fontSize: 10 }}
                         />
                         <YAxis
-                          tick={{ fontSize: 10 }}
+                          tick={{ fontSize: 10, fill: "#94A3B8" }}
                           label={{ value: "°C", angle: -90, position: "insideLeft", fontSize: 10 }}
                         />
                         <Tooltip
-                          contentStyle={{ fontSize: 11 }}
+                          contentStyle={{ fontSize: 11, backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }}
                           formatter={(value: number, name: string) => [
                             `${value.toFixed(1)} °C`,
                             name === "exhaustTemp" ? "Exhaust Gas" : "Catalyst",
@@ -1476,7 +1476,7 @@ export default function WLTPPage() {
                           formatter={(value) =>
                             value === "exhaustTemp" ? "Exhaust Gas" : "Catalyst Brick"
                           }
-                          wrapperStyle={{ fontSize: 11 }}
+                          wrapperStyle={{ fontSize: 11, color: "#CBD5E1" }}
                         />
                       </LineChart>
                     </ResponsiveContainer>
@@ -1493,19 +1493,19 @@ export default function WLTPPage() {
                   <div className="h-48">
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart data={chartData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 30%)" strokeOpacity={0.6} />
                         <XAxis
                           dataKey="time"
-                          tick={{ fontSize: 10 }}
+                          tick={{ fontSize: 10, fill: "#94A3B8" }}
                           label={{ value: "Time (s)", position: "insideBottom", offset: -2, fontSize: 10 }}
                         />
                         <YAxis
                           domain={[0, 100]}
-                          tick={{ fontSize: 10 }}
+                          tick={{ fontSize: 10, fill: "#94A3B8" }}
                           label={{ value: "%", angle: -90, position: "insideLeft", fontSize: 10 }}
                         />
                         <Tooltip
-                          contentStyle={{ fontSize: 11 }}
+                          contentStyle={{ fontSize: 11, backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }}
                           formatter={(value: number, name: string) => {
                             const labels: Record<string, string> = { convCO: "CO", convNOx: "NOx", convHC: "HC", convPM: "PM" };
                             return [`${value.toFixed(1)}%`, labels[name] || name];
@@ -1521,7 +1521,7 @@ export default function WLTPPage() {
                             const labels: Record<string, string> = { convCO: "CO", convNOx: "NOx", convHC: "HC", convPM: "PM" };
                             return labels[value] || value;
                           }}
-                          wrapperStyle={{ fontSize: 11 }}
+                          wrapperStyle={{ fontSize: 11, color: "#CBD5E1" }}
                         />
                       </LineChart>
                     </ResponsiveContainer>
@@ -1538,21 +1538,21 @@ export default function WLTPPage() {
                   <div className="h-56">
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart data={chartData} margin={{ top: 5, right: 20, bottom: 5, left: 5 }}>
-                        <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 30%)" strokeOpacity={0.6} />
                         <XAxis
                           dataKey="time"
-                          tick={{ fontSize: 10 }}
+                          tick={{ fontSize: 10, fill: "#94A3B8" }}
                           label={{ value: "Time (s)", position: "insideBottom", offset: -2, fontSize: 10 }}
                         />
                         <YAxis
-                          tick={{ fontSize: 10 }}
+                          tick={{ fontSize: 10, fill: "#94A3B8" }}
                           label={{ value: "g/km", angle: -90, position: "insideLeft", fontSize: 10 }}
                           scale="log"
                           domain={[0.0001, 10]}
                           allowDataOverflow
                         />
                         <Tooltip
-                          contentStyle={{ fontSize: 11 }}
+                          contentStyle={{ fontSize: 11, backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }}
                           formatter={(value: number, name: string) => {
                             const labels: Record<string, string> = {
                               cumCOgkm: "CO",
@@ -1582,7 +1582,7 @@ export default function WLTPPage() {
                             };
                             return labels[value] || value;
                           }}
-                          wrapperStyle={{ fontSize: 11 }}
+                          wrapperStyle={{ fontSize: 11, color: "#CBD5E1" }}
                         />
                       </LineChart>
                     </ResponsiveContainer>
@@ -1693,13 +1693,13 @@ export default function WLTPPage() {
                       <div className="h-52">
                         <ResponsiveContainer width="100%" height="100%">
                           <BarChart data={phaseBreakdown} margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
-                            <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                            <XAxis dataKey="phase" tick={{ fontSize: 10 }} />
-                            <YAxis tick={{ fontSize: 10 }} />
-                            <Tooltip contentStyle={{ fontSize: 11 }} formatter={(v: number) => `${v.toFixed(4)} g/km`} />
+                            <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 30%)" strokeOpacity={0.6} />
+                            <XAxis dataKey="phase" tick={{ fontSize: 10, fill: "#94A3B8" }} />
+                            <YAxis tick={{ fontSize: 10, fill: "#94A3B8" }} />
+                            <Tooltip contentStyle={{ fontSize: 11, backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }} formatter={(v: number) => `${v.toFixed(4)} g/km`} />
                             <Bar dataKey="CO" fill="#C8102E" name="CO" radius={[3, 3, 0, 0]} />
                             <Bar dataKey="HC" fill="#22c55e" name="THC" radius={[3, 3, 0, 0]} />
-                            <Legend wrapperStyle={{ fontSize: 11 }} />
+                            <Legend wrapperStyle={{ fontSize: 11, color: "#CBD5E1" }} />
                           </BarChart>
                         </ResponsiveContainer>
                       </div>
@@ -1710,13 +1710,13 @@ export default function WLTPPage() {
                       <div className="h-52">
                         <ResponsiveContainer width="100%" height="100%">
                           <BarChart data={phaseBreakdown} margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
-                            <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                            <XAxis dataKey="phase" tick={{ fontSize: 10 }} />
-                            <YAxis tick={{ fontSize: 10 }} />
-                            <Tooltip contentStyle={{ fontSize: 11 }} formatter={(v: number) => `${v.toFixed(4)} g/km`} />
+                            <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 30%)" strokeOpacity={0.6} />
+                            <XAxis dataKey="phase" tick={{ fontSize: 10, fill: "#94A3B8" }} />
+                            <YAxis tick={{ fontSize: 10, fill: "#94A3B8" }} />
+                            <Tooltip contentStyle={{ fontSize: 11, backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }} formatter={(v: number) => `${v.toFixed(4)} g/km`} />
                             <Bar dataKey="NOx" fill="#3b82f6" name="NOx" radius={[3, 3, 0, 0]} />
                             <Bar dataKey="PM" fill="#a855f7" name="PM" radius={[3, 3, 0, 0]} />
-                            <Legend wrapperStyle={{ fontSize: 11 }} />
+                            <Legend wrapperStyle={{ fontSize: 11, color: "#CBD5E1" }} />
                           </BarChart>
                         </ResponsiveContainer>
                       </div>
@@ -2065,15 +2065,15 @@ export default function WLTPPage() {
                           <div className="h-52">
                             <ResponsiveContainer width="100%" height="100%">
                               <LineChart data={chartData} margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
-                                <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                                <XAxis dataKey="time" tick={{ fontSize: 9 }} label={{ value: "Time (s)", position: "insideBottomRight", offset: -5, fontSize: 9 }} />
-                                <YAxis yAxisId="temp" tick={{ fontSize: 9 }} label={{ value: "°C", angle: -90, position: "insideLeft", fontSize: 9 }} />
-                                <YAxis yAxisId="flow" orientation="right" tick={{ fontSize: 9 }} label={{ value: "kg/h", angle: 90, position: "insideRight", fontSize: 9 }} />
-                                <Tooltip contentStyle={{ fontSize: 10 }} />
+                                <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 30%)" strokeOpacity={0.6} />
+                                <XAxis dataKey="time" tick={{ fontSize: 9, fill: "#94A3B8" }} label={{ value: "Time (s)", position: "insideBottomRight", offset: -5, fontSize: 9 }} />
+                                <YAxis yAxisId="temp" tick={{ fontSize: 9, fill: "#94A3B8" }} label={{ value: "°C", angle: -90, position: "insideLeft", fontSize: 9 }} />
+                                <YAxis yAxisId="flow" orientation="right" tick={{ fontSize: 9, fill: "#94A3B8" }} label={{ value: "kg/h", angle: 90, position: "insideRight", fontSize: 9 }} />
+                                <Tooltip contentStyle={{ fontSize: 10, backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }} />
                                 <Line yAxisId="temp" type="monotone" dataKey="exhaustTemp_C" stroke="#f59e0b" dot={false} strokeWidth={1} name="Exhaust T" />
                                 <Line yAxisId="temp" type="monotone" dataKey="catalystTemp_C" stroke="#ef4444" dot={false} strokeWidth={1.5} name="Catalyst T" />
                                 <Line yAxisId="flow" type="monotone" dataKey="exhaustFlow_kg_h" stroke="#3b82f6" dot={false} strokeWidth={1} strokeDasharray="3 3" name="Flow" />
-                                <Legend wrapperStyle={{ fontSize: 9 }} />
+                                <Legend wrapperStyle={{ fontSize: 9, color: "#CBD5E1" }} />
                               </LineChart>
                             </ResponsiveContainer>
                           </div>
@@ -2088,15 +2088,15 @@ export default function WLTPPage() {
                           <div className="h-52">
                             <ResponsiveContainer width="100%" height="100%">
                               <AreaChart data={chartData} margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
-                                <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                                <XAxis dataKey="time" tick={{ fontSize: 9 }} />
-                                <YAxis domain={[0, 100]} tick={{ fontSize: 9 }} label={{ value: "%", angle: -90, position: "insideLeft", fontSize: 9 }} />
-                                <Tooltip contentStyle={{ fontSize: 10 }} formatter={(v: number) => `${v.toFixed(1)}%`} />
-                                <Area type="monotone" dataKey="convCO_aged" stroke="#ef4444" fill="#ef4444" fillOpacity={0.1} dot={false} strokeWidth={1.5} name="CO" />
-                                <Area type="monotone" dataKey="convHC_aged" stroke="#f59e0b" fill="#f59e0b" fillOpacity={0.1} dot={false} strokeWidth={1.5} name="HC" />
-                                <Area type="monotone" dataKey="convNOx_aged" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.1} dot={false} strokeWidth={1.5} name="NOx" />
+                                <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 30%)" strokeOpacity={0.6} />
+                                <XAxis dataKey="time" tick={{ fontSize: 9, fill: "#94A3B8" }} />
+                                <YAxis domain={[0, 100]} tick={{ fontSize: 9, fill: "#94A3B8" }} label={{ value: "%", angle: -90, position: "insideLeft", fontSize: 9 }} />
+                                <Tooltip contentStyle={{ fontSize: 10, backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }} formatter={(v: number) => `${v.toFixed(1)}%`} />
+                                <Area type="monotone" dataKey="convCO_aged" stroke="#ef4444" fill="#ef4444" fillOpacity={0.15} dot={false} strokeWidth={1.5} name="CO" />
+                                <Area type="monotone" dataKey="convHC_aged" stroke="#f59e0b" fill="#f59e0b" fillOpacity={0.15} dot={false} strokeWidth={1.5} name="HC" />
+                                <Area type="monotone" dataKey="convNOx_aged" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.15} dot={false} strokeWidth={1.5} name="NOx" />
                                 <ReferenceLine y={50} stroke="#888" strokeDasharray="3 3" strokeWidth={0.5} label={{ value: "T50", fontSize: 8, fill: "#888" }} />
-                                <Legend wrapperStyle={{ fontSize: 9 }} />
+                                <Legend wrapperStyle={{ fontSize: 9, color: "#CBD5E1" }} />
                               </AreaChart>
                             </ResponsiveContainer>
                           </div>
@@ -2114,10 +2114,10 @@ export default function WLTPPage() {
                           <div className="h-52">
                             <ResponsiveContainer width="100%" height="100%">
                               <LineChart data={chartData} margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
-                                <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                                <XAxis dataKey="time" tick={{ fontSize: 9 }} label={{ value: "Time (s)", position: "insideBottomRight", offset: -5, fontSize: 9 }} />
-                                <YAxis tick={{ fontSize: 9 }} label={{ value: "g/km", angle: -90, position: "insideLeft", fontSize: 9 }} />
-                                <Tooltip contentStyle={{ fontSize: 10 }} formatter={(v: number) => `${v.toFixed(4)} g/km`} />
+                                <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 30%)" strokeOpacity={0.6} />
+                                <XAxis dataKey="time" tick={{ fontSize: 9, fill: "#94A3B8" }} label={{ value: "Time (s)", position: "insideBottomRight", offset: -5, fontSize: 9 }} />
+                                <YAxis tick={{ fontSize: 9, fill: "#94A3B8" }} label={{ value: "g/km", angle: -90, position: "insideLeft", fontSize: 9 }} />
+                                <Tooltip contentStyle={{ fontSize: 10, backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }} formatter={(v: number) => `${v.toFixed(4)} g/km`} />
                                 <Line type="monotone" dataKey="cumCO_g_km" stroke="#ef4444" dot={false} strokeWidth={1.5} name="CO" />
                                 <Line type="monotone" dataKey="cumHC_g_km" stroke="#f59e0b" dot={false} strokeWidth={1.5} name="HC" />
                                 {tr.homologation.find((h) => h.species === "CO") && (
@@ -2126,17 +2126,17 @@ export default function WLTPPage() {
                                 {tr.homologation.find((h) => h.species === "HC") && (
                                   <ReferenceLine y={tr.homologation.find((h) => h.species === "HC")!.limit_g_km} stroke="#f59e0b" strokeDasharray="5 5" strokeWidth={1} label={{ value: `HC limit`, fontSize: 8, fill: "#f59e0b" }} />
                                 )}
-                                <Legend wrapperStyle={{ fontSize: 9 }} />
+                                <Legend wrapperStyle={{ fontSize: 9, color: "#CBD5E1" }} />
                               </LineChart>
                             </ResponsiveContainer>
                           </div>
                           <div className="h-52">
                             <ResponsiveContainer width="100%" height="100%">
                               <LineChart data={chartData} margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
-                                <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                                <XAxis dataKey="time" tick={{ fontSize: 9 }} />
-                                <YAxis tick={{ fontSize: 9 }} label={{ value: "g/km", angle: -90, position: "insideLeft", fontSize: 9 }} />
-                                <Tooltip contentStyle={{ fontSize: 10 }} formatter={(v: number) => `${v.toFixed(4)} g/km`} />
+                                <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 30%)" strokeOpacity={0.6} />
+                                <XAxis dataKey="time" tick={{ fontSize: 9, fill: "#94A3B8" }} />
+                                <YAxis tick={{ fontSize: 9, fill: "#94A3B8" }} label={{ value: "g/km", angle: -90, position: "insideLeft", fontSize: 9 }} />
+                                <Tooltip contentStyle={{ fontSize: 10, backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }} formatter={(v: number) => `${v.toFixed(4)} g/km`} />
                                 <Line type="monotone" dataKey="cumNOx_g_km" stroke="#3b82f6" dot={false} strokeWidth={1.5} name="NOx" />
                                 <Line type="monotone" dataKey="cumPM_g_km" stroke="#a855f7" dot={false} strokeWidth={1.5} name="PM" />
                                 {tr.homologation.find((h) => h.species === "NOx") && (
@@ -2145,7 +2145,7 @@ export default function WLTPPage() {
                                 {tr.homologation.find((h) => h.species === "PM") && (
                                   <ReferenceLine y={tr.homologation.find((h) => h.species === "PM")!.limit_g_km} stroke="#a855f7" strokeDasharray="5 5" strokeWidth={1} label={{ value: `PM limit`, fontSize: 8, fill: "#a855f7" }} />
                                 )}
-                                <Legend wrapperStyle={{ fontSize: 9 }} />
+                                <Legend wrapperStyle={{ fontSize: 9, color: "#CBD5E1" }} />
                               </LineChart>
                             </ResponsiveContainer>
                           </div>
@@ -2795,10 +2795,10 @@ export default function WLTPPage() {
                                 <p className="text-[10px] font-medium text-center mb-1">{sp}</p>
                                 <ResponsiveContainer width="100%" height="90%">
                                   <LineChart data={selected.lightOffCurve} margin={{ top: 2, right: 5, bottom: 2, left: 0 }}>
-                                    <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
-                                    <XAxis dataKey="temperature_C" tick={{ fontSize: 8 }} />
-                                    <YAxis domain={[0, 100]} tick={{ fontSize: 8 }} />
-                                    <Tooltip contentStyle={{ fontSize: 9 }} formatter={(v: number) => `${v.toFixed(1)}%`} />
+                                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 30%)" strokeOpacity={0.6} />
+                                    <XAxis dataKey="temperature_C" tick={{ fontSize: 8, fill: "#94A3B8" }} tickFormatter={(v: number) => Math.round(v).toString()} />
+                                    <YAxis domain={[0, 100]} tick={{ fontSize: 8, fill: "#94A3B8" }} />
+                                    <Tooltip contentStyle={{ fontSize: 9, backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }} formatter={(v: number) => `${v.toFixed(1)}%`} />
                                     <Line type="monotone" dataKey={freshKey} stroke={color} strokeDasharray="4 4" dot={false} strokeWidth={1} name="Fresh" />
                                     <Line type="monotone" dataKey={agedKey} stroke={color} dot={false} strokeWidth={1.5} name="Aged" />
                                     <ReferenceLine y={50} stroke="#888" strokeDasharray="3 3" strokeWidth={0.5} />
@@ -2898,10 +2898,10 @@ export default function WLTPPage() {
                           <p className="text-[10px] font-medium text-center mb-1">Effectiveness Factor vs Washcoat Thickness</p>
                           <ResponsiveContainer width="100%" height="90%">
                             <LineChart data={selected.washcoatSweep} margin={{ top: 2, right: 10, bottom: 2, left: 0 }}>
-                              <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
-                              <XAxis dataKey="thickness_um" tick={{ fontSize: 8 }} label={{ value: "µm", position: "insideBottomRight", offset: -5, fontSize: 8 }} />
-                              <YAxis domain={[0, 1]} tick={{ fontSize: 8 }} label={{ value: "η", angle: -90, position: "insideLeft", fontSize: 8 }} />
-                              <Tooltip contentStyle={{ fontSize: 9 }} formatter={(v: number) => v.toFixed(3)} />
+                              <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 30%)" strokeOpacity={0.6} />
+                              <XAxis dataKey="thickness_um" tick={{ fontSize: 8, fill: "#94A3B8" }} label={{ value: "µm", position: "insideBottomRight", offset: -5, fontSize: 8 }} tickFormatter={(v: number) => Math.round(v).toString()} />
+                              <YAxis domain={[0, 1]} tick={{ fontSize: 8, fill: "#94A3B8" }} label={{ value: "η", angle: -90, position: "insideLeft", fontSize: 8 }} />
+                              <Tooltip contentStyle={{ fontSize: 9, backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }} formatter={(v: number) => v.toFixed(3)} />
                               <Line type="monotone" dataKey="eta" stroke="#C8102E" dot={false} strokeWidth={1.5} name="η" />
                               <ReferenceLine y={0.5} stroke="#888" strokeDasharray="3 3" strokeWidth={0.5} />
                             </LineChart>

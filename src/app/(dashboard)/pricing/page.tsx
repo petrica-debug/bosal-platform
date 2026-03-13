@@ -451,10 +451,10 @@ export default function PricingPage() {
               <CardContent>
                 <ResponsiveContainer width="100%" height={300}>
                   <BarChart data={pgmSensitivity}>
-                    <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                    <XAxis dataKey="pgmDelta" />
-                    <YAxis tickFormatter={(v: number) => `€${v.toFixed(0)}`} />
-                    <Tooltip formatter={(v: number) => `€${v.toFixed(0)}`} />
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 30%)" strokeOpacity={0.6} />
+                    <XAxis dataKey="pgmDelta" tick={{ fill: "#94A3B8" }} />
+                    <YAxis tickFormatter={(v: number) => `€${v.toFixed(0)}`} tick={{ fill: "#94A3B8" }} />
+                    <Tooltip contentStyle={{ backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }} formatter={(v: number) => `€${v.toFixed(0)}`} />
                     <Bar dataKey="cost" fill="#C8102E" radius={[4, 4, 0, 0]} name="Quoted Price" />
                   </BarChart>
                 </ResponsiveContainer>
@@ -512,11 +512,11 @@ export default function PricingPage() {
             <CardContent>
               <ResponsiveContainer width="100%" height={350}>
                 <BarChart data={comparisonData}>
-                  <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                  <XAxis dataKey="name" tick={{ fontSize: 10 }} />
-                  <YAxis tickFormatter={(v: number) => `€${v}`} />
-                  <Tooltip formatter={(v: number) => `€${v.toFixed(0)}`} />
-                  <Legend />
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 30%)" strokeOpacity={0.6} />
+                  <XAxis dataKey="name" tick={{ fontSize: 10, fill: "#94A3B8" }} />
+                  <YAxis tickFormatter={(v: number) => `€${v}`} tick={{ fill: "#94A3B8" }} />
+                  <Tooltip contentStyle={{ backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }} formatter={(v: number) => `€${v.toFixed(0)}`} />
+                  <Legend wrapperStyle={{ color: "#CBD5E1" }} />
                   <Bar dataKey="Substrate" stackId="a" fill="#3B82F6" />
                   <Bar dataKey="PGM" stackId="a" fill="#F59E0B" />
                   <Bar dataKey="Washcoat" stackId="a" fill="#10B981" />

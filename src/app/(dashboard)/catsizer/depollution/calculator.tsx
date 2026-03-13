@@ -1602,7 +1602,7 @@ Aging: ${(rfq.aging.results.overallActivity * 100).toFixed(0)}% activity after $
                                   <Cell key={i} fill={c} />
                                 ))}
                               </Pie>
-                              <Tooltip formatter={(v: number) => `€${v.toFixed(0)}`} />
+                              <Tooltip contentStyle={{ backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }} formatter={(v: number) => `€${v.toFixed(0)}`} />
                             </PieChart>
                           </ResponsiveContainer>
                         </CardContent>
@@ -1781,11 +1781,11 @@ Aging: ${(rfq.aging.results.overallActivity * 100).toFixed(0)}% activity after $
                   <CardContent>
                     <ResponsiveContainer width="100%" height={300}>
                       <LineChart data={washcoatSweep.map((p) => ({ thickness: p.thickness_um, eta: p.eta, phi: p.phi }))}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="thickness" label={{ value: "Washcoat Thickness [µm]", position: "insideBottom", offset: -5 }} />
-                        <YAxis domain={[0, 1]} label={{ value: "η", angle: -90, position: "insideLeft" }} />
-                        <Tooltip formatter={(v: number) => v.toFixed(3)} />
-                        <Line type="monotone" dataKey="eta" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} name="Effectiveness Factor" />
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 30%)" strokeOpacity={0.6} />
+                        <XAxis dataKey="thickness" label={{ value: "Washcoat Thickness [µm]", position: "insideBottom", offset: -5 }} tick={{ fill: "#94A3B8" }} tickFormatter={(v: number) => Math.round(v).toString()} />
+                        <YAxis domain={[0, 1]} label={{ value: "η", angle: -90, position: "insideLeft" }} tick={{ fill: "#94A3B8" }} />
+                        <Tooltip contentStyle={{ backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }} formatter={(v: number) => v.toFixed(3)} />
+                        <Line type="monotone" dataKey="eta" stroke="#60A5FA" strokeWidth={2} dot={false} name="Effectiveness Factor" />
                       </LineChart>
                     </ResponsiveContainer>
                   </CardContent>
@@ -2191,7 +2191,7 @@ Aging: ${(rfq.aging.results.overallActivity * 100).toFixed(0)}% activity after $
                             <Cell key={i} fill={COLORS[i]} />
                           ))}
                         </Pie>
-                        <Tooltip formatter={(v: number) => `$${v.toFixed(0)}`} />
+                        <Tooltip contentStyle={{ backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }} formatter={(v: number) => `$${v.toFixed(0)}`} />
                       </PieChart>
                     </ResponsiveContainer>
                     <div className="mt-2 text-center">
@@ -2209,11 +2209,11 @@ Aging: ${(rfq.aging.results.overallActivity * 100).toFixed(0)}% activity after $
                   <CardContent>
                     <ResponsiveContainer width="100%" height={300}>
                       <BarChart data={rfq.costEstimate.pgmSensitivity}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="pgmPrice_USD_oz" label={{ value: "PGM Price [$/oz]", position: "insideBottom", offset: -5 }} />
-                        <YAxis label={{ value: "Unit Cost [$]", angle: -90, position: "insideLeft" }} />
-                        <Tooltip formatter={(v: number) => `$${v.toFixed(0)}`} />
-                        <Bar dataKey="unitCost_USD" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} name="Unit Cost" />
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 30%)" strokeOpacity={0.6} />
+                        <XAxis dataKey="pgmPrice_USD_oz" label={{ value: "PGM Price [$/oz]", position: "insideBottom", offset: -5 }} tick={{ fill: "#94A3B8" }} />
+                        <YAxis label={{ value: "Unit Cost [$]", angle: -90, position: "insideLeft" }} tick={{ fill: "#94A3B8" }} />
+                        <Tooltip contentStyle={{ backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }} formatter={(v: number) => `$${v.toFixed(0)}`} />
+                        <Bar dataKey="unitCost_USD" fill="#FBBF24" radius={[4, 4, 0, 0]} name="Unit Cost" />
                       </BarChart>
                     </ResponsiveContainer>
 
@@ -2316,13 +2316,13 @@ Aging: ${(rfq.aging.results.overallActivity * 100).toFixed(0)}% activity after $
                         aged: parseFloat(c.pressureDrop_kPa_aged.toFixed(3)),
                       }))}
                     >
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="name" />
-                      <YAxis label={{ value: "ΔP [kPa]", angle: -90, position: "insideLeft" }} />
-                      <Tooltip formatter={(v: number) => `${v} kPa`} />
-                      <Legend />
-                      <Bar dataKey="clean" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} name="Clean" />
-                      <Bar dataKey="aged" fill="hsl(var(--destructive))" radius={[4, 4, 0, 0]} name="Aged" />
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 30%)" strokeOpacity={0.6} />
+                      <XAxis dataKey="name" tick={{ fill: "#94A3B8" }} />
+                      <YAxis label={{ value: "ΔP [kPa]", angle: -90, position: "insideLeft" }} tick={{ fill: "#94A3B8" }} />
+                      <Tooltip contentStyle={{ backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }} formatter={(v: number) => `${v} kPa`} />
+                      <Legend wrapperStyle={{ color: "#CBD5E1" }} />
+                      <Bar dataKey="clean" fill="#60A5FA" radius={[4, 4, 0, 0]} name="Clean" />
+                      <Bar dataKey="aged" fill="#FB7185" radius={[4, 4, 0, 0]} name="Aged" />
                     </BarChart>
                   </ResponsiveContainer>
                 </CardContent>
@@ -2349,14 +2349,14 @@ Aging: ${(rfq.aging.results.overallActivity * 100).toFixed(0)}% activity after $
                           DEF: p.DEF_rate_mL_min,
                           DeNOx: p.expectedDeNOx_percent,
                         }))}>
-                          <CartesianGrid strokeDasharray="3 3" />
-                          <XAxis dataKey="temp" label={{ value: "Exhaust Temp [°C]", position: "insideBottom", offset: -5 }} />
-                          <YAxis yAxisId="left" label={{ value: "DEF [mL/min]", angle: -90, position: "insideLeft" }} />
-                          <YAxis yAxisId="right" orientation="right" domain={[0, 100]} label={{ value: "DeNOₓ [%]", angle: 90, position: "insideRight" }} />
-                          <Tooltip />
-                          <Legend />
-                          <Line yAxisId="left" type="monotone" dataKey="DEF" stroke="hsl(var(--chart-1))" strokeWidth={2} dot={false} name="DEF Rate [mL/min]" />
-                          <Line yAxisId="right" type="monotone" dataKey="DeNOx" stroke="hsl(var(--chart-2))" strokeWidth={2} dot={false} name="Expected DeNOₓ [%]" />
+                          <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 30%)" strokeOpacity={0.6} />
+                          <XAxis dataKey="temp" label={{ value: "Exhaust Temp [°C]", position: "insideBottom", offset: -5 }} tick={{ fill: "#94A3B8" }} tickFormatter={(v: number) => Math.round(v).toString()} />
+                          <YAxis yAxisId="left" label={{ value: "DEF [mL/min]", angle: -90, position: "insideLeft" }} tick={{ fill: "#94A3B8" }} />
+                          <YAxis yAxisId="right" orientation="right" domain={[0, 100]} label={{ value: "DeNOₓ [%]", angle: 90, position: "insideRight" }} tick={{ fill: "#94A3B8" }} />
+                          <Tooltip contentStyle={{ backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }} />
+                          <Legend wrapperStyle={{ color: "#CBD5E1" }} />
+                          <Line yAxisId="left" type="monotone" dataKey="DEF" stroke="#22D3EE" strokeWidth={2} dot={false} name="DEF Rate [mL/min]" />
+                          <Line yAxisId="right" type="monotone" dataKey="DeNOx" stroke="#34D399" strokeWidth={2} dot={false} name="Expected DeNOₓ [%]" />
                         </LineChart>
                       </ResponsiveContainer>
                       <div className="mt-3 grid grid-cols-3 gap-3 text-sm">
@@ -2391,11 +2391,11 @@ Aging: ${(rfq.aging.results.overallActivity * 100).toFixed(0)}% activity after $
                           }
                           return pts;
                         })()}>
-                          <CartesianGrid strokeDasharray="3 3" />
-                          <XAxis dataKey="temp" label={{ value: "Exhaust Temp [°C]", position: "insideBottom", offset: -5 }} />
-                          <YAxis domain={[0, 1.2]} label={{ value: "Alpha (ANR)", angle: -90, position: "insideLeft" }} />
-                          <Tooltip formatter={(v: number) => v.toFixed(3)} />
-                          <Line type="monotone" dataKey="alpha" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} name="Alpha" />
+                          <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 30%)" strokeOpacity={0.6} />
+                          <XAxis dataKey="temp" label={{ value: "Exhaust Temp [°C]", position: "insideBottom", offset: -5 }} tick={{ fill: "#94A3B8" }} tickFormatter={(v: number) => Math.round(v).toString()} />
+                          <YAxis domain={[0, 1.2]} label={{ value: "Alpha (ANR)", angle: -90, position: "insideLeft" }} tick={{ fill: "#94A3B8" }} />
+                          <Tooltip contentStyle={{ backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }} formatter={(v: number) => v.toFixed(3)} />
+                          <Line type="monotone" dataKey="alpha" stroke="#818CF8" strokeWidth={2} dot={false} name="Alpha" />
                         </LineChart>
                       </ResponsiveContainer>
                       <div className="mt-3 rounded-lg bg-muted/50 p-3 text-sm">
@@ -2707,11 +2707,11 @@ Aging: ${(rfq.aging.results.overallActivity * 100).toFixed(0)}% activity after $
                       <CardContent>
                         <ResponsiveContainer width="100%" height={320}>
                           <LineChart data={points}>
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis dataKey="temperature_C" label={{ value: "Temperature [°C]", position: "insideBottom", offset: -5 }} />
-                            <YAxis domain={[0, 100]} label={{ value: "Conversion [%]", angle: -90, position: "insideLeft" }} />
-                            <Tooltip formatter={(v: number) => `${v.toFixed(1)}%`} />
-                            <Legend />
+                            <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 30%)" strokeOpacity={0.6} />
+                            <XAxis dataKey="temperature_C" label={{ value: "Temperature [°C]", position: "insideBottom", offset: -5 }} tick={{ fill: "#94A3B8" }} tickFormatter={(v: number) => Math.round(v).toString()} />
+                            <YAxis domain={[0, 100]} label={{ value: "Conversion [%]", angle: -90, position: "insideLeft" }} tick={{ fill: "#94A3B8" }} />
+                            <Tooltip contentStyle={{ backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }} formatter={(v: number) => `${v.toFixed(1)}%`} />
+                            <Legend wrapperStyle={{ color: "#CBD5E1" }} />
                             {catType !== "SCR" && catType !== "ASC" && (
                               <>
                                 <Line type="monotone" dataKey="CO_conversion" stroke="#E63946" strokeWidth={2.5} dot={false} name="CO" />
@@ -3173,11 +3173,11 @@ Aging: ${(rfq.aging.results.overallActivity * 100).toFixed(0)}% activity after $
                                 <h4 className="text-sm font-semibold mb-2">{catType} — Conversion vs T</h4>
                                 <ResponsiveContainer width="100%" height={280}>
                                   <LineChart data={chartData}>
-                                    <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                                    <XAxis dataKey="T" label={{ value: "Temperature [°C]", position: "insideBottom", offset: -5 }} />
-                                    <YAxis domain={[0, 100]} label={{ value: "Conversion [%]", angle: -90, position: "insideLeft" }} />
-                                    <Tooltip formatter={(v: number) => `${v.toFixed(1)}%`} />
-                                    <Legend />
+                                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 30%)" strokeOpacity={0.6} />
+                                    <XAxis dataKey="T" label={{ value: "Temperature [°C]", position: "insideBottom", offset: -5 }} tick={{ fill: "#94A3B8" }} tickFormatter={(v: number) => Math.round(v).toString()} />
+                                    <YAxis domain={[0, 100]} label={{ value: "Conversion [%]", angle: -90, position: "insideLeft" }} tick={{ fill: "#94A3B8" }} />
+                                    <Tooltip contentStyle={{ backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }} formatter={(v: number) => `${v.toFixed(1)}%`} />
+                                    <Legend wrapperStyle={{ color: "#CBD5E1" }} />
                                     {species.map((sp) => (
                                       <Line key={sp} type="monotone" dataKey={sp} stroke={speciesColors[sp] ?? "#999"} strokeWidth={2} dot={false} />
                                     ))}
@@ -3218,11 +3218,11 @@ Aging: ${(rfq.aging.results.overallActivity * 100).toFixed(0)}% activity after $
                                 <h4 className="text-sm font-semibold mb-2">{catType} — Concentration Along Reactor</h4>
                                 <ResponsiveContainer width="100%" height={280}>
                                   <LineChart data={chartData}>
-                                    <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                                    <XAxis dataKey="z" label={{ value: "Position [mm]", position: "insideBottom", offset: -5 }} />
-                                    <YAxis label={{ value: "Concentration [ppm]", angle: -90, position: "insideLeft" }} />
-                                    <Tooltip />
-                                    <Legend />
+                                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 30%)" strokeOpacity={0.6} />
+                                    <XAxis dataKey="z" label={{ value: "Position [mm]", position: "insideBottom", offset: -5 }} tick={{ fill: "#94A3B8" }} tickFormatter={(v: number) => Math.round(v).toString()} />
+                                    <YAxis label={{ value: "Concentration [ppm]", angle: -90, position: "insideLeft" }} tick={{ fill: "#94A3B8" }} />
+                                    <Tooltip contentStyle={{ backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }} />
+                                    <Legend wrapperStyle={{ color: "#CBD5E1" }} />
                                     {species.map((sp) => (
                                       <Line key={sp} type="monotone" dataKey={`${sp}_ppm`} name={`${sp} [ppm]`} stroke={speciesColors[sp] ?? "#999"} strokeWidth={2} dot={false} />
                                     ))}
@@ -3274,11 +3274,11 @@ Aging: ${(rfq.aging.results.overallActivity * 100).toFixed(0)}% activity after $
                         return (
                           <ResponsiveContainer width="100%" height={350}>
                             <LineChart data={chartData}>
-                              <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                              <XAxis dataKey="T" label={{ value: "Temperature [°C]", position: "insideBottom", offset: -5 }} />
-                              <YAxis scale="log" domain={["auto", "auto"]} label={{ value: "TOF [s⁻¹]", angle: -90, position: "insideLeft" }} tickFormatter={(v: number) => v >= 1 ? v.toFixed(0) : v.toExponential(0)} />
-                              <Tooltip formatter={(v: number) => v.toFixed(4)} />
-                              <Legend wrapperStyle={{ fontSize: "11px" }} />
+                              <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 30%)" strokeOpacity={0.6} />
+                              <XAxis dataKey="T" label={{ value: "Temperature [°C]", position: "insideBottom", offset: -5 }} tick={{ fill: "#94A3B8" }} tickFormatter={(v: number) => Math.round(v).toString()} />
+                              <YAxis scale="log" domain={["auto", "auto"]} label={{ value: "TOF [s⁻¹]", angle: -90, position: "insideLeft" }} tickFormatter={(v: number) => v >= 1 ? v.toFixed(0) : v.toExponential(0)} tick={{ fill: "#94A3B8" }} />
+                              <Tooltip contentStyle={{ backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }} formatter={(v: number) => v.toFixed(4)} />
+                              <Legend wrapperStyle={{ fontSize: "11px", color: "#CBD5E1" }} />
                               {allReactions.map((rx, i) => (
                                 <Line key={rx.label} type="monotone" dataKey={rx.label} stroke={colors[i % colors.length]} strokeWidth={2} dot={false} />
                               ))}
@@ -3406,11 +3406,11 @@ Aging: ${(rfq.aging.results.overallActivity * 100).toFixed(0)}% activity after $
                             Aged: cat.agedConversion_percent[species] ?? fresh,
                           }))
                         )}>
-                          <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                          <XAxis dataKey="name" tick={{ fontSize: 9 }} />
-                          <YAxis domain={[0, 100]} />
-                          <Tooltip formatter={(v: number) => `${v.toFixed(1)}%`} />
-                          <Legend />
+                          <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 30%)" strokeOpacity={0.6} />
+                          <XAxis dataKey="name" tick={{ fontSize: 9, fill: "#94A3B8" }} />
+                          <YAxis domain={[0, 100]} tick={{ fill: "#94A3B8" }} />
+                          <Tooltip contentStyle={{ backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }} formatter={(v: number) => `${v.toFixed(1)}%`} />
+                          <Legend wrapperStyle={{ color: "#CBD5E1" }} />
                           <Bar dataKey="Fresh" fill="#10B981" radius={[2, 2, 0, 0]} />
                           <Bar dataKey="Aged" fill="#F59E0B" radius={[2, 2, 0, 0]} />
                         </BarChart>
@@ -3466,11 +3466,11 @@ Aging: ${(rfq.aging.results.overallActivity * 100).toFixed(0)}% activity after $
                           Clean: c.pressureDrop_kPa_clean,
                           Aged: c.pressureDrop_kPa_aged,
                         }))}>
-                          <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                          <XAxis dataKey="name" />
-                          <YAxis />
-                          <Tooltip formatter={(v: number) => `${v.toFixed(2)} kPa`} />
-                          <Legend />
+                          <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 30%)" strokeOpacity={0.6} />
+                          <XAxis dataKey="name" tick={{ fill: "#94A3B8" }} />
+                          <YAxis tick={{ fill: "#94A3B8" }} />
+                          <Tooltip contentStyle={{ backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }} formatter={(v: number) => `${v.toFixed(2)} kPa`} />
+                          <Legend wrapperStyle={{ color: "#CBD5E1" }} />
                           <Bar dataKey="Clean" fill="#3B82F6" radius={[2, 2, 0, 0]} />
                           <Bar dataKey="Aged" fill="#EF4444" radius={[2, 2, 0, 0]} />
                         </BarChart>

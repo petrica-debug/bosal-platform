@@ -441,7 +441,7 @@ export function conversionTemperatureSweep(
     const T_K = T_C + 273.15;
 
     if (catalystType === "DOC" || catalystType === "TWC" || catalystType === "SCR" || catalystType === "ASC") {
-      const conversions = plugFlowConversion(
+      const outlet = plugFlowConversion(
         catalystType === "DOC" ? "DOC" : catalystType === "TWC" ? "TWC" : catalystType === "SCR" ? "SCR" : "ASC",
         length_m,
         gsa_m2_L,
@@ -453,12 +453,24 @@ export function conversionTemperatureSweep(
         undefined
       );
 
+      const inCO = inletComposition["CO"] ?? 0;
+      const inHC = inletComposition["HC"] ?? 0;
+      const inNO = inletComposition["NO"] ?? 0;
+      const inNO2 = inletComposition["NO2"] ?? 0;
+      const inNOx = inNO + inNO2;
+
+      const outCO = outlet["CO"] ?? 0;
+      const outHC = outlet["HC"] ?? 0;
+      const outNO = outlet["NO"] ?? 0;
+      const outNO2 = outlet["NO2"] ?? 0;
+      const outNOx = outNO + outNO2;
+
       points.push({
         temperature_C: T_C,
-        CO_conversion: (conversions["CO"] ?? 0) * 100,
-        HC_conversion: (conversions["HC"] ?? 0) * 100,
-        NOx_conversion: (conversions["NOx"] ?? conversions["NO"] ?? 0) * 100,
-        NO2_make: (conversions["NO2_make"] ?? 0) * 100,
+        CO_conversion: inCO > 0 ? ((inCO - outCO) / inCO) * 100 : 0,
+        HC_conversion: inHC > 0 ? ((inHC - outHC) / inHC) * 100 : 0,
+        NOx_conversion: inNOx > 0 ? ((inNOx - outNOx) / inNOx) * 100 : 0,
+        NO2_make: inNO > 0 ? (outNO2 / inNO) * 100 : 0,
       });
     } else {
       // DPF — filtration efficiency is not temperature-dependent in same way

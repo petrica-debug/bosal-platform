@@ -606,21 +606,22 @@ export function SurfaceScienceWorkbench() {
                   <CardContent>
                     <ResponsiveContainer width="100%" height={300}>
                       <LineChart data={tofPerReactionData[key]}>
-                        <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 30%)" strokeOpacity={0.6} />
                         <XAxis
                           dataKey="T"
                           label={{ value: "Temperature [°C]", position: "insideBottom", offset: -5 }}
-                          tick={{ fontSize: 10 }}
+                          tick={{ fontSize: 10, fill: "#94A3B8" }}
+                          tickFormatter={(v: number) => Math.round(v).toString()}
                         />
                         <YAxis
                           scale="log"
                           domain={[1e-6, 1e4]}
                           label={{ value: "TOF [s⁻¹]", angle: -90, position: "insideLeft" }}
                           tickFormatter={(v: number) => v >= 1 ? v.toFixed(0) : v.toExponential(0)}
-                          tick={{ fontSize: 10 }}
+                          tick={{ fontSize: 10, fill: "#94A3B8" }}
                         />
-                        <Tooltip formatter={(v: number) => v.toFixed(4)} />
-                        <Legend wrapperStyle={{ fontSize: "10px" }} />
+                        <Tooltip contentStyle={{ backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }} formatter={(v: number) => v.toFixed(4)} />
+                        <Legend wrapperStyle={{ fontSize: "10px", color: "#CBD5E1" }} />
                         {group.entries.map((entry, i) => (
                           <Line
                             key={entry.id}
@@ -661,16 +662,17 @@ export function SurfaceScienceWorkbench() {
                 <CardContent>
                   <ResponsiveContainer width="100%" height={450}>
                     <LineChart data={tofTempData}>
-                      <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                      <XAxis dataKey="T" label={{ value: "Temperature [°C]", position: "insideBottom", offset: -5 }} />
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 30%)" strokeOpacity={0.6} />
+                      <XAxis dataKey="T" label={{ value: "Temperature [°C]", position: "insideBottom", offset: -5 }} tick={{ fill: "#94A3B8" }} tickFormatter={(v: number) => Math.round(v).toString()} />
                       <YAxis
                         scale="log"
                         domain={[1e-6, 1e4]}
                         label={{ value: "TOF [s⁻¹]", angle: -90, position: "insideLeft" }}
                         tickFormatter={(v: number) => v >= 1 ? v.toFixed(0) : v.toExponential(0)}
+                        tick={{ fill: "#94A3B8" }}
                       />
-                      <Tooltip formatter={(v: number) => v.toFixed(4)} />
-                      <Legend wrapperStyle={{ fontSize: "10px" }} />
+                      <Tooltip contentStyle={{ backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }} formatter={(v: number) => v.toFixed(4)} />
+                      <Legend wrapperStyle={{ fontSize: "10px", color: "#CBD5E1" }} />
                       {TOF_DATABASE.map((entry, i) => (
                         <Line
                           key={entry.id}
@@ -951,17 +953,20 @@ export function SurfaceScienceWorkbench() {
                             return row;
                           })}
                         >
-                          <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                          <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 30%)" strokeOpacity={0.6} />
                           <XAxis
                             dataKey="temperature_C"
                             label={{ value: "Temperature [°C]", position: "insideBottom", offset: -5 }}
+                            tick={{ fill: "#94A3B8" }}
+                            tickFormatter={(v: number) => Math.round(v).toString()}
                           />
                           <YAxis
                             domain={[0, 100]}
                             label={{ value: "Conversion [%]", angle: -90, position: "insideLeft" }}
+                            tick={{ fill: "#94A3B8" }}
                           />
-                          <Tooltip formatter={(v: number) => `${v.toFixed(1)}%`} />
-                          <Legend />
+                          <Tooltip contentStyle={{ backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }} formatter={(v: number) => `${v.toFixed(1)}%`} />
+                          <Legend wrapperStyle={{ color: "#CBD5E1" }} />
                           <ReferenceLine y={50} stroke="#999" strokeDasharray="4 4" label={{ value: "T₅₀", position: "right", fontSize: 10 }} />
                           <ReferenceLine y={90} stroke="#999" strokeDasharray="4 4" label={{ value: "T₉₀", position: "right", fontSize: 10 }} />
                           {multiActivityProfiles.map((mp, i) => (
@@ -998,10 +1003,10 @@ export function SurfaceScienceWorkbench() {
                         <CardContent>
                           <ResponsiveContainer width="100%" height={220}>
                             <LineChart data={mp.data}>
-                              <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                              <XAxis dataKey="temperature_C" tick={{ fontSize: 10 }} />
-                              <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} />
-                              <Tooltip formatter={(v: number) => `${v.toFixed(1)}%`} />
+                              <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 30%)" strokeOpacity={0.6} />
+                              <XAxis dataKey="temperature_C" tick={{ fontSize: 10, fill: "#94A3B8" }} tickFormatter={(v: number) => Math.round(v).toString()} />
+                              <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: "#94A3B8" }} />
+                              <Tooltip contentStyle={{ backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }} formatter={(v: number) => `${v.toFixed(1)}%`} />
                               <ReferenceLine y={50} stroke="#ccc" strokeDasharray="3 3" />
                               <Line
                                 type="monotone"
@@ -1031,16 +1036,17 @@ export function SurfaceScienceWorkbench() {
                     <CardContent>
                       <ResponsiveContainer width="100%" height={350}>
                         <LineChart data={activityProfile}>
-                          <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                          <XAxis dataKey="temperature_C" label={{ value: "Temperature [°C]", position: "insideBottom", offset: -5 }} />
-                          <YAxis domain={[0, 100]} label={{ value: "Conversion [%]", angle: -90, position: "insideLeft" }} />
+                          <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 30%)" strokeOpacity={0.6} />
+                          <XAxis dataKey="temperature_C" label={{ value: "Temperature [°C]", position: "insideBottom", offset: -5 }} tick={{ fill: "#94A3B8" }} tickFormatter={(v: number) => Math.round(v).toString()} />
+                          <YAxis domain={[0, 100]} label={{ value: "Conversion [%]", angle: -90, position: "insideLeft" }} tick={{ fill: "#94A3B8" }} />
                           <Tooltip
+                            contentStyle={{ backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }}
                             formatter={(v: number, name: string) => {
                               if (name === "conversion_percent") return [`${v.toFixed(1)}%`, "Conversion"];
                               return [v.toFixed(4), name];
                             }}
                           />
-                          <Legend />
+                          <Legend wrapperStyle={{ color: "#CBD5E1" }} />
                           <Line type="monotone" dataKey="conversion_percent" name="Conversion" stroke="#E74C3C" strokeWidth={3} dot={false} />
                         </LineChart>
                       </ResponsiveContainer>
@@ -1056,13 +1062,13 @@ export function SurfaceScienceWorkbench() {
                     <CardContent>
                       <ResponsiveContainer width="100%" height={280}>
                         <LineChart data={activityProfile.length > 0 ? activityProfile : (multiActivityProfiles[0]?.data ?? [])}>
-                          <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                          <XAxis dataKey="temperature_C" />
-                          <YAxis scale="log" domain={["auto", "auto"]} tickFormatter={(v: number) => v >= 1 ? v.toFixed(0) : v.toExponential(0)} />
-                          <Tooltip formatter={(v: number) => v.toFixed(4)} />
+                          <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 30%)" strokeOpacity={0.6} />
+                          <XAxis dataKey="temperature_C" tick={{ fill: "#94A3B8" }} tickFormatter={(v: number) => Math.round(v).toString()} />
+                          <YAxis scale="log" domain={["auto", "auto"]} tickFormatter={(v: number) => v >= 1 ? v.toFixed(0) : v.toExponential(0)} tick={{ fill: "#94A3B8" }} />
+                          <Tooltip contentStyle={{ backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }} formatter={(v: number) => v.toFixed(4)} />
                           {multiActivityProfiles.length > 0 ? (
                             <>
-                              <Legend />
+                              <Legend wrapperStyle={{ color: "#CBD5E1" }} />
                               {multiActivityProfiles.map((mp, i) => (
                                 <Line
                                   key={mp.reactionName}
@@ -1091,11 +1097,11 @@ export function SurfaceScienceWorkbench() {
                     <CardContent>
                       <ResponsiveContainer width="100%" height={280}>
                         <LineChart data={activityProfile.length > 0 ? activityProfile : (multiActivityProfiles[0]?.data ?? [])}>
-                          <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                          <XAxis dataKey="temperature_C" />
-                          <YAxis tickFormatter={(v: number) => v.toExponential(1)} />
-                          <Tooltip formatter={(v: number) => v.toExponential(3)} />
-                          <Legend />
+                          <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 30%)" strokeOpacity={0.6} />
+                          <XAxis dataKey="temperature_C" tick={{ fill: "#94A3B8" }} tickFormatter={(v: number) => Math.round(v).toString()} />
+                          <YAxis tickFormatter={(v: number) => v.toExponential(1)} tick={{ fill: "#94A3B8" }} />
+                          <Tooltip contentStyle={{ backgroundColor: "hsl(220, 13%, 18%)", border: "1px solid hsl(220, 13%, 28%)", borderRadius: 8, color: "#E2E8F0" }} formatter={(v: number) => v.toExponential(3)} />
+                          <Legend wrapperStyle={{ color: "#CBD5E1" }} />
                           <Line type="monotone" dataKey="rate_mol_gCat_s" name="Rate [mol/(g·s)]" stroke="#2ECC71" strokeWidth={2} dot={false} />
                           <Line type="monotone" dataKey="rate_mol_L_s" name="Rate [mol/(L·s)]" stroke="#F39C12" strokeWidth={2} dot={false} />
                         </LineChart>
