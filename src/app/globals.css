@@ -156,21 +156,20 @@
 }
 
 /*
- * Recharts compatibility with Tailwind CSS v4
+ * Recharts + Tailwind CSS v4 compatibility
  *
- * Tailwind v4 preflight resets SVG elements: `fill: currentColor` and
- * `stroke: currentColor`. This overrides Recharts' inline style attributes
- * and makes all chart lines/bars/areas render as the text color (black in
- * light mode, white in dark mode) instead of their intended colors.
+ * Tailwind v4 preflight applies `fill: currentColor` and `stroke: currentColor`
+ * on SVG child elements. Since CSS properties beat SVG presentation attributes,
+ * Recharts colors (stroke="#0EA5E9", fill="#60A5FA") are overridden and all
+ * chart elements render as the page text color (black in light mode).
  *
- * Fix: reset fill/stroke on the Recharts SVG container so child elements
- * inherit from inline styles rather than Tailwind preflight.
+ * Fix: `revert-layer` reverts the property to the value from the previous
+ * cascade layer (i.e., before Tailwind's @layer base preflight), which for
+ * SVG elements means the browser default — letting SVG attributes work.
  */
-.recharts-wrapper svg {
-  fill: none;
-  stroke: none;
-}
-.recharts-wrapper svg text {
-  fill: currentColor;
-  stroke: none;
+@layer base {
+  .recharts-wrapper svg *:not(text):not(tspan) {
+    fill: revert-layer;
+    stroke: revert-layer;
+  }
 }
