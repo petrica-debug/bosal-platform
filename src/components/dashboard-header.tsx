@@ -2,9 +2,10 @@
 
 import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";
-import { Bell, Moon, Sun, MessageSquare } from "lucide-react";
+import { Bell, Moon, Sun, MessageSquare, Settings } from "lucide-react";
 
 import { useUser } from "@/hooks/use-user";
+import Link from "next/link";
 import { signOut } from "@/app/(auth)/actions";
 import { NAV_ITEMS, ROLE_LABELS, type UserRole } from "@/lib/constants";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -19,6 +20,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
+import { toast } from "sonner";
 
 function getInitials(name: string): string {
   return name
@@ -59,6 +61,11 @@ export function DashboardHeader() {
           size="icon"
           aria-label="AI Assistant"
           className="relative"
+          onClick={() =>
+            toast("BelgaLabs AI", {
+              description: "AI Assistant is available in the CatSizer engineering modules.",
+            })
+          }
         >
           <MessageSquare className="size-4" />
           <span className="absolute -top-0.5 -right-0.5 flex size-2 rounded-full bg-green-500" />
@@ -99,6 +106,13 @@ export function DashboardHeader() {
                 </p>
               </div>
             </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem asChild>
+              <Link href="/settings">
+                <Settings className="mr-2 size-4" />
+                Settings
+              </Link>
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
               onClick={() => {

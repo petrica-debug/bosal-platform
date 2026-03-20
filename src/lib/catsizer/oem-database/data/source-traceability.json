@@ -1,0 +1,282 @@
+[
+  {
+    "source_tier": "TIER 1: Measured Assay",
+    "color_code": "🟢 Green",
+    "source_type": "Recycler XRF/ICP databases (Ecotrade EcoCat, AutoCatalystMarket, ConverterDatabase.com, BR Metals, PMR)",
+    "what_it_provides": "Total Pt, Pd, Rh grams per physical converter unit, indexed by OEM serial number stamped on shell. 20,000+ entries in Ecotrade alone.",
+    "what_it_does_not_provide": "Does NOT give: g/L concentration, washcoat chemistry, layer structure, Ce:Zr ratio, promoters, substrate dimensions. Only total grams.",
+    "confidence_for_am_homologation": "HIGH for total PGM grams. This is the gold standard — actual measurement on ground converter material.",
+    "access_method": "Commercial subscription: Ecotrade ~€5k/yr; ConverterDatabase ~$2k/yr. Some offer per-query pricing.",
+    "recommended_action_for_bosal": "Subscribe to Ecotrade EcoCat. Cross-ref OEM part # via TecDoc/TecAlliance to map serial → vehicle model."
+  },
+  {
+    "source_tier": "TIER 1: Published Report",
+    "color_code": "🟢 Green",
+    "source_type": "Johnson Matthey annual PGM Market Report; SFA Oxford biannual PGM outlook; WPIC Platinum Quarterly",
+    "what_it_provides": "Regional aggregate: average Pd g/vehicle Europe gasoline, average Pt g/vehicle Europe diesel, Pt-for-Pd substitution koz, total demand by region.",
+    "what_it_does_not_provide": "Does NOT give: per-OEM breakdown, per-engine family, washcoat chemistry, g/L per brick. Only regional averages.",
+    "confidence_for_am_homologation": "HIGH for market trends and average loading direction. Not for specific vehicle targeting.",
+    "access_method": "JM Report: free PDF download from matthey.com (May each year). SFA Oxford: subscription ~£15k/yr. WPIC: free quarterly.",
+    "recommended_action_for_bosal": "Download JM 2025 Report for aggregate validation. Consider SFA subscription for per-OEM data (they offer this as a premium tier)."
+  },
+  {
+    "source_tier": "TIER 1: Patent Disclosure",
+    "color_code": "🟢 Green",
+    "source_type": "Patent filings on Espacenet/Google Patents from BASF (WO2022/034250, etc.), Umicore (EP4015064), Johnson Matthey (EP4015065)",
+    "what_it_provides": "Specific washcoat formulations: support oxide, Ce:Zr:RE molar composition, BaO/ZrO₂/Y₂O₃ promoter wt%, PGM type and g/L per layer, layer structure, substrate type.",
+    "what_it_does_not_provide": "Does NOT guarantee: that the patent formulation = the actual production catalyst. Patents show R&D state, not final calibration. Some patents are defensive filings.",
+    "confidence_for_am_homologation": "HIGH for chemistry direction and formulation architecture. MEDIUM for exact production values.",
+    "access_method": "Free: Espacenet (worldwide.espacenet.com). Search CPC class B01D53/9445 or B01J23/63, filtered by applicant and date 2018-2024.",
+    "recommended_action_for_bosal": "Assign 1 engineer to mine patents for each OEM's catalyst supplier. Map patent → OEM via supplier relationships (e.g., BASF→VW, Umicore→BMW/Toyota)."
+  },
+  {
+    "source_tier": "TIER 1: SAE/JSAE Papers",
+    "color_code": "🟢 Green",
+    "source_type": "SAE Technical Papers (e.g., 2017-01-0935, 2019-01-0743), JSAE papers on TWC formulation",
+    "what_it_provides": "Published measured data: light-off curves, PGM loading, some washcoat detail, aging behaviour. Peer-reviewed.",
+    "what_it_does_not_provide": "Often anonymised ('a European OEM'). May not specify exact vehicle model. Data from 2-3 years before publication.",
+    "confidence_for_am_homologation": "HIGH for performance data and formulation principles. MEDIUM for mapping to specific current production vehicles.",
+    "access_method": "SAE MOBILUS subscription (~$1k/yr) or per-paper (~$35 each). Search 'three-way catalyst Euro 6' + year.",
+    "recommended_action_for_bosal": "Search SAE for papers by BASF/Umicore/JM authors. These often disclose more than patents about real-world performance."
+  },
+  {
+    "source_tier": "TIER 2: Derived",
+    "color_code": "🟡 Yellow",
+    "source_type": "Total PGM grams (from recycler) ÷ substrate volume (from OEM service data or NGK/Corning published specs) = g/L. Or: patent g/L × known substrate volume = total grams.",
+    "what_it_provides": "Calculated g/L or total grams. Cross-validation when two independent sources agree.",
+    "what_it_does_not_provide": "Calculation depends on correct substrate volume assumption. Service manual dimensions may differ from actual production (running changes).",
+    "confidence_for_am_homologation": "MEDIUM. Derived values are directionally correct ±15-20%. Sufficient for initial AM formulation scoping.",
+    "access_method": "Combine recycler DB subscription + TecDoc substrate data + OEM service manual.",
+    "recommended_action_for_bosal": "Use as starting point. Validate with ICP-OES on 2-3 actual OEM converters per platform."
+  },
+  {
+    "source_tier": "TIER 3: Estimated",
+    "color_code": "🔴 Red",
+    "source_type": "Industry trend extrapolation: JM aggregate trends × known platform sharing × patent-disclosed formulations for that OEM's supplier.",
+    "what_it_provides": "Estimated PGM loading, washcoat composition, and OSC for newest platforms (2022-2025) where no recycler assay or patent data exists yet.",
+    "what_it_does_not_provide": "No direct measurement or OEM disclosure. Based on assumption that new platform follows supplier's patented technology.",
+    "confidence_for_am_homologation": "LOW-MEDIUM. Useful for forward planning but NOT for final AM calibration. Must be validated.",
+    "access_method": "Engineering judgement based on Tier 1 sources.",
+    "recommended_action_for_bosal": "⚠ DO NOT use Tier 3 values for final R103 homologation calibration. ICP-OES validation mandatory before proceeding."
+  },
+  {
+    "source_tier": "DATA POINT TRACEABILITY — Which values in Sheet 'ECS Component Database' come from which tier",
+    "color_code": null,
+    "source_type": null,
+    "what_it_provides": null,
+    "what_it_does_not_provide": null,
+    "confidence_for_am_homologation": null,
+    "access_method": null,
+    "recommended_action_for_bosal": null
+  },
+  {
+    "source_tier": "Database Column",
+    "color_code": "Tier 1 Source",
+    "source_type": "Tier 2 Source",
+    "what_it_provides": "Tier 3 Source",
+    "what_it_does_not_provide": "Current Coverage in This DB",
+    "confidence_for_am_homologation": "What Bosal Should Do",
+    "access_method": null,
+    "recommended_action_for_bosal": null
+  },
+  {
+    "source_tier": "Pt, Pd, Rh (g/L)",
+    "color_code": "Recycler assay ÷ substrate vol; Patent filings (g/L stated)",
+    "source_type": "Patent g/L × assumed substrate match",
+    "what_it_provides": "JM aggregate trend × OEM platform analogy",
+    "what_it_does_not_provide": "~40% Tier 1, ~35% Tier 2, ~25% Tier 3",
+    "confidence_for_am_homologation": "ICP-OES on OEM parts for top 20 platforms",
+    "access_method": null,
+    "recommended_action_for_bosal": null
+  },
+  {
+    "source_tier": "Pt, Pd, Rh (g/brick)",
+    "color_code": "Recycler total grams (direct measurement)",
+    "source_type": "g/L × substrate vol",
+    "what_it_provides": "Estimated from g/L",
+    "what_it_does_not_provide": "~30% Tier 1, ~40% Tier 2, ~30% Tier 3",
+    "confidence_for_am_homologation": "Recycler DB subscription for direct grams",
+    "access_method": null,
+    "recommended_action_for_bosal": null
+  },
+  {
+    "source_tier": "Substrate Ø, Length, Volume",
+    "color_code": "OEM service manuals; NGK/Corning product catalogues",
+    "source_type": "TecDoc dimensional data",
+    "what_it_provides": "Estimated from engine class",
+    "what_it_does_not_provide": "~50% Tier 1, ~35% Tier 2, ~15% Tier 3",
+    "confidence_for_am_homologation": "TecDoc/TecAlliance subscription for OEM part data",
+    "access_method": null,
+    "recommended_action_for_bosal": null
+  },
+  {
+    "source_tier": "Cell Density, Wall Thickness",
+    "color_code": "Substrate supplier specs (NGK, Corning, Ibiden)",
+    "source_type": "OEM service data",
+    "what_it_provides": "Standard values for era/type",
+    "what_it_does_not_provide": "~40% Tier 1, ~40% Tier 2, ~20% Tier 3",
+    "confidence_for_am_homologation": "Cross-check with substrate supplier data sheets",
+    "access_method": null,
+    "recommended_action_for_bosal": null
+  },
+  {
+    "source_tier": "WC Total Loading (g/L)",
+    "color_code": "Patent filings; SAE papers",
+    "source_type": "Estimated from patent for same supplier/era",
+    "what_it_provides": "Extrapolated from similar platform",
+    "what_it_does_not_provide": "~30% Tier 1, ~30% Tier 2, ~40% Tier 3",
+    "confidence_for_am_homologation": "Weigh OEM substrate before/after WC removal (acid strip)",
+    "access_method": null,
+    "recommended_action_for_bosal": null
+  },
+  {
+    "source_tier": "L1/L2 Support Oxide, Stabiliser, Promoter",
+    "color_code": "Patent filings (explicit in claims)",
+    "source_type": "SAE/JSAE paper data",
+    "what_it_provides": "Assumed from supplier's typical formulation",
+    "what_it_does_not_provide": "~25% Tier 1, ~25% Tier 2, ~50% Tier 3",
+    "confidence_for_am_homologation": "Patent mining + SEM-EDS cross-section analysis on OEM parts",
+    "access_method": null,
+    "recommended_action_for_bosal": null
+  },
+  {
+    "source_tier": "OSC CeZr Composition (Ce:Zr:RE ratio)",
+    "color_code": "Patent filings (explicit in examples)",
+    "source_type": "SAE paper data",
+    "what_it_provides": "Assumed from supplier's patent portfolio",
+    "what_it_does_not_provide": "~25% Tier 1, ~25% Tier 2, ~50% Tier 3",
+    "confidence_for_am_homologation": "XRD + ICP on OEM washcoat samples",
+    "access_method": null,
+    "recommended_action_for_bosal": null
+  },
+  {
+    "source_tier": "OSC Loading (g/L)",
+    "color_code": "Patent filings (some state explicitly)",
+    "source_type": "Calculated from total WC × typical OSC fraction",
+    "what_it_provides": "Industry-average OSC/WC ratio for era",
+    "what_it_does_not_provide": "~20% Tier 1, ~20% Tier 2, ~60% Tier 3",
+    "confidence_for_am_homologation": "H₂-TPR or O₂ pulse chemisorption on OEM parts — CRITICAL for AM OBD design",
+    "access_method": null,
+    "recommended_action_for_bosal": null
+  },
+  {
+    "source_tier": "T₅₀ Light-off (°C)",
+    "color_code": "SAE papers (measured on dyno/bench)",
+    "source_type": "Patent data (lab conditions)",
+    "what_it_provides": "Estimated from PGM loading + substrate type",
+    "what_it_does_not_provide": "~15% Tier 1, ~25% Tier 2, ~60% Tier 3",
+    "confidence_for_am_homologation": "Synthetic gas bench testing on OEM parts",
+    "access_method": null,
+    "recommended_action_for_bosal": null
+  },
+  {
+    "source_tier": "System Architecture (which bricks)",
+    "color_code": "OEM service manuals; AECC tech summaries",
+    "source_type": "DieselNet technology guides",
+    "what_it_provides": "Assumed from emission standard requirements",
+    "what_it_does_not_provide": "~60% Tier 1, ~30% Tier 2, ~10% Tier 3",
+    "confidence_for_am_homologation": "Already well-established; low risk",
+    "access_method": null,
+    "recommended_action_for_bosal": null
+  },
+  {
+    "source_tier": "Aging Protocol",
+    "color_code": "OEM homologation documents (some published via UNECE)",
+    "source_type": "SAE papers on aging methods",
+    "what_it_provides": "Standard ZDAKW/1050°C assumption",
+    "what_it_does_not_provide": "~20% Tier 1, ~30% Tier 2, ~50% Tier 3",
+    "confidence_for_am_homologation": "Request from OEM type approval authority or from catalyst coating supplier",
+    "access_method": null,
+    "recommended_action_for_bosal": null
+  },
+  {
+    "source_tier": "RECOMMENDED DATA ACQUISITION PLAN FOR BOSAL R&D",
+    "color_code": null,
+    "source_type": null,
+    "what_it_provides": null,
+    "what_it_does_not_provide": null,
+    "confidence_for_am_homologation": null,
+    "access_method": null,
+    "recommended_action_for_bosal": null
+  },
+  {
+    "source_tier": "#",
+    "color_code": "Action",
+    "source_type": "Est. Cost",
+    "what_it_provides": "Timeline",
+    "what_it_does_not_provide": "What You Get",
+    "confidence_for_am_homologation": "Why It Matters",
+    "access_method": null,
+    "recommended_action_for_bosal": null
+  },
+  {
+    "source_tier": "1",
+    "color_code": "Subscribe to Ecotrade EcoCat",
+    "source_type": "~€5k/yr",
+    "what_it_provides": "Immediate",
+    "what_it_does_not_provide": "Maps every OEM serial # to Pt/Pd/Rh total grams. Cross-ref via TecDoc for vehicle model matching.",
+    "confidence_for_am_homologation": "Gives real measured PGM per converter for all major OEMs. Foundation for AM loading decisions.",
+    "access_method": null,
+    "recommended_action_for_bosal": null
+  },
+  {
+    "source_tier": "2",
+    "color_code": "ICP-OES campaign on top 20 platforms",
+    "source_type": "€4-8k (20 × €200-400/sample)",
+    "what_it_provides": "1-2 months",
+    "what_it_does_not_provide": "Buy OEM converters from dealers. Grind washcoat, acid digest, ICP-OES for Pt/Pd/Rh. Also XRD for Ce:Zr.",
+    "confidence_for_am_homologation": "Validates this database. Gives actual g/L per brick. Required evidence for ECE R103 homologation files.",
+    "access_method": null,
+    "recommended_action_for_bosal": null
+  },
+  {
+    "source_tier": "3",
+    "color_code": "SEM-EDS cross-section analysis",
+    "source_type": "€500-1000/sample",
+    "what_it_provides": "Add to ICP campaign",
+    "what_it_does_not_provide": "Epoxy-mount, polish, SEM-EDS elemental mapping. Shows layer structure, PGM distribution, WC thickness.",
+    "confidence_for_am_homologation": "Validates patent-derived layer structure. Confirms L1 vs L2 PGM split for AM formulation matching.",
+    "access_method": null,
+    "recommended_action_for_bosal": null
+  },
+  {
+    "source_tier": "4",
+    "color_code": "O₂ pulse chemisorption / H₂-TPR",
+    "source_type": "€300-500/sample",
+    "what_it_provides": "Add to ICP campaign",
+    "what_it_does_not_provide": "Measure actual OSC capacity on fresh and aged OEM washcoat samples.",
+    "confidence_for_am_homologation": "THE most critical test for your 'too active fresh AM' problem. Gives you the OSC target number.",
+    "access_method": null,
+    "recommended_action_for_bosal": null
+  },
+  {
+    "source_tier": "5",
+    "color_code": "Patent mining programme",
+    "source_type": "Internal resource",
+    "what_it_provides": "Ongoing",
+    "what_it_does_not_provide": "Systematic Espacenet search: B01D53/9445 + B01J23/63, by BASF/Umicore/JM, 2018-2025.",
+    "confidence_for_am_homologation": "Low cost; high chemistry detail. Assign 1 engineer part-time.",
+    "access_method": null,
+    "recommended_action_for_bosal": null
+  },
+  {
+    "source_tier": "6",
+    "color_code": "SFA Oxford subscription (optional)",
+    "source_type": "~£15k/yr",
+    "what_it_provides": "If budget allows",
+    "what_it_does_not_provide": "Per-OEM, per-region PGM loading data. The only source that breaks down JM-level aggregate to OEM-specific.",
+    "confidence_for_am_homologation": "Best available data for forward-looking planning (Euro 7 preparation).",
+    "access_method": null,
+    "recommended_action_for_bosal": null
+  },
+  {
+    "source_tier": "7",
+    "color_code": "Synth gas bench testing",
+    "source_type": "€1-2k/sample",
+    "what_it_provides": "After formulation",
+    "what_it_does_not_provide": "Light-off curves (T₅₀ CO/HC/NOx) on your AM catalyst vs OEM fresh and aged.",
+    "confidence_for_am_homologation": "Confirms your AM fresh ≈ OEM aged performance match before vehicle-level OBD testing.",
+    "access_method": null,
+    "recommended_action_for_bosal": null
+  }
+]

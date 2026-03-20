@@ -96,7 +96,7 @@ export default function CatSizerPage() {
             </CardHeader>
             <CardContent>
               <div className="rounded-xl bg-gradient-to-b from-muted/50 to-muted/20 p-3 mb-4 overflow-hidden">
-                <ExhaustSystemDiagram className="w-full h-auto" />
+                <ExhaustSystemDiagram className="w-full h-auto rounded-lg" />
               </div>
 
               <div className="grid grid-cols-2 gap-2 mb-4">
@@ -158,7 +158,7 @@ export default function CatSizerPage() {
             </CardHeader>
             <CardContent>
               <div className="rounded-xl bg-gradient-to-b from-muted/50 to-muted/20 p-3 mb-4 overflow-hidden">
-                <SOFCSystemDiagram className="w-full h-auto" />
+                <SOFCSystemDiagram className="w-full h-auto rounded-lg" />
               </div>
 
               <div className="grid grid-cols-2 gap-2 mb-4">

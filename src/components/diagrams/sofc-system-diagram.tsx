@@ -60,7 +60,7 @@ export function SOFCSystemDiagram({ className }: { className?: string }) {
         </filter>
       </defs>
 
-      <rect width="1100" height="420" fill="none" />
+      <rect width="1100" height="420" rx="8" fill="white" />
 
       {/* Title */}
       <text x="550" y="28" textAnchor="middle" fill="#1A4F6E" fontSize="15" fontWeight="700" fontFamily="system-ui, sans-serif" letterSpacing="0.05em">

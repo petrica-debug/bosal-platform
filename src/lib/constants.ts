@@ -234,6 +234,16 @@ export const NAV_ITEMS: readonly NavItem[] = [
     requiredRoles: ALL_ROLES,
     group: 'Aftermarket',
   },
+  {
+    title: 'AM Homologation Copilot',
+    href: '/aftermarket/homologation-copilot',
+    icon: 'BookOpen',
+    phase: 'P0',
+    description:
+      'OEM Catalyst Database V4 — reference data & AI copilot for AM homologation',
+    requiredRoles: ALL_ROLES,
+    group: 'Aftermarket',
+  },
 
   // -- Commercial --
   {

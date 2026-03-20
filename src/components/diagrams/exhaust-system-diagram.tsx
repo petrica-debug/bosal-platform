@@ -72,7 +72,7 @@ export function ExhaustSystemDiagram({ className }: { className?: string }) {
       </defs>
 
       {/* Background */}
-      <rect width="1100" height="380" fill="none" />
+      <rect width="1100" height="380" rx="8" fill="white" />
 
       {/* Title bar */}
       <text x="550" y="28" textAnchor="middle" fill="#1A4F6E" fontSize="15" fontWeight="700" fontFamily="system-ui, sans-serif" letterSpacing="0.05em">

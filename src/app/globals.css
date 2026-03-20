@@ -173,3 +173,39 @@
     stroke: revert-layer;
   }
 }
+
+/* Recharts dark-mode: axis labels, grid, tooltips, polar charts */
+.recharts-cartesian-axis-tick-value,
+.recharts-label {
+  fill: var(--color-muted-foreground);
+}
+
+.recharts-legend-item-text {
+  color: var(--color-foreground) !important;
+}
+
+.recharts-cartesian-grid line {
+  stroke: var(--color-border);
+}
+
+.recharts-default-tooltip {
+  background-color: var(--color-popover) !important;
+  border-color: var(--color-border) !important;
+  color: var(--color-popover-foreground) !important;
+}
+
+.recharts-tooltip-item {
+  color: var(--color-popover-foreground) !important;
+}
+
+.recharts-polar-angle-axis-tick-value {
+  fill: var(--color-muted-foreground);
+}
+
+.recharts-polar-grid .recharts-polar-grid-concentric circle {
+  stroke: var(--color-border);
+}
+
+.recharts-polar-grid .recharts-polar-grid-angle line {
+  stroke: var(--color-border);
+}

@@ -455,27 +455,45 @@ Aging: ${(rfq.aging.results.overallActivity * 100).toFixed(0)}% activity after $
   return (
     <div className="flex flex-col gap-6">
       {/* Step indicator */}
-      <div className="flex flex-wrap items-center gap-2">
+      <nav aria-label="Wizard progress" className="flex flex-wrap items-center gap-2">
         {STEPS.map((s, i) => (
           <div key={s} className="flex items-center gap-2">
             <button
               onClick={() => (i <= step ? setStep(i) : undefined)}
+              disabled={i > step}
+              aria-current={i === step ? "step" : undefined}
+              aria-label={`Step ${i + 1}: ${s}${i < step ? " (completed)" : i === step ? " (current)" : ""}`}
               className={`flex h-8 items-center gap-2 rounded-full px-4 text-sm font-medium transition-colors ${
                 i === step
                   ? "bg-primary text-primary-foreground"
                   : i < step
-                    ? "bg-primary/20 text-primary cursor-pointer"
-                    : "bg-muted text-muted-foreground"
+                    ? "bg-primary/20 text-primary cursor-pointer hover:bg-primary/30"
+                    : "bg-muted text-muted-foreground cursor-not-allowed"
               }`}
             >
               {i + 1}. {s}
             </button>
             {i < STEPS.length - 1 && (
-              <ChevronRight className="h-4 w-4 text-muted-foreground" />
+              <ChevronRight className="h-4 w-4 text-muted-foreground" aria-hidden />
             )}
           </div>
         ))}
-      </div>
+      </nav>
+
+      {/* Calculation overlay */}
+      {calculating && (
+        <Card className="border-primary/30 bg-primary/5">
+          <CardContent className="flex items-center justify-center gap-4 py-12">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <div>
+              <p className="text-lg font-semibold">Running Engineering Analysis</p>
+              <p className="text-sm text-muted-foreground">
+                Sizing catalysts, computing kinetics, generating RFQ&hellip;
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* ============================================================ */}
       {/* STEP 1: ENGINE INPUT */}
@@ -1308,7 +1326,7 @@ Aging: ${(rfq.aging.results.overallActivity * 100).toFixed(0)}% activity after $
                     <CardDescription>Schematic cross-section of the aftertreatment system</CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <div className="overflow-x-auto">
+                    <div className="overflow-x-auto rounded-lg">
                       <svg viewBox="0 0 1000 280" className="w-full min-w-[700px]" xmlns="http://www.w3.org/2000/svg">
                         <defs>
                           <linearGradient id="pipeGrad" x1="0" y1="0" x2="1" y2="0">
@@ -1326,7 +1344,7 @@ Aging: ${(rfq.aging.results.overallActivity * 100).toFixed(0)}% activity after $
                         </defs>
 
                         {/* Background */}
-                        <rect x="0" y="0" width="1000" height="280" fill="none" />
+                        <rect x="0" y="0" width="1000" height="280" rx="8" fill="white" />
 
                         {/* Engine block */}
                         <rect x="10" y="80" width="80" height="100" rx="6" fill="#374151" stroke="#1f2937" strokeWidth="2" />
@@ -1598,7 +1616,7 @@ Aging: ${(rfq.aging.results.overallActivity * 100).toFixed(0)}% activity after $
                                 dataKey="value"
                                 label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
                               >
-                                {["#3b82f6", "#8b5cf6", "#ef4444", "#f59e0b", "#10b981", "#06b6d4"].map((c, i) => (
+                                {[COLORS[0], COLORS[1], COLORS[2], COLORS[3], COLORS[4], COLORS[0]].map((c, i) => (
                                   <Cell key={i} fill={c} />
                                 ))}
                               </Pie>

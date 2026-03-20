@@ -1,0 +1,14 @@
+{
+  "databaseVersion": "V4",
+  "sourceFile": "OEM_Catalyst_Database_V4_Bosal.xlsx",
+  "generatedAt": "2026-03-20T18:29:09.932091+00:00",
+  "counts": {
+    "ecsComponents": 187,
+    "washcoatChemistry": 9,
+    "amDesignGuidance": 17,
+    "ptPdSubstitution": 10,
+    "systemArchitecture": 9,
+    "sourceTraceability": 28
+  },
+  "description": "European OEM ECS component-level reference for Bosal AM homologation copilot"
+}

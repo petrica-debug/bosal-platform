@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo, useState, useTransition } from 'react';
 import { subDays, format } from 'date-fns';
+import { toast } from 'sonner';
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { KpiCard } from '@/components/dashboard/kpi-card';
@@ -105,7 +106,9 @@ export function CommandCenterDashboard({
           );
           setSnapshots(data);
         } catch {
-          // Keep existing snapshots on error
+          toast.error('Failed to update charts', {
+            description: 'Could not fetch data for the selected range. Showing previous data.',
+          });
         }
       });
     },

@@ -44,7 +44,7 @@ export default function ReformerPage() {
             </div>
           </div>
           <div className="w-full lg:w-[480px] rounded-xl bg-white/5 backdrop-blur p-2 border border-white/10">
-            <SOFCSystemDiagram className="w-full h-auto [&_text]:!fill-white/80 [&_line]:!stroke-white/20" />
+            <SOFCSystemDiagram className="w-full h-auto rounded-lg" />
           </div>
         </div>
       </div>

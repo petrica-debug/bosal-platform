@@ -1,0 +1,172 @@
+[
+  {
+    "parameter": "Total PGM (g/L)",
+    "oem_fresh__cc_brick": "3.5-6.0",
+    "oem_fresh__gpf": "0.5-1.3",
+    "oem_aged_160k_km": "1.8-3.5 (50-65% of fresh)",
+    "am_fresh_target": "2.0-3.5",
+    "rationale": "Fresh AM ≈ OEM aged performance",
+    "test_method": "ICP-OES",
+    "risk_if_wrong": "Over-active → OBD false pass"
+  },
+  {
+    "parameter": "Pt:Pd:Rh ratio",
+    "oem_fresh__cc_brick": "0:10:1 → 2.5:7.5:1",
+    "oem_fresh__gpf": "0:10:1",
+    "oem_aged_160k_km": "Shifts as Pd sinters faster",
+    "am_fresh_target": "Match OEM era ±10%",
+    "rationale": "Wrong ratio → different light-off profile",
+    "test_method": "ICP-OES; XRF",
+    "risk_if_wrong": "OBD monitor flag"
+  },
+  {
+    "parameter": "Rh loading (g/L)",
+    "oem_fresh__cc_brick": "0.35-0.60",
+    "oem_fresh__gpf": "0.07-0.14",
+    "oem_aged_160k_km": "–20% at EOL",
+    "am_fresh_target": "0.30-0.50",
+    "rationale": "Rh drives NOx; under-dose = R103 fail",
+    "test_method": "ICP-OES",
+    "risk_if_wrong": "ECE R103 emission failure"
+  },
+  {
+    "parameter": "WC loading (g/L)",
+    "oem_fresh__cc_brick": "200-280",
+    "oem_fresh__gpf": "30-60",
+    "oem_aged_160k_km": "SA drops 30-50%",
+    "am_fresh_target": "150-210",
+    "rationale": "Lower WC → lower initial SA → less activity",
+    "test_method": "Coated–bare weight",
+    "risk_if_wrong": "Excessive cold conversion"
+  },
+  {
+    "parameter": "OSC CeZr (g/L)",
+    "oem_fresh__cc_brick": "80-130 (CC)",
+    "oem_fresh__gpf": "10-25 (GPF)",
+    "oem_aged_160k_km": "40-60% degradation",
+    "am_fresh_target": "45-75 (CC)",
+    "rationale": "⚠ MOST CRITICAL. High OSC → flat downstream O₂",
+    "test_method": "H₂-TPR; O₂ pulse chemisorption",
+    "risk_if_wrong": "OBD monitor confusion"
+  },
+  {
+    "parameter": "Ce:Zr molar ratio",
+    "oem_fresh__cc_brick": "43:43 to 58:35",
+    "oem_fresh__gpf": "40:55",
+    "oem_aged_160k_km": "Ce degrades preferentially",
+    "am_fresh_target": "38:55 to 48:45 (Zr-enriched)",
+    "rationale": "Zr-rich: lower initial OSC + better thermal stability",
+    "test_method": "XRD; ICP",
+    "risk_if_wrong": "OSC too high at fresh state"
+  },
+  {
+    "parameter": "BaO promoter (wt%)",
+    "oem_fresh__cc_brick": "3-8%",
+    "oem_fresh__gpf": "1-2%",
+    "oem_aged_160k_km": "Ba migration/S-poisoning",
+    "am_fresh_target": "3-5%",
+    "rationale": "Too much Ba → sulfur poisoning; too little → poor NOx buffer",
+    "test_method": "XRF; TPD-NOx",
+    "risk_if_wrong": "S-poisoning or NOx spike"
+  },
+  {
+    "parameter": "L1 vs L2 PGM split",
+    "oem_fresh__cc_brick": "~60:40 (L1:L2)",
+    "oem_fresh__gpf": "100:0",
+    "oem_aged_160k_km": "PGM migrates between layers",
+    "am_fresh_target": "55:45 to 60:40",
+    "rationale": "Maintain OEM layer distribution for redox balance",
+    "test_method": "Cross-section SEM-EDS",
+    "risk_if_wrong": "Uneven aging; hot spots"
+  },
+  {
+    "parameter": "T₅₀ CO (°C)",
+    "oem_fresh__cc_brick": "220-280 fresh",
+    "oem_fresh__gpf": "—",
+    "oem_aged_160k_km": "300-380 aged",
+    "am_fresh_target": "260-320 fresh",
+    "rationale": "Slightly higher T₅₀ = matches aged OEM at install",
+    "test_method": "Synth gas bench; NEDC/WLTC",
+    "risk_if_wrong": "Over-conversion at cold-start"
+  },
+  {
+    "parameter": "T₅₀ HC (°C)",
+    "oem_fresh__cc_brick": "240-300",
+    "oem_fresh__gpf": "—",
+    "oem_aged_160k_km": "320-400",
+    "am_fresh_target": "280-340",
+    "rationale": "HC less critical for OBD than CO; still matters R103",
+    "test_method": "Synth gas bench",
+    "risk_if_wrong": "HC emission failure"
+  },
+  {
+    "parameter": "T₅₀ NOx (°C)",
+    "oem_fresh__cc_brick": "250-310",
+    "oem_fresh__gpf": "—",
+    "oem_aged_160k_km": "310-380",
+    "am_fresh_target": "280-340",
+    "rationale": "NOx = Rh; match Rh loading to control",
+    "test_method": "Synth gas bench",
+    "risk_if_wrong": "NOx R103 fail"
+  },
+  {
+    "parameter": "Substrate volume",
+    "oem_fresh__cc_brick": "0.7-2.5L",
+    "oem_fresh__gpf": "1.0-2.5L",
+    "oem_aged_160k_km": "No change",
+    "am_fresh_target": "Match OEM ±10%",
+    "rationale": "ECE R103 equivalence",
+    "test_method": "Physical measurement",
+    "risk_if_wrong": "Non-compliant homologation"
+  },
+  {
+    "parameter": "Cell density",
+    "oem_fresh__cc_brick": "400-600 cpsi gas",
+    "oem_fresh__gpf": "300 cpsi GPF",
+    "oem_aged_160k_km": "No change",
+    "am_fresh_target": "Match OEM",
+    "rationale": "Backpressure + flow distribution",
+    "test_method": "Pressure drop test",
+    "risk_if_wrong": "Backpressure mismatch"
+  },
+  {
+    "parameter": "Downstream O₂ ratio",
+    "oem_fresh__cc_brick": "0.3-0.6 fresh",
+    "oem_fresh__gpf": "—",
+    "oem_aged_160k_km": "0.6-0.85 aged (threshold ~0.7)",
+    "am_fresh_target": "0.55-0.75 fresh",
+    "rationale": "Key OBD metric; fresh AM must read close to threshold",
+    "test_method": "Vehicle OBD Mode 06",
+    "risk_if_wrong": "OBD monitor false result"
+  },
+  {
+    "parameter": "GPF WC coating",
+    "oem_fresh__cc_brick": "30-60g/L",
+    "oem_fresh__gpf": "—",
+    "oem_aged_160k_km": "Spalling over life",
+    "am_fresh_target": "0-30g/L (AM GPF)",
+    "rationale": "Don't replicate full OEM GPF coat",
+    "test_method": "Weight; SEM",
+    "risk_if_wrong": "Over-active system total"
+  },
+  {
+    "parameter": "HC trap (DOC only)",
+    "oem_fresh__cc_brick": "β-zeolite 8-15g/L",
+    "oem_fresh__gpf": "—",
+    "oem_aged_160k_km": "Zeolite deactivation",
+    "am_fresh_target": "β-zeolite 6-10g/L",
+    "rationale": "Slightly less zeolite OK; cold HC managed by engine strategy",
+    "test_method": "TPD-HC",
+    "risk_if_wrong": "Excess HC at cold-start"
+  },
+  {
+    "parameter": "SCR Cu loading (diesel)",
+    "oem_fresh__cc_brick": "Cu 2.5-3.5wt%",
+    "oem_fresh__gpf": "—",
+    "oem_aged_160k_km": "Cu migration at HT",
+    "am_fresh_target": "Cu 2.5-3.0wt%",
+    "rationale": "Lower Cu = less low-T activity but more stable",
+    "test_method": "ICP; NH₃-TPD",
+    "risk_if_wrong": "DeNOx failure at low T"
+  }
+]

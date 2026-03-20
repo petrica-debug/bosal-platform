@@ -1,0 +1,102 @@
+[
+  {
+    "year": 2018,
+    "pt_subst_koz": 50,
+    "cum_koz": 50,
+    "pd_price___oz": 1050,
+    "pt_price___oz": 880,
+    "ratio_pd_pt": "1.19",
+    "key_drivers": "Pd rising; OEMs start R&D",
+    "am_impact": "No AM impact yet"
+  },
+  {
+    "year": 2019,
+    "pt_subst_koz": 100,
+    "cum_koz": 150,
+    "pd_price___oz": 1540,
+    "pt_price___oz": 870,
+    "ratio_pd_pt": "1.77",
+    "key_drivers": "Pd spikes; gap widens",
+    "am_impact": "Early OEM reformulations"
+  },
+  {
+    "year": 2020,
+    "pt_subst_koz": 150,
+    "cum_koz": 300,
+    "pd_price___oz": 2200,
+    "pt_price___oz": 880,
+    "ratio_pd_pt": "2.50",
+    "key_drivers": "Peak Pd; COVID supply shock",
+    "am_impact": "VW/BMW tri-metal rollout begins"
+  },
+  {
+    "year": 2021,
+    "pt_subst_koz": 200,
+    "cum_koz": 500,
+    "pd_price___oz": 2400,
+    "pt_price___oz": 1050,
+    "ratio_pd_pt": "2.29",
+    "key_drivers": "E6d full; RDE loadings ↑60%",
+    "am_impact": "AM plan Pt for 2020+ vehicles"
+  },
+  {
+    "year": 2022,
+    "pt_subst_koz": 360,
+    "cum_koz": 860,
+    "pd_price___oz": 2100,
+    "pt_price___oz": 960,
+    "ratio_pd_pt": "2.19",
+    "key_drivers": "Substitution +80% YoY",
+    "am_impact": "AM for 2020+ MUST include Pt"
+  },
+  {
+    "year": 2023,
+    "pt_subst_koz": 540,
+    "cum_koz": 1400,
+    "pd_price___oz": 1300,
+    "pt_price___oz": 980,
+    "ratio_pd_pt": "1.33",
+    "key_drivers": "Embedded in new designs",
+    "am_impact": "AM Pt standard for OBD compat"
+  },
+  {
+    "year": 2024,
+    "pt_subst_koz": 700,
+    "cum_koz": 2100,
+    "pd_price___oz": 1000,
+    "pt_price___oz": 970,
+    "ratio_pd_pt": "1.03",
+    "key_drivers": "Near parity; peak approaching",
+    "am_impact": "Need Pd-only + tri-metal ranges"
+  },
+  {
+    "year": 2025,
+    "pt_subst_koz": 845,
+    "cum_koz": 2945,
+    "pd_price___oz": 950,
+    "pt_price___oz": 1050,
+    "ratio_pd_pt": "0.90",
+    "key_drivers": "Peak; Pt now more expensive",
+    "am_impact": "Full tri-metal AM range needed"
+  },
+  {
+    "year": 2026,
+    "pt_subst_koz": 600,
+    "cum_koz": 3545,
+    "pd_price___oz": 900,
+    "pt_price___oz": 1100,
+    "ratio_pd_pt": "0.82",
+    "key_drivers": "Slowing; Euro 7 prep",
+    "am_impact": "Watch OEM reversals"
+  },
+  {
+    "year": 2027,
+    "pt_subst_koz": 300,
+    "cum_koz": 3845,
+    "pd_price___oz": 850,
+    "pt_price___oz": 1050,
+    "ratio_pd_pt": "0.81",
+    "key_drivers": "Reverse subst begins",
+    "am_impact": "Track per-OEM direction"
+  }
+]
