@@ -3,6 +3,8 @@
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
 import {
   BookOpen,
@@ -18,6 +20,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Copy,
+  Wand2,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -55,6 +58,8 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
+import { Stepper } from "@/components/ui/stepper";
+import { Progress } from "@/components/ui/progress";
 
 import type { EcsComponentRecord } from "@/lib/catsizer/oem-database/types";
 import {
@@ -73,6 +78,17 @@ import {
   uniqueFuels,
   type CopilotAnswerFocus,
 } from "@/lib/catsizer/oem-database";
+
+import { useWizard } from "./use-wizard";
+import { WIZARD_STEPS } from "./wizard-types";
+import {
+  Step1VehicleScope,
+  Step2OemReference,
+  Step3Variants,
+  Step4Chemistry,
+  Step5Economics,
+  Step6SpecCard,
+} from "./wizard-steps";
 
 const MAX_PINNED = 12;
 const PAGE_SIZE = 50;
@@ -93,6 +109,8 @@ function boldInline(text: string): ReactNode {
 }
 
 export default function HomologationCopilotPage() {
+  const wiz = useWizard();
+
   const [search, setSearch] = useState("");
   const [fuel, setFuel] = useState<string>("all");
   const [emStd, setEmStd] = useState<string>("all");
@@ -253,8 +271,12 @@ export default function HomologationCopilotPage() {
         </Button>
       </div>
 
-      <Tabs defaultValue="ecs" className="space-y-4">
+      <Tabs defaultValue="wizard" className="space-y-4">
         <TabsList className="flex w-full flex-wrap h-auto gap-1 p-1">
+          <TabsTrigger value="wizard" className="gap-1.5">
+            <Wand2 className="size-3.5" />
+            Product wizard
+          </TabsTrigger>
           <TabsTrigger value="ecs" className="gap-1.5">
             <Database className="size-3.5" />
             ECS database
@@ -269,9 +291,24 @@ export default function HomologationCopilotPage() {
           </TabsTrigger>
           <TabsTrigger value="copilot" className="gap-1.5">
             <Sparkles className="size-3.5" />
-            AI copilot
+            Free Q&amp;A
           </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="wizard" className="space-y-4">
+          <Progress value={((wiz.step + 1) / WIZARD_STEPS.length) * 100} className="mb-2" />
+          <Stepper
+            steps={WIZARD_STEPS.map((s) => ({ label: s.label, description: s.description }))}
+            currentStep={wiz.step}
+            className="mb-4"
+          />
+          {wiz.step === 0 && <Step1VehicleScope wiz={wiz} />}
+          {wiz.step === 1 && <Step2OemReference wiz={wiz} />}
+          {wiz.step === 2 && <Step3Variants wiz={wiz} />}
+          {wiz.step === 3 && <Step4Chemistry wiz={wiz} />}
+          {wiz.step === 4 && <Step5Economics wiz={wiz} />}
+          {wiz.step === 5 && <Step6SpecCard wiz={wiz} />}
+        </TabsContent>
 
         <TabsContent value="ecs" className="space-y-4">
           <Card>
@@ -699,8 +736,8 @@ export default function HomologationCopilotPage() {
                   <Separator />
                   <div>
                     <p className="text-sm font-medium mb-2">Response</p>
-                    <div className="rounded-lg border bg-card p-4 text-sm whitespace-pre-wrap max-h-[min(480px,50vh)] overflow-y-auto">
-                      {copilotReply}
+                    <div className="rounded-lg border bg-card p-4 text-sm max-h-[min(480px,50vh)] overflow-y-auto prose prose-sm dark:prose-invert max-w-none [&_table]:text-xs [&_th]:px-2 [&_td]:px-2">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{copilotReply}</ReactMarkdown>
                     </div>
                   </div>
                 </>

@@ -2,9 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import {
   ECS_COMPONENTS,
-  buildAmCopilotContext,
-  copilotFocusInstruction,
-  type CopilotAnswerFocus,
+  buildVariantContext,
 } from "@/lib/catsizer/oem-database";
 import { AM_HOMOLOGATION_COPILOT_SYSTEM } from "@/lib/catsizer/oem-database/prompt";
 
@@ -20,24 +18,22 @@ export async function POST(request: NextRequest) {
   }
 
   let body: {
-    message: string;
-    /** Indices into ECS_COMPONENTS */
-    selectedIndices?: number[];
-    includeFullWashcoat?: boolean;
-    /** Shapes the assistant’s answer (prepended to the user message). */
-    answerFocus?: CopilotAnswerFocus;
-    wizardStep?: string;
+    selectedIndices: number[];
+    emissionStandard: string;
+    componentScope: string[];
+    variants: {
+      tier: string;
+      pgmTotalGPerL: number;
+      oscTargetGPerL: number;
+      oscRatio: number;
+      obdRisk: string;
+    }[];
   };
 
   try {
     body = await request.json();
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
-  }
-
-  const message = typeof body.message === "string" ? body.message.trim() : "";
-  if (!message) {
-    return NextResponse.json({ error: "message is required" }, { status: 400 });
   }
 
   const indices = Array.isArray(body.selectedIndices)
@@ -49,24 +45,38 @@ export async function POST(request: NextRequest) {
 
   const selectedRecords = indices.map((i) => ECS_COMPONENTS[i]);
 
-  const context = buildAmCopilotContext({
+  const context = buildVariantContext({
     selectedRecords,
-    includeFullReferenceTables: Boolean(body.includeFullWashcoat),
+    emissionStandard: body.emissionStandard ?? "Euro 6d",
+    componentScope: body.componentScope ?? ["CC-TWC"],
+    variantSummaries: body.variants,
+    wizardStep: "variant-commentary",
   });
 
-  const focus =
-    body.answerFocus === "evidence" ||
-    body.answerFocus === "dossier" ||
-    body.answerFocus === "pgm"
-      ? body.answerFocus
-      : "balanced";
-  const focusBlock = copilotFocusInstruction(focus);
+  const userContent = `## Retrieved OEM database context & pre-computed variants
 
-  const wizardHint = typeof body.wizardStep === "string" && body.wizardStep
-    ? `\n## Wizard step context: ${body.wizardStep}\nTailor your response for this specific phase of the AM product development wizard.\n`
-    : "";
+${context}
 
-  const userContent = `${focusBlock ? `${focusBlock}\n\n` : ""}${wizardHint}## Retrieved OEM database context\n\n${context}\n\n---\n\n## Engineer question\n\n${message}`;
+---
+
+## Task
+
+For each of the 3 AM design variants (performance, balanced, value) listed above, provide engineering commentary covering:
+1. **OBD risk assessment** — specific to this OEM platform's known OBD calibration sensitivity
+2. **Chemistry recommendation** — any adjustments to the standard derating approach for this engine family
+3. **Homologation confidence** — likelihood of passing ECE R103 Type 1 at ≤115% of OE reference
+4. **Key risk** — the single biggest risk for this variant
+
+Return a JSON object with this exact structure:
+{
+  "commentaries": {
+    "performance": "...",
+    "balanced": "...",
+    "value": "..."
+  }
+}
+
+Each commentary should be 3-5 sentences, precise, with numbers where relevant.`;
 
   try {
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -81,8 +91,9 @@ export async function POST(request: NextRequest) {
           { role: "system", content: AM_HOMOLOGATION_COPILOT_SYSTEM },
           { role: "user", content: userContent },
         ],
-        temperature: 0.25,
-        max_tokens: 4096,
+        temperature: 0.2,
+        max_tokens: 2048,
+        response_format: { type: "json_object" },
       }),
     });
 
@@ -95,19 +106,19 @@ export async function POST(request: NextRequest) {
     }
 
     const data = await response.json();
-    const content = data.choices?.[0]?.message?.content ?? "";
-    const tokensUsed = data.usage?.total_tokens;
+    const raw = data.choices?.[0]?.message?.content ?? "{}";
+
+    let parsed: { commentaries?: Record<string, string> };
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      parsed = { commentaries: { performance: raw, balanced: raw, value: raw } };
+    }
 
     return NextResponse.json({
-      content,
+      commentaries: parsed.commentaries ?? {},
       model: DEFAULT_MODEL,
-      tokensUsed,
-      contextSummary: {
-        selectedRowCount: selectedRecords.length,
-        includeFullWashcoat: Boolean(body.includeFullWashcoat),
-        answerFocus: focus,
-        wizardStep: body.wizardStep ?? null,
-      },
+      tokensUsed: data.usage?.total_tokens,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unknown error";

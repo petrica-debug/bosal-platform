@@ -103,3 +103,72 @@ export function buildAmCopilotContext(options: {
 
   return parts.join("\n");
 }
+
+/* ------------------------------------------------------------------ */
+/*  Variant-aware context for the wizard API                          */
+/* ------------------------------------------------------------------ */
+
+export interface VariantContextInput {
+  selectedRecords: EcsComponentRecord[];
+  emissionStandard: string;
+  componentScope: string[];
+  /** Pre-computed variant summaries (from variant-engine) */
+  variantSummaries?: {
+    tier: string;
+    pgmTotalGPerL: number;
+    oscTargetGPerL: number;
+    oscRatio: number;
+    obdRisk: string;
+  }[];
+  wizardStep?: string;
+}
+
+export function buildVariantContext(input: VariantContextInput): string {
+  const { selectedRecords, emissionStandard, componentScope, variantSummaries, wizardStep } = input;
+
+  const parts: string[] = [
+    "## Database metadata",
+    `- Version: ${OEM_DB_MANIFEST.databaseVersion} (source: ${OEM_DB_MANIFEST.sourceFile})`,
+    "",
+    `## Wizard context — step: ${wizardStep ?? "variant-generation"}`,
+    `- Emission standard: ${emissionStandard}`,
+    `- Component scope: ${componentScope.join(", ")}`,
+    "",
+  ];
+
+  if (selectedRecords.length > 0) {
+    parts.push("## OEM reference rows (pinned by engineer)");
+    for (const r of selectedRecords) {
+      parts.push(ecsToMarkdown(r));
+      parts.push("");
+    }
+  }
+
+  parts.push("## AM design guidance");
+  parts.push(compactJson(AM_DESIGN_GUIDANCE, 6000));
+  parts.push("");
+
+  parts.push("## Source traceability");
+  parts.push(compactJson(SOURCE_TRACEABILITY, 8000));
+  parts.push("");
+
+  parts.push("## System architecture map");
+  parts.push(compactJson(SYSTEM_ARCHITECTURE, 4000));
+  parts.push("");
+
+  parts.push("## Washcoat chemistry detail");
+  parts.push(compactJson(WASHCOAT_CHEMISTRY, 10000));
+  parts.push("");
+
+  if (variantSummaries && variantSummaries.length > 0) {
+    parts.push("## Pre-computed AM variants (from Bosal derating engine)");
+    for (const v of variantSummaries) {
+      parts.push(
+        `- **${v.tier}**: PGM ${v.pgmTotalGPerL} g/L, OSC target ${v.oscTargetGPerL} g/L, OSC ratio ${v.oscRatio}, OBD risk ${v.obdRisk}`,
+      );
+    }
+    parts.push("");
+  }
+
+  return parts.join("\n");
+}

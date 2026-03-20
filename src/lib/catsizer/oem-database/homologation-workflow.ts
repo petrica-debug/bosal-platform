@@ -60,6 +60,63 @@ export const COPILOT_QUICK_PROMPTS = [
 
 export type CopilotAnswerFocus = "balanced" | "evidence" | "dossier" | "pgm";
 
+/* ------------------------------------------------------------------ */
+/*  Derating constants by emission standard                           */
+/* ------------------------------------------------------------------ */
+
+export interface DeratingRange {
+  pgm: [number, number];
+  osc: [number, number];
+}
+
+export const DERATING_BY_STANDARD: Record<string, DeratingRange> = {
+  "Euro 6b": { pgm: [0.55, 0.65], osc: [0.60, 0.70] },
+  "E6b":     { pgm: [0.55, 0.65], osc: [0.60, 0.70] },
+  "Euro 6d-TEMP": { pgm: [0.60, 0.70], osc: [0.65, 0.72] },
+  "E6d-T":        { pgm: [0.60, 0.70], osc: [0.65, 0.72] },
+  "Euro 6d": { pgm: [0.65, 0.75], osc: [0.68, 0.75] },
+  "E6d":     { pgm: [0.65, 0.75], osc: [0.68, 0.75] },
+  "Euro 6e": { pgm: [0.70, 0.80], osc: [0.72, 0.78] },
+  "E6e":     { pgm: [0.70, 0.80], osc: [0.72, 0.78] },
+};
+
+export const DEFAULT_DERATING: DeratingRange = { pgm: [0.60, 0.70], osc: [0.65, 0.72] };
+
+/** Variant tier offsets relative to the standard derating range midpoint. */
+export const VARIANT_TIER_OFFSETS = {
+  performance: 0.05,
+  balanced: 0.0,
+  value: -0.05,
+} as const;
+
+/* ------------------------------------------------------------------ */
+/*  Cost defaults (EUR, 2025 baseline)                                */
+/* ------------------------------------------------------------------ */
+
+export const DEFAULT_PGM_PRICES = {
+  pdEurPerG: 28,
+  rhEurPerG: 145,
+  ptEurPerG: 30,
+} as const;
+
+/** Substrate cost per litre by material. */
+export const SUBSTRATE_COST_EUR_PER_L = {
+  ceramic: 18,
+  metallic: 32,
+} as const;
+
+/** Washcoat cost per g/L applied (includes carrier, OSC, promoters). */
+export const WASHCOAT_COST_EUR_PER_GPL = 0.12;
+
+/** Canning + assembly flat rate per unit. */
+export const CANNING_COST_EUR = 14;
+
+/** AM retail target as fraction of OEM dealer price. */
+export const AM_RETAIL_MULTIPLIER: [number, number] = [0.35, 0.55];
+
+/** Default AM market penetration for catalyst replacement. */
+export const DEFAULT_AM_PENETRATION_PCT = 10;
+
 export function copilotFocusInstruction(focus: CopilotAnswerFocus): string {
   switch (focus) {
     case "evidence":
