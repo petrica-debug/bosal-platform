@@ -1,9 +1,9 @@
 {
-  "databaseVersion": "V4",
-  "sourceFile": "OEM_Catalyst_Database_V4_Bosal.xlsx",
-  "generatedAt": "2026-03-20T18:29:09.932091+00:00",
+  "databaseVersion": "V5",
+  "sourceFile": "OEM_Catalyst_Database_V5_Bosal.xlsx",
+  "generatedAt": "2026-03-20T18:45:38.041139+00:00",
   "counts": {
-    "ecsComponents": 187,
+    "ecsComponents": 519,
     "washcoatChemistry": 9,
     "amDesignGuidance": 17,
     "ptPdSubstitution": 10,

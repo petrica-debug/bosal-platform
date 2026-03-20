@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   ECS_COMPONENTS,
   buildAmCopilotContext,
+  copilotFocusInstruction,
+  type CopilotAnswerFocus,
 } from "@/lib/catsizer/oem-database";
 import { AM_HOMOLOGATION_COPILOT_SYSTEM } from "@/lib/catsizer/oem-database/prompt";
 
@@ -22,6 +24,8 @@ export async function POST(request: NextRequest) {
     /** Indices into ECS_COMPONENTS */
     selectedIndices?: number[];
     includeFullWashcoat?: boolean;
+    /** Shapes the assistant’s answer (prepended to the user message). */
+    answerFocus?: CopilotAnswerFocus;
   };
 
   try {
@@ -49,7 +53,15 @@ export async function POST(request: NextRequest) {
     includeFullReferenceTables: Boolean(body.includeFullWashcoat),
   });
 
-  const userContent = `## Retrieved OEM database context\n\n${context}\n\n---\n\n## Engineer question\n\n${message}`;
+  const focus =
+    body.answerFocus === "evidence" ||
+    body.answerFocus === "dossier" ||
+    body.answerFocus === "pgm"
+      ? body.answerFocus
+      : "balanced";
+  const focusBlock = copilotFocusInstruction(focus);
+
+  const userContent = `${focusBlock ? `${focusBlock}\n\n` : ""}## Retrieved OEM database context\n\n${context}\n\n---\n\n## Engineer question\n\n${message}`;
 
   try {
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -88,6 +100,7 @@ export async function POST(request: NextRequest) {
       contextSummary: {
         selectedRowCount: selectedRecords.length,
         includeFullWashcoat: Boolean(body.includeFullWashcoat),
+        answerFocus: focus,
       },
     });
   } catch (err) {

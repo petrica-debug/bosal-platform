@@ -93,3 +93,70 @@ export function uniqueBrands(records: EcsComponentRecord[] = ECS_COMPONENTS): st
 export function ecsRecordKey(r: EcsComponentRecord, index: number): string {
   return `${norm(r.brand)}|${norm(r.engineFamily)}|${norm(r.engineCodes)}|${norm(r.componentNumber)}|${index}`;
 }
+
+export interface EcsFilteredRow {
+  record: EcsComponentRecord;
+  /** Index into `ECS_COMPONENTS` — stable for pinning and API */
+  globalIndex: number;
+}
+
+/**
+ * Single-pass filter with stable global indices (required for large catalogs, e.g. V5 500+ rows).
+ */
+export function filterEcsWithGlobalIndices(options: {
+  search?: string;
+  fuel?: string;
+  emissionStandard?: string;
+  brand?: string;
+}): EcsFilteredRow[] {
+  const search = options.search ?? "";
+  const fuel = options.fuel ?? "all";
+  const emissionStandard = options.emissionStandard ?? "all";
+  const brand = options.brand ?? "all";
+
+  const q = norm(search).trim();
+  const f = norm(fuel);
+  const es = norm(emissionStandard);
+  const b = norm(brand);
+
+  const out: EcsFilteredRow[] = [];
+  for (let globalIndex = 0; globalIndex < ECS_COMPONENTS.length; globalIndex++) {
+    const r = ECS_COMPONENTS[globalIndex];
+    if (f && f !== "all" && norm(r.fuel) !== f) continue;
+    if (es && es !== "all" && !norm(r.emissionStandard).includes(es)) continue;
+    if (
+      b &&
+      b !== "all" &&
+      !norm(r.brand).includes(b) &&
+      !norm(r.oemGroup).includes(b)
+    )
+      continue;
+    if (q) {
+      const hay = [
+        r.oemGroup,
+        r.brand,
+        r.engineFamily,
+        r.engineCodes,
+        r.vehicleExamples,
+        r.emissionStandard,
+        r.componentType,
+        r.position,
+        r.substrate,
+        r.substrateSupplier,
+        r.l1Pgm,
+        r.l2Pgm,
+        r.source,
+        r.years,
+        r.fuel,
+      ]
+        .map(norm)
+        .join(" ");
+      const words = q.split(/\s+/).filter((w) => w.length > 0);
+      const matches =
+        hay.includes(q) || words.every((w) => hay.includes(w));
+      if (!matches) continue;
+    }
+    out.push({ record: r, globalIndex });
+  }
+  return out;
+}

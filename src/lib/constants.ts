@@ -240,7 +240,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
     icon: 'BookOpen',
     phase: 'P0',
     description:
-      'OEM Catalyst Database V4 — reference data & AI copilot for AM homologation',
+      'OEM Catalyst Database V5 — reference data & AI copilot for AM homologation',
     requiredRoles: ALL_ROLES,
     group: 'Aftermarket',
   },

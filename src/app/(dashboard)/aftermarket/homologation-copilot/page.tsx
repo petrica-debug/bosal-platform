@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import type { ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import {
@@ -13,6 +14,10 @@ import {
   Database,
   FileText,
   Sparkles,
+  ClipboardList,
+  ChevronLeft,
+  ChevronRight,
+  Copy,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -54,26 +59,37 @@ import { Separator } from "@/components/ui/separator";
 import type { EcsComponentRecord } from "@/lib/catsizer/oem-database/types";
 import {
   AM_DESIGN_GUIDANCE,
+  COPILOT_QUICK_PROMPTS,
   ECS_COMPONENTS,
+  HOMOLOGATION_WORKFLOW_STEPS,
   OEM_DB_MANIFEST,
   PT_PD_SUBSTITUTION,
   SOURCE_TRACEABILITY,
   SYSTEM_ARCHITECTURE,
   WASHCOAT_CHEMISTRY,
-  filterEcsByBrand,
-  filterEcsByFuel,
-  filterEcsByStandard,
-  searchEcsComponents,
+  filterEcsWithGlobalIndices,
   uniqueBrands,
   uniqueEmissionStandards,
   uniqueFuels,
+  type CopilotAnswerFocus,
 } from "@/lib/catsizer/oem-database";
 
-const MAX_PINNED = 10;
+const MAX_PINNED = 12;
+const PAGE_SIZE = 50;
 
 function formatCell(v: string | number | null | undefined): string {
   if (v === null || v === undefined) return "—";
   return String(v);
+}
+
+/** Renders `**bold**` segments from static workflow copy (no HTML injection). */
+function boldInline(text: string): ReactNode {
+  const parts = text.split(/(\*\*.+?\*\*)/g);
+  return parts.map((part, i) => {
+    const m = /^\*\*(.+)\*\*$/.exec(part);
+    if (m) return <strong key={i}>{m[1]}</strong>;
+    return part;
+  });
 }
 
 export default function HomologationCopilotPage() {
@@ -86,21 +102,40 @@ export default function HomologationCopilotPage() {
 
   const [copilotMessage, setCopilotMessage] = useState("");
   const [includeFullWashcoat, setIncludeFullWashcoat] = useState(false);
+  const [answerFocus, setAnswerFocus] = useState<CopilotAnswerFocus>("balanced");
   const [copilotLoading, setCopilotLoading] = useState(false);
   const [copilotReply, setCopilotReply] = useState<string | null>(null);
+  const [tablePage, setTablePage] = useState(0);
 
   const fuels = useMemo(() => uniqueFuels(), []);
   const brands = useMemo(() => uniqueBrands(), []);
   const standards = useMemo(() => uniqueEmissionStandards(), []);
 
-  const filteredEcs = useMemo(() => {
-    let r = [...ECS_COMPONENTS];
-    r = filterEcsByFuel(fuel, r);
-    r = filterEcsByStandard(emStd, r);
-    r = filterEcsByBrand(brand, r);
-    r = searchEcsComponents(search, r);
-    return r;
+  const filteredRows = useMemo(
+    () =>
+      filterEcsWithGlobalIndices({
+        search,
+        fuel,
+        emissionStandard: emStd,
+        brand,
+      }),
+    [search, fuel, emStd, brand],
+  );
+
+  useEffect(() => {
+    setTablePage(0);
   }, [search, fuel, emStd, brand]);
+
+  const pageCount = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
+  const safeTablePage = Math.min(tablePage, pageCount - 1);
+  const pageRows = useMemo(
+    () =>
+      filteredRows.slice(
+        safeTablePage * PAGE_SIZE,
+        (safeTablePage + 1) * PAGE_SIZE,
+      ),
+    [filteredRows, safeTablePage],
+  );
 
   const togglePin = useCallback((globalIndex: number) => {
     setPinned((prev) => {
@@ -113,10 +148,6 @@ export default function HomologationCopilotPage() {
       }
       return [...prev, globalIndex];
     });
-  }, []);
-
-  const globalIndexForRecord = useCallback((rec: EcsComponentRecord) => {
-    return ECS_COMPONENTS.indexOf(rec);
   }, []);
 
   const detailRecord =
@@ -140,6 +171,7 @@ export default function HomologationCopilotPage() {
           message: msg,
           selectedIndices: pinned,
           includeFullWashcoat: includeFullWashcoat,
+          answerFocus,
         }),
       });
       const data = (await res.json()) as { content?: string; error?: string };
@@ -153,7 +185,37 @@ export default function HomologationCopilotPage() {
     } finally {
       setCopilotLoading(false);
     }
-  }, [copilotMessage, pinned, includeFullWashcoat]);
+  }, [copilotMessage, pinned, includeFullWashcoat, answerFocus]);
+
+  const copyPinnedSummary = useCallback(async () => {
+    if (pinned.length === 0) {
+      toast.message("Pin at least one ECS row to copy a summary");
+      return;
+    }
+    const lines: string[] = [
+      `Bosal AM — OEM reference pins (${OEM_DB_MANIFEST.databaseVersion})`,
+      `Source: ${OEM_DB_MANIFEST.sourceFile}`,
+      "",
+    ];
+    for (const i of pinned) {
+      const r = ECS_COMPONENTS[i];
+      lines.push(
+        `## ${r.brand} — ${r.engineFamily} (${r.engineCodes})`,
+        `- Emission: ${r.emissionStandard} · ${r.years} · ${r.vehicleExamples}`,
+        `- Component: ${r.componentType} @ ${r.position} (Comp# ${r.componentNumber})`,
+        `- Substrate: ${r.substrate} Ø${r.diameterMm}×L${r.lengthMm} mm · ${r.cpsi} CPSI`,
+        `- PGM g/L: Pt ${r.ptGPerL} · Pd ${r.pdGPerL} · Rh ${r.rhGPerL} (total ${r.totalPgmGPerL})`,
+        `- Confidence / source: ${r.confidence} — ${r.source}`,
+        "",
+      );
+    }
+    try {
+      await navigator.clipboard.writeText(lines.join("\n"));
+      toast.success("Pinned summary copied to clipboard");
+    } catch {
+      toast.error("Could not copy to clipboard");
+    }
+  }, [pinned]);
 
   return (
     <div className="flex flex-col gap-6 p-6">
@@ -196,6 +258,10 @@ export default function HomologationCopilotPage() {
           <TabsTrigger value="ecs" className="gap-1.5">
             <Database className="size-3.5" />
             ECS database
+          </TabsTrigger>
+          <TabsTrigger value="workspace" className="gap-1.5">
+            <ClipboardList className="size-3.5" />
+            Workspace
           </TabsTrigger>
           <TabsTrigger value="reference" className="gap-1.5">
             <FileText className="size-3.5" />
@@ -277,14 +343,26 @@ export default function HomologationCopilotPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={() => setPinned([])}
-                disabled={pinned.length === 0}
-              >
-                Clear pins ({pinned.length})
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => void copyPinnedSummary()}
+                  disabled={pinned.length === 0}
+                  className="gap-1.5"
+                >
+                  <Copy className="size-3.5" />
+                  Copy pinned summary
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => setPinned([])}
+                  disabled={pinned.length === 0}
+                >
+                  Clear pins ({pinned.length})
+                </Button>
+              </div>
             </CardContent>
           </Card>
 
@@ -304,15 +382,14 @@ export default function HomologationCopilotPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredEcs.length === 0 ? (
+                    {filteredRows.length === 0 ? (
                       <TableRow>
                         <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
                           No rows match filters.
                         </TableCell>
                       </TableRow>
                     ) : (
-                      filteredEcs.map((rec) => {
-                        const gi = globalIndexForRecord(rec);
+                      pageRows.map(({ record: rec, globalIndex: gi }) => {
                         const isPinned = pinned.includes(gi);
                         return (
                           <TableRow
@@ -377,10 +454,84 @@ export default function HomologationCopilotPage() {
                   </TableBody>
                 </Table>
               </div>
-              <p className="text-xs text-muted-foreground p-3">
-                Showing {filteredEcs.length} of {ECS_COMPONENTS.length} records. Click a
-                row (except pin) to open full detail.
-              </p>
+              <div className="flex flex-col gap-2 border-t p-3 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-xs text-muted-foreground">
+                  Page {safeTablePage + 1} of {pageCount} · Showing{" "}
+                  {filteredRows.length === 0
+                    ? 0
+                    : safeTablePage * PAGE_SIZE + 1}
+                  –
+                  {Math.min((safeTablePage + 1) * PAGE_SIZE, filteredRows.length)} of{" "}
+                  {filteredRows.length} filtered ({ECS_COMPONENTS.length} total). Click a
+                  row (except pin) for full detail.
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="gap-1"
+                    disabled={safeTablePage <= 0}
+                    onClick={() => setTablePage((p) => Math.max(0, p - 1))}
+                  >
+                    <ChevronLeft className="size-4" />
+                    Prev
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="gap-1"
+                    disabled={safeTablePage >= pageCount - 1}
+                    onClick={() => setTablePage((p) => Math.min(pageCount - 1, p + 1))}
+                  >
+                    Next
+                    <ChevronRight className="size-4" />
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="workspace" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Homologation workspace</CardTitle>
+              <CardDescription>
+                Process orientation for Bosal AM — not a legal checklist. Pair with pinned
+                ECS rows and the AI copilot for vehicle-specific work.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" size="sm" asChild>
+                  <Link href="/catsizer/depollution">OEM sizing (depollution)</Link>
+                </Button>
+                <Button variant="outline" size="sm" asChild>
+                  <Link href="/aftermarket/wltp">WLTP simulation</Link>
+                </Button>
+                <Button variant="outline" size="sm" asChild>
+                  <Link href="/compliance">Compliance hub</Link>
+                </Button>
+              </div>
+              <ol className="space-y-5 text-sm">
+                {HOMOLOGATION_WORKFLOW_STEPS.map((block) => (
+                  <li key={block.phase}>
+                    <p className="font-medium text-foreground">{block.phase}</p>
+                    <ul className="mt-2 list-disc space-y-1 pl-5 text-muted-foreground">
+                      {block.items.map((item) => (
+                        <li
+                          key={item}
+                          className="[&_strong]:font-semibold [&_strong]:text-foreground"
+                        >
+                          {boldInline(item)}
+                        </li>
+                      ))}
+                    </ul>
+                  </li>
+                ))}
+              </ol>
             </CardContent>
           </Card>
         </TabsContent>
@@ -483,6 +634,44 @@ export default function HomologationCopilotPage() {
                   Include full washcoat + Pt–Pd tables in context (larger prompt, more
                   detail)
                 </Label>
+              </div>
+
+              <div className="grid gap-2 sm:max-w-xs">
+                <Label className="text-xs text-muted-foreground">Answer focus</Label>
+                <Select
+                  value={answerFocus}
+                  onValueChange={(v) => setAnswerFocus(v as CopilotAnswerFocus)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="balanced">Balanced</SelectItem>
+                    <SelectItem value="evidence">Evidence &amp; traceability</SelectItem>
+                    <SelectItem value="dossier">Homologation memo style</SelectItem>
+                    <SelectItem value="pgm">PGM &amp; R103 / OBD</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <p className="text-xs font-medium text-muted-foreground mb-2">
+                  Suggested questions
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {COPILOT_QUICK_PROMPTS.map((p) => (
+                    <Button
+                      key={p.label}
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-auto min-h-8 whitespace-normal text-left text-xs py-1.5"
+                      onClick={() => setCopilotMessage(p.text)}
+                    >
+                      {p.label}
+                    </Button>
+                  ))}
+                </div>
               </div>
 
               <div>
