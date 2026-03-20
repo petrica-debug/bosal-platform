@@ -99,6 +99,8 @@ import type {
   AIAdvisorResponse,
   AIAdvisorRecommendation,
 } from "@/lib/ai/types";
+import { useSharedCatalyst } from "@/lib/catsizer/shared-catalyst-context";
+import { LightOffCurveChart } from "@/app/(dashboard)/aftermarket/homologation-copilot/wizard-charts";
 
 // ─── Euro 6d-ISC Limits (g/km) ───────────────────────────────────────────────
 const EURO_LIMITS = {
@@ -521,6 +523,9 @@ function downsample<T>(data: T[], maxPoints: number): T[] {
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function WLTPPage() {
+  const { sharedDesign, clearSharedDesign } = useSharedCatalyst();
+  const [sharedDismissed, setSharedDismissed] = useState(false);
+
   // Cycle selection
   const [cycleType, setCycleType] = useState<"wltp" | "nedc" | "custom">("wltp");
   const [customCycle, setCustomCycle] = useState<CyclePoint[] | null>(null);
@@ -1241,6 +1246,81 @@ export default function WLTPPage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Shared Design Banner */}
+        {sharedDesign && !sharedDismissed && (
+          <Card className="border-primary/40 bg-primary/5">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Database className="size-4 text-primary" />
+                AM Copilot design available
+              </CardTitle>
+              <CardDescription className="text-xs">
+                <strong>{sharedDesign.label}</strong> — {sharedDesign.engineFamily ?? "—"} · {sharedDesign.emissionStandard ?? "—"}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="grid gap-2 sm:grid-cols-4 text-xs">
+                <div className="rounded border bg-background p-2">
+                  <p className="text-muted-foreground">Volume</p>
+                  <p className="font-mono font-semibold">{sharedDesign.substrateVolumeL} L</p>
+                </div>
+                <div className="rounded border bg-background p-2">
+                  <p className="text-muted-foreground">PGM loading</p>
+                  <p className="font-mono font-semibold">{sharedDesign.pgmLoadingGPerFt3} g/ft³</p>
+                </div>
+                <div className="rounded border bg-background p-2">
+                  <p className="text-muted-foreground">Aging factor</p>
+                  <p className="font-mono font-semibold">{sharedDesign.agingFactor}</p>
+                </div>
+                <div className="rounded border bg-background p-2">
+                  <p className="text-muted-foreground">OSC</p>
+                  <p className="font-mono font-semibold">{sharedDesign.oscGPerL} g/L (Ce {sharedDesign.cePercent}%)</p>
+                </div>
+              </div>
+              {sharedDesign.agingPrediction?.lightOffCurve && (
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-1">
+                    Light-off curve from chemistry engine (solid = fresh, dashed = aged after {sharedDesign.agingHours}h @ {sharedDesign.agingTempC}°C)
+                  </p>
+                  <LightOffCurveChart curve={sharedDesign.agingPrediction.lightOffCurve} />
+                </div>
+              )}
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  className="gap-1.5 text-xs"
+                  onClick={() => {
+                    setCatalyst((prev) => ({
+                      ...prev,
+                      volume: sharedDesign.substrateVolumeL,
+                      pgmLoading: sharedDesign.pgmLoadingGPerFt3,
+                      agingFactor: sharedDesign.agingFactor,
+                    }));
+                  }}
+                >
+                  Load into catalyst config
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-xs"
+                  onClick={() => setSharedDismissed(true)}
+                >
+                  Dismiss
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-xs text-destructive"
+                  onClick={() => { clearSharedDesign(); setSharedDismissed(true); }}
+                >
+                  Clear
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Catalyst Config */}
         <Card>

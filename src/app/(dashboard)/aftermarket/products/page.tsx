@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -38,8 +38,15 @@ import {
   Box,
   Ruler,
   Scale,
+  Share2,
+  FlaskConical,
+  ArrowUpRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useSharedCatalyst } from "@/lib/catsizer/shared-catalyst-context";
+import { DEFAULT_PGM_PRICES } from "@/lib/catsizer/oem-database/homologation-workflow";
+import { LightOffCurveChart } from "@/app/(dashboard)/aftermarket/homologation-copilot/wizard-charts";
+import { toast } from "sonner";
 
 // --- Substrate Catalog Data ---
 const DIAMETERS_MM = [93, 118, 143, 171, 229, 267, 305];
@@ -101,6 +108,9 @@ function computeWeight(vol_L: number, family: SubstrateFamily): number {
 }
 
 export default function ProductConfigPage() {
+  const { sharedDesign, setSharedDesign, clearSharedDesign } = useSharedCatalyst();
+  const [sharedDismissed, setSharedDismissed] = useState(false);
+
   const [bricks, setBricks] = useState<BrickConfig[]>([
     {
       id: "b1",
@@ -187,6 +197,81 @@ export default function ProductConfigPage() {
     setBricks((prev) => prev.map((b) => (b.id === id ? { ...b, ...upd } : b)));
   };
 
+  const importSharedDesignAsBrick = useCallback(() => {
+    if (!sharedDesign) return;
+    const match = SUBSTRATE_CATALOG.find(
+      (s) =>
+        s.cpsi === String(sharedDesign.cpsi) &&
+        (sharedDesign.substrateFamily === "metallic" ? s.family === "metallic" : s.family !== "metallic"),
+    ) ?? SUBSTRATE_CATALOG.find((s) => !s.family.includes("sic")) ?? SUBSTRATE_CATALOG[3];
+
+    const pd = sharedDesign.pdGPerL || 0.001;
+    const rh = sharedDesign.rhGPerL || 0.001;
+    const pt = sharedDesign.ptGPerL || 0.001;
+    const scale = 10 / Math.max(pd, rh, pt);
+    const newBrick: BrickConfig = {
+      id: `b${Date.now()}`,
+      position: "close-coupled",
+      catalystType: "TWC",
+      substrateId: match.id,
+      diameter_mm: sharedDesign.substrateDiameterMm,
+      length_mm: sharedDesign.substrateLengthMm,
+      volume_L: sharedDesign.substrateVolumeL,
+      weight_kg: 0,
+      pgmRatio: {
+        pt: +Math.min(10, pt * scale).toFixed(1),
+        pd: +Math.min(10, pd * scale).toFixed(1),
+        rh: +Math.min(10, rh * scale).toFixed(1),
+      },
+      totalLoading_g_ft3: sharedDesign.pgmLoadingGPerFt3,
+      washcoat: {
+        alumina: sharedDesign.washcoatTotalGPerL * 0.45,
+        cezr: sharedDesign.oscGPerL,
+        zeolite: 0,
+        binder: sharedDesign.washcoatTotalGPerL * 0.05,
+      },
+      zoneCoating: { front: 60, rear: 40 },
+    };
+    setBricks((prev) => [...prev, newBrick]);
+    toast.success(`Added ${sharedDesign.label} as TWC brick`, {
+      description: `${sharedDesign.substrateDiameterMm}×${sharedDesign.substrateLengthMm} mm · ${sharedDesign.pgmLoadingGPerFt3} g/ft³`,
+    });
+  }, [sharedDesign]);
+
+  const shareCurrentDesignToWltp = useCallback(() => {
+    const twcBrick = bricksComputed.find((b) => b.catalystType === "TWC");
+    if (!twcBrick) {
+      toast.error("No TWC brick found to share");
+      return;
+    }
+    const totalPgmGPerFt3 = twcBrick.totalLoading_g_ft3;
+    const totalPgmGPerL = totalPgmGPerFt3 / 28.3168;
+    const spec = SUBSTRATE_CATALOG.find((s) => s.id === twcBrick.substrateId);
+    setSharedDesign({
+      source: "products",
+      label: `TWC ${twcBrick.diameter_mm}×${twcBrick.length_mm} mm (Product Config)`,
+      sharedAt: new Date().toISOString(),
+      substrateDiameterMm: twcBrick.diameter_mm,
+      substrateLengthMm: twcBrick.length_mm,
+      substrateVolumeL: +twcBrick.volume_L.toFixed(3),
+      cpsi: parseInt(spec?.cpsi ?? "400"),
+      wallMil: spec?.wall_mil ?? 4,
+      substrateFamily: "cordierite",
+      pdGPerL: 0,
+      rhGPerL: 0,
+      ptGPerL: 0,
+      totalPgmGPerL: +totalPgmGPerL.toFixed(3),
+      pgmLoadingGPerFt3: totalPgmGPerFt3,
+      oscGPerL: twcBrick.washcoat.cezr,
+      cePercent: 45,
+      washcoatTotalGPerL: twcBrick.washcoat.alumina + twcBrick.washcoat.cezr + twcBrick.washcoat.binder,
+      agingTempC: 1050,
+      agingHours: 12,
+      agingFactor: 0.92,
+    });
+    toast.success("Design shared to WLTP Simulation");
+  }, [bricksComputed, setSharedDesign]);
+
   const addBrick = () => {
     const nextId = `b${Date.now()}`;
     setBricks((prev) => [
@@ -215,11 +300,97 @@ export default function ProductConfigPage() {
 
   return (
     <div className="flex flex-col gap-6 p-6">
-      <div>
-        <h1 className="text-2xl font-bold">Product Configuration</h1>
-        <p className="text-sm text-muted-foreground">
-          BOSAL substrate catalog, multi-brick configs, PGM & washcoat loading, zone coating
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold">Product Configuration</h1>
+          <p className="text-sm text-muted-foreground">
+            BOSAL substrate catalog, multi-brick configs, PGM &amp; washcoat loading, zone coating
+          </p>
+        </div>
+        <div className="flex gap-2 shrink-0">
+          <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={shareCurrentDesignToWltp}>
+            <ArrowUpRight className="size-3.5" /> Simulate in WLTP
+          </Button>
+          <a href="/aftermarket/homologation-copilot">
+            <Button size="sm" variant="outline" className="gap-1.5 text-xs">
+              <FlaskConical className="size-3.5" /> Open AM Copilot
+            </Button>
+          </a>
+        </div>
+      </div>
+
+      {/* Shared design banner from AM Copilot */}
+      {sharedDesign && !sharedDismissed && (
+        <Card className="border-primary/40 bg-primary/5">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Share2 className="size-4 text-primary" />
+              AM Copilot design available
+            </CardTitle>
+            <CardDescription className="text-xs">
+              <strong>{sharedDesign.label}</strong>
+              {sharedDesign.engineFamily && ` · ${sharedDesign.engineFamily}`}
+              {sharedDesign.emissionStandard && ` · ${sharedDesign.emissionStandard}`}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid gap-2 sm:grid-cols-5 text-xs">
+              <div className="rounded border bg-background p-2">
+                <p className="text-muted-foreground">Volume</p>
+                <p className="font-mono font-semibold">{sharedDesign.substrateVolumeL} L</p>
+              </div>
+              <div className="rounded border bg-background p-2">
+                <p className="text-muted-foreground">Ø × L</p>
+                <p className="font-mono font-semibold">{sharedDesign.substrateDiameterMm} × {sharedDesign.substrateLengthMm} mm</p>
+              </div>
+              <div className="rounded border bg-background p-2">
+                <p className="text-muted-foreground">PGM</p>
+                <p className="font-mono font-semibold">{sharedDesign.pgmLoadingGPerFt3} g/ft³</p>
+              </div>
+              <div className="rounded border bg-background p-2">
+                <p className="text-muted-foreground">OSC</p>
+                <p className="font-mono font-semibold">{sharedDesign.oscGPerL} g/L</p>
+              </div>
+              <div className="rounded border bg-background p-2">
+                <p className="text-muted-foreground">Washcoat</p>
+                <p className="font-mono font-semibold">{sharedDesign.washcoatTotalGPerL} g/L</p>
+              </div>
+            </div>
+            {sharedDesign.agingPrediction?.lightOffCurve && (
+              <div>
+                <p className="text-xs font-medium text-muted-foreground mb-1">
+                  Light-off curve (fresh vs aged after {sharedDesign.agingHours}h @ {sharedDesign.agingTempC}°C)
+                </p>
+                <LightOffCurveChart curve={sharedDesign.agingPrediction.lightOffCurve} />
+              </div>
+            )}
+            <div className="flex gap-2">
+              <Button size="sm" className="gap-1.5 text-xs" onClick={importSharedDesignAsBrick}>
+                <Plus className="size-3.5" /> Import as TWC brick
+              </Button>
+              <Button size="sm" variant="ghost" className="text-xs" onClick={() => setSharedDismissed(true)}>
+                Dismiss
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-xs text-destructive"
+                onClick={() => { clearSharedDesign(); setSharedDismissed(true); }}
+              >
+                Clear
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Shared PGM prices info from homologation-workflow */}
+      <div className="rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground flex flex-wrap gap-4 items-center">
+        <span className="font-semibold text-foreground">Platform PGM prices (EUR/g):</span>
+        <span>Pd: <strong className="font-mono text-foreground">{DEFAULT_PGM_PRICES.pdEurPerG}</strong></span>
+        <span>Rh: <strong className="font-mono text-foreground">{DEFAULT_PGM_PRICES.rhEurPerG}</strong></span>
+        <span>Pt: <strong className="font-mono text-foreground">{DEFAULT_PGM_PRICES.ptEurPerG}</strong></span>
+        <span className="ml-auto">Shared with AM Copilot &amp; BOM calculator</span>
       </div>
 
       <Tabs defaultValue="catalog" className="w-full">

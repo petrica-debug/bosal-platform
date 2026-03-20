@@ -69,6 +69,12 @@ import type {
 } from "./wizard-types";
 import { AgingCurvesChart, ObdSignalChart, VariantRadarChart, CostBarChart, LightOffCurveChart, T50ComparisonChart, SpaceVelocityChart } from "./wizard-charts";
 import { computeSpaceVelocityEffect } from "@/lib/catsizer/catalyst-chemistry";
+import {
+  useSharedCatalyst,
+  oscRetentionToAgingFactor,
+  type SharedCatalystDesign,
+} from "@/lib/catsizer/shared-catalyst-context";
+import { Share2 } from "lucide-react";
 
 type Wiz = ReturnType<typeof useWizard>;
 
@@ -1358,6 +1364,46 @@ export function Step8SpecCard({ wiz }: { wiz: Wiz }) {
   const ref = pinned[0];
   const tp = wiz.specCardData.testPlan;
   const r103 = wiz.specCardData.r103Scope;
+  const { setSharedDesign, sharedDesign } = useSharedCatalyst();
+  const [shared, setShared] = useState(false);
+
+  const handleShareToPlatform = useCallback(() => {
+    if (!selected) return;
+    const design: SharedCatalystDesign = {
+      source: "copilot",
+      label: `${selected.label} — ${ref?.emissionStandard ?? scope.emissionStandard}`,
+      sharedAt: new Date().toISOString(),
+      substrateDiameterMm: selected.substrate.diameterMm,
+      substrateLengthMm: selected.substrate.lengthMm,
+      substrateVolumeL: selected.substrate.volumeL,
+      cpsi: selected.substrate.cpsi,
+      wallMil: selected.substrate.wallMil,
+      substrateFamily: selected.substrate.material === "metallic" ? "metallic" : "cordierite",
+      pdGPerL: selected.pgm.pdGPerL,
+      rhGPerL: selected.pgm.rhGPerL,
+      ptGPerL: selected.pgm.ptGPerL,
+      totalPgmGPerL: selected.pgm.totalGPerL,
+      pgmLoadingGPerFt3: selected.pgm.totalGPerFt3,
+      oscGPerL: selected.oscTargetGPerL,
+      cePercent: c.cePercent,
+      washcoatTotalGPerL: c.totalWashcoatGPerL,
+      agingTempC: wiz.agingParams.agingTempC,
+      agingHours: wiz.agingParams.agingHours,
+      agingFactor: selected.agingPrediction
+        ? oscRetentionToAgingFactor(selected.agingPrediction.osc.retentionPct)
+        : 0.92,
+      agingPrediction: selected.agingPrediction ?? undefined,
+      emissionStandard: ref?.emissionStandard ?? scope.emissionStandard,
+      engineFamily: ref?.engineFamily ?? scope.engineSearch,
+      oemPgmGPerL: baseline.totalPgmGPerL,
+      oemOscGPerL: baseline.totalOscGPerL,
+    };
+    setSharedDesign(design);
+    setShared(true);
+    toast.success("Design shared to WLTP Simulation & Product Configuration", {
+      description: "Open either tool — your catalyst design will be pre-loaded.",
+    });
+  }, [selected, c, wiz.agingParams, ref, scope, baseline, setSharedDesign]);
 
   const specText = useMemo(() => {
     if (!selected) return "";
@@ -1489,10 +1535,33 @@ export function Step8SpecCard({ wiz }: { wiz: Wiz }) {
             <Button variant="outline" className="gap-1.5" onClick={exportJson}>
               <Download className="size-4" /> Export JSON
             </Button>
+            <Button
+              variant={shared ? "default" : "outline"}
+              className="gap-1.5"
+              onClick={handleShareToPlatform}
+              disabled={!selected}
+            >
+              <Share2 className="size-4" />
+              {shared ? "Design shared ✓" : "Share to WLTP & Products"}
+            </Button>
             <Button variant="outline" className="gap-1.5" onClick={wiz.resetWizard}>
               <RotateCcw className="size-4" /> Start new product
             </Button>
           </div>
+
+          {(shared || sharedDesign?.source === "copilot") && (
+            <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 text-xs space-y-1">
+              <p className="font-semibold text-primary">Design is live in the platform</p>
+              <p className="text-muted-foreground">
+                Navigate to <strong>WLTP Simulation</strong> or <strong>Product Configuration</strong> — your catalyst design ({selected?.label}) will be pre-loaded automatically.
+              </p>
+              <div className="flex gap-2 mt-2">
+                <a href="/aftermarket/wltp" className="underline text-primary">Open WLTP Simulation →</a>
+                <span className="text-muted-foreground">·</span>
+                <a href="/aftermarket/products" className="underline text-primary">Open Product Configuration →</a>
+              </div>
+            </div>
+          )}
 
           {tp && (
             <>
