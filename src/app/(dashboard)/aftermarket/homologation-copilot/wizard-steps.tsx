@@ -13,6 +13,10 @@ import {
   Loader2,
   RotateCcw,
   Sparkles,
+  AlertTriangle,
+  ShieldCheck,
+  ShieldAlert,
+  XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -45,12 +49,12 @@ import {
 } from "@/components/ui/table";
 
 import {
-  ECS_COMPONENTS,
   OEM_DB_MANIFEST,
   uniqueBrands,
   uniqueEmissionStandards,
 } from "@/lib/catsizer/oem-database";
 import type { EcsFilteredRow } from "@/lib/catsizer/oem-database/search";
+import type { SystemArchitecture } from "@/lib/catsizer/system-design";
 
 import type { useWizard } from "./use-wizard";
 import type {
@@ -63,6 +67,7 @@ import type {
   VariantTier,
   VehicleScopeInput,
 } from "./wizard-types";
+import { AgingCurvesChart, ObdSignalChart, VariantRadarChart, CostBarChart } from "./wizard-charts";
 
 type Wiz = ReturnType<typeof useWizard>;
 
@@ -78,8 +83,16 @@ function eur(v: number): string {
 const PROSE_CLASSES =
   "prose prose-sm dark:prose-invert max-w-none [&_table]:text-xs [&_th]:px-2 [&_td]:px-2";
 
+const SYSTEM_ARCHITECTURES: { value: SystemArchitecture; label: string }[] = [
+  { value: "CC-TWC-only", label: "CC-TWC only (single brick)" },
+  { value: "CC-TWC+GPF", label: "CC-TWC + GPF (Euro 6d+)" },
+  { value: "CC-TWC+UF-TWC", label: "CC-TWC + UF-TWC (HEV)" },
+  { value: "DOC+SDPF+SCR", label: "DOC + SDPF + SCR (diesel)" },
+  { value: "DOC+DPF+SCR", label: "DOC + DPF + SCR (diesel)" },
+];
+
 /* ================================================================== */
-/*  STEP 1 — Vehicle & Scope                                         */
+/*  STEP 1 — Vehicle & Scope (enhanced with architecture)             */
 /* ================================================================== */
 
 export function Step1VehicleScope({ wiz }: { wiz: Wiz }) {
@@ -106,7 +119,7 @@ export function Step1VehicleScope({ wiz }: { wiz: Wiz }) {
       <CardHeader>
         <CardTitle className="text-lg">Step 1 — Vehicle &amp; scope</CardTitle>
         <CardDescription>
-          Define the target application. The database will auto-filter to matching OEM references.
+          Define the target application and system architecture. The database will auto-filter to matching OEM references.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
@@ -149,6 +162,21 @@ export function Step1VehicleScope({ wiz }: { wiz: Wiz }) {
               </SelectContent>
             </Select>
           </div>
+        </div>
+
+        <div>
+          <Label className="text-xs text-muted-foreground mb-2 block">System architecture</Label>
+          <Select
+            value={local.systemArchitecture}
+            onValueChange={(v) => setLocal((p) => ({ ...p, systemArchitecture: v as SystemArchitecture }))}
+          >
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {SYSTEM_ARCHITECTURES.map((a) => (
+                <SelectItem key={a.value} value={a.value}>{a.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         <div>
@@ -304,6 +332,101 @@ export function Step2OemReference({ wiz }: { wiz: Wiz }) {
         <Button variant="outline" onClick={wiz.prev} className="gap-1.5">
           <ArrowLeft className="size-4" /> Back
         </Button>
+        <Button onClick={wiz.proceedToSystemDesign} disabled={wiz.oemRef.pinnedIndices.length === 0} className="gap-1.5">
+          Continue to system design <ArrowRight className="size-4" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/* ================================================================== */
+/*  STEP 3 — System Design (NEW)                                      */
+/* ================================================================== */
+
+export function Step3SystemDesign({ wiz }: { wiz: Wiz }) {
+  const sd = wiz.systemDesign.result;
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Step 3 — System design</CardTitle>
+          <CardDescription>
+            Multi-brick coordinated architecture: {wiz.vehicleScope.systemArchitecture}. Backpressure budget and per-brick allocation.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {!sd ? (
+            <p className="text-sm text-muted-foreground">System design not yet computed.</p>
+          ) : (
+            <>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <InfoCard label="Architecture" value={sd.architecture} />
+                <InfoCard label="Total backpressure" value={`${sd.totalBackpressureKPa} kPa`} />
+                <InfoCard
+                  label="BP margin vs OEM+10%"
+                  value={`${sd.backpressureMarginPct}%`}
+                  variant={sd.backpressureMarginPct < 0 ? "danger" : sd.backpressureMarginPct < 10 ? "warning" : "success"}
+                />
+              </div>
+
+              <div className="overflow-auto rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Brick</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead className="text-right">Ø mm</TableHead>
+                      <TableHead className="text-right">L mm</TableHead>
+                      <TableHead className="text-right">Vol L</TableHead>
+                      <TableHead className="text-right">PGM g/L</TableHead>
+                      <TableHead className="text-right">OSC g/L</TableHead>
+                      <TableHead className="text-right">WC g/L</TableHead>
+                      <TableHead className="text-right">BP kPa</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {sd.bricks.map((b) => (
+                      <TableRow key={b.role}>
+                        <TableCell className="font-medium">{b.role}</TableCell>
+                        <TableCell>{b.substrateType}</TableCell>
+                        <TableCell className="text-right font-mono text-xs">{b.diameterMm}</TableCell>
+                        <TableCell className="text-right font-mono text-xs">{b.lengthMm}</TableCell>
+                        <TableCell className="text-right font-mono text-xs">{b.volumeL}</TableCell>
+                        <TableCell className="text-right font-mono text-xs">{b.pgmGPerL}</TableCell>
+                        <TableCell className="text-right font-mono text-xs">{b.oscGPerL}</TableCell>
+                        <TableCell className="text-right font-mono text-xs">{b.washcoatGPerL}</TableCell>
+                        <TableCell className="text-right font-mono text-xs">{b.backpressureKPa.toFixed(2)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+
+              <div className="grid gap-2 sm:grid-cols-2">
+                <InfoCard label="Total system PGM" value={`${sd.totalPgmG} g`} />
+                <InfoCard label="Total system OSC" value={`${sd.totalOscG} g`} />
+              </div>
+
+              {sd.notes.length > 0 && (
+                <div className="rounded-lg border bg-muted/30 p-3 space-y-1">
+                  {sd.notes.map((n, i) => (
+                    <p key={i} className={`text-xs ${n.startsWith("WARNING") ? "text-amber-600 dark:text-amber-400 font-medium" : "text-muted-foreground"}`}>
+                      {n}
+                    </p>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      <div className="flex justify-between">
+        <Button variant="outline" onClick={wiz.prev} className="gap-1.5">
+          <ArrowLeft className="size-4" /> Back
+        </Button>
         <Button onClick={wiz.generateAmVariants} disabled={wiz.oemRef.pinnedIndices.length === 0} className="gap-1.5">
           Generate AM variants <ArrowRight className="size-4" />
         </Button>
@@ -313,11 +436,13 @@ export function Step2OemReference({ wiz }: { wiz: Wiz }) {
 }
 
 /* ================================================================== */
-/*  STEP 3 — AM Design Variants                                      */
+/*  STEP 4 — AM Design Variants (enhanced with aging)                 */
 /* ================================================================== */
 
 function VariantCard({ v, selected, onSelect }: { v: AmVariant; selected: boolean; onSelect: () => void }) {
   const riskColor = v.obdRisk === "LOW" ? "text-green-600 dark:text-green-400" : v.obdRisk === "MEDIUM" ? "text-yellow-600 dark:text-yellow-400" : "text-red-600 dark:text-red-400";
+  const aging = v.agingPrediction;
+
   return (
     <Card className={`cursor-pointer transition-all ${selected ? "ring-2 ring-primary" : "hover:border-primary/40"}`} onClick={onSelect}>
       <CardHeader className="pb-3">
@@ -340,11 +465,25 @@ function VariantCard({ v, selected, onSelect }: { v: AmVariant; selected: boolea
           <span className="font-mono">{v.oscTargetGPerL} g/L</span>
           <span className="text-muted-foreground">OSC ratio</span>
           <span className="font-mono">{v.oscRatio}</span>
-          <span className="text-muted-foreground">PGM derating</span>
-          <span className="font-mono text-xs">{v.pgmDeratingFactor[0]}–{v.pgmDeratingFactor[1]}</span>
-          <span className="text-muted-foreground">OSC derating</span>
-          <span className="font-mono text-xs">{v.oscDeratingFactor[0]}–{v.oscDeratingFactor[1]}</span>
         </div>
+
+        {aging && (
+          <>
+            <Separator />
+            <p className="text-xs font-medium text-muted-foreground">Aging prediction (12h @ 1050°C)</p>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+              <span className="text-muted-foreground">OSC retention</span>
+              <span className="font-mono">{aging.osc.retentionPct}%</span>
+              <span className="text-muted-foreground">Pd dispersion</span>
+              <span className="font-mono">{aging.pgmPd.agedDispersionPct}%</span>
+              <span className="text-muted-foreground">T50 CO (aged)</span>
+              <span className="font-mono">{aging.predictedT50CoC}°C</span>
+              <span className="text-muted-foreground">T50 HC (aged)</span>
+              <span className="font-mono">{aging.predictedT50HcC}°C</span>
+            </div>
+          </>
+        )}
+
         <Separator />
         <div>
           <span className="text-muted-foreground">OBD risk: </span>
@@ -364,14 +503,14 @@ function VariantCard({ v, selected, onSelect }: { v: AmVariant; selected: boolea
   );
 }
 
-export function Step3Variants({ wiz }: { wiz: Wiz }) {
+export function Step4Variants({ wiz }: { wiz: Wiz }) {
   return (
     <div className="space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Step 3 — AM design variants</CardTitle>
+          <CardTitle className="text-lg">Step 4 — AM design variants</CardTitle>
           <CardDescription>
-            Three variants generated from OEM baseline ({wiz.oemBaseline.totalPgmGPerL.toFixed(2)} g/L PGM, {wiz.oemBaseline.totalOscGPerL.toFixed(1)} g/L OSC). Select one to proceed.
+            Three variants with aging predictions from OEM baseline ({wiz.oemBaseline.totalPgmGPerL.toFixed(2)} g/L PGM, {wiz.oemBaseline.totalOscGPerL.toFixed(1)} g/L OSC). Select one to proceed.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -385,6 +524,10 @@ export function Step3Variants({ wiz }: { wiz: Wiz }) {
             Get AI engineering commentary
           </Button>
 
+          {wiz.variants.variants.length > 0 && (
+            <VariantRadarChart variants={wiz.variants.variants} />
+          )}
+
           <div className="grid gap-4 md:grid-cols-3">
             {wiz.variants.variants.map((v) => (
               <VariantCard
@@ -395,6 +538,22 @@ export function Step3Variants({ wiz }: { wiz: Wiz }) {
               />
             ))}
           </div>
+
+          {wiz.variants.variants[0]?.agingPrediction && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Aging curves — selected variant</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <AgingCurvesChart
+                  prediction={
+                    wiz.variants.variants.find((v) => v.tier === wiz.variants.selectedTier)?.agingPrediction ??
+                    wiz.variants.variants[0].agingPrediction!
+                  }
+                />
+              </CardContent>
+            </Card>
+          )}
         </CardContent>
       </Card>
 
@@ -411,10 +570,10 @@ export function Step3Variants({ wiz }: { wiz: Wiz }) {
 }
 
 /* ================================================================== */
-/*  STEP 4 — Chemistry & Washcoat                                    */
+/*  STEP 5 — Chemistry & Washcoat (enhanced with Ce slider)           */
 /* ================================================================== */
 
-export function Step4Chemistry({ wiz }: { wiz: Wiz }) {
+export function Step5Chemistry({ wiz }: { wiz: Wiz }) {
   const c = wiz.chemistry;
   const selected = wiz.variants.variants.find((v) => v.tier === wiz.variants.selectedTier);
 
@@ -422,12 +581,30 @@ export function Step4Chemistry({ wiz }: { wiz: Wiz }) {
     <div className="space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Step 4 — Chemistry &amp; washcoat</CardTitle>
+          <CardTitle className="text-lg">Step 5 — Chemistry &amp; washcoat</CardTitle>
           <CardDescription>
             Washcoat specification for {selected?.label ?? "selected variant"} (OSC ratio {selected?.oscRatio ?? "—"}).
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
+          <div>
+            <Label className="text-xs text-muted-foreground">Ce content in CeO₂-ZrO₂ (%)</Label>
+            <div className="flex items-center gap-3 mt-1">
+              <input
+                type="range"
+                min={20}
+                max={60}
+                value={c.cePercent}
+                onChange={(e) => wiz.setCePercent(+e.target.value)}
+                className="flex-1"
+              />
+              <span className="font-mono text-sm w-12 text-right">{c.cePercent}%</span>
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Higher Ce% → more OSC capacity but faster crystallite coarsening during aging
+            </p>
+          </div>
+
           <div className="grid gap-6 md:grid-cols-2">
             <Card>
               <CardHeader className="pb-2">
@@ -464,6 +641,24 @@ export function Step4Chemistry({ wiz }: { wiz: Wiz }) {
             <span className="font-mono text-xs">{c.oscFormulation}</span>
           </div>
 
+          {selected?.agingPrediction && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Poison accumulation (160k km)</CardTitle>
+              </CardHeader>
+              <CardContent className="text-sm">
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                  <Row label="Sulfur" value={`${selected.agingPrediction.poison.sulfurMgPerBrick} mg/brick`} />
+                  <Row label="Phosphorus" value={`${selected.agingPrediction.poison.phosphorusMgPerBrick} mg/brick`} />
+                  <Row label="Zinc" value={`${selected.agingPrediction.poison.zincMgPerBrick} mg/brick`} />
+                  <Row label="GSA loss" value={`${selected.agingPrediction.poison.gsaLossPct}%`} />
+                  <Row label="T50 shift (poison)" value={`+${selected.agingPrediction.poison.t50ShiftFromPoisonC}°C`} />
+                  <Row label="Activity loss" value={`${selected.agingPrediction.poison.activityLossPct}%`} />
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           <Separator />
 
           <Button
@@ -488,8 +683,8 @@ export function Step4Chemistry({ wiz }: { wiz: Wiz }) {
         <Button variant="outline" onClick={wiz.prev} className="gap-1.5">
           <ArrowLeft className="size-4" /> Back
         </Button>
-        <Button onClick={() => wiz.proceedToEconomics()} className="gap-1.5">
-          Continue to economics <ArrowRight className="size-4" />
+        <Button onClick={wiz.proceedToObdValidation} className="gap-1.5">
+          Continue to OBD &amp; validation <ArrowRight className="size-4" />
         </Button>
       </div>
     </div>
@@ -506,10 +701,169 @@ function Row({ label, value, bold }: { label: string; value: string; bold?: bool
 }
 
 /* ================================================================== */
-/*  STEP 5 — Economics & Market                                       */
+/*  STEP 6 — OBD & Validation (NEW)                                   */
 /* ================================================================== */
 
-export function Step5Economics({ wiz }: { wiz: Wiz }) {
+export function Step6ObdValidation({ wiz }: { wiz: Wiz }) {
+  const obd = wiz.obdValidation;
+  const mc = obd.multiCycleResult;
+  const dv = obd.designValidation;
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Step 6 — OBD simulation &amp; design validation</CardTitle>
+          <CardDescription>
+            Rear-O₂ signal simulation, P0420 prediction, and design rules check.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          {mc && (
+            <>
+              <div className="grid gap-3 sm:grid-cols-4">
+                <InfoCard
+                  label="Overall OBD"
+                  value={mc.overallPass ? "PASS" : "FAIL"}
+                  variant={mc.overallPass ? "success" : "danger"}
+                />
+                <InfoCard
+                  label="Worst margin"
+                  value={`${mc.worstMarginPct}%`}
+                  variant={mc.worstMarginPct < 10 ? "warning" : "success"}
+                />
+                <InfoCard label="OBD strategy" value={obd.obdStrategy} />
+                <InfoCard label="OBD counter" value={String(mc.obdCounterFinal)} />
+              </div>
+
+              <div className="overflow-auto rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Cycle</TableHead>
+                      <TableHead className="text-right">OSC var %</TableHead>
+                      <TableHead className="text-right">Eff. OSC µmol</TableHead>
+                      <TableHead className="text-right">Metric</TableHead>
+                      <TableHead className="text-right">Threshold</TableHead>
+                      <TableHead className="text-right">Margin %</TableHead>
+                      <TableHead>Result</TableHead>
+                      <TableHead>MIL</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {mc.cycles.map((c) => (
+                      <TableRow key={c.cycleNumber}>
+                        <TableCell className="font-medium">Cycle {c.cycleNumber}</TableCell>
+                        <TableCell className="text-right font-mono text-xs">{c.oscVariationPct}</TableCell>
+                        <TableCell className="text-right font-mono text-xs">{c.effectiveOscUmol}</TableCell>
+                        <TableCell className="text-right font-mono text-xs">{c.p0420.metricValue}</TableCell>
+                        <TableCell className="text-right font-mono text-xs">{c.p0420.threshold}</TableCell>
+                        <TableCell className="text-right font-mono text-xs">{c.p0420.marginPct}</TableCell>
+                        <TableCell>
+                          <Badge variant={c.p0420.pass ? "default" : "destructive"} className="text-[10px]">
+                            {c.p0420.pass ? "PASS" : "FAIL"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={c.milStatus === "OFF" ? "outline" : c.milStatus === "PENDING" ? "secondary" : "destructive"} className="text-[10px]">
+                            {c.milStatus}
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {mc.cycles[0] && (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm">Rear-O₂ signal waveform (Cycle 1)</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <ObdSignalChart signal={mc.cycles[0].p0420.signal} />
+                  </CardContent>
+                </Card>
+              )}
+            </>
+          )}
+
+          {dv && (
+            <>
+              <Separator />
+              <h3 className="text-sm font-semibold flex items-center gap-2">
+                {dv.valid ? (
+                  <ShieldCheck className="size-4 text-green-600" />
+                ) : (
+                  <ShieldAlert className="size-4 text-red-600" />
+                )}
+                Design rules validation — {dv.blockCount} blocks, {dv.warnCount} warnings
+              </h3>
+
+              {dv.violations.length > 0 && (
+                <div className="space-y-2">
+                  {dv.violations.map((v) => (
+                    <div key={v.id} className="flex items-start gap-2 rounded-lg border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/30 p-3">
+                      <XCircle className="size-4 text-red-600 mt-0.5 shrink-0" />
+                      <div>
+                        <p className="text-sm font-medium text-red-800 dark:text-red-300">
+                          BLOCK: {v.field} = {String(v.value)} (limit: {String(v.limit)})
+                        </p>
+                        <p className="text-xs text-red-700 dark:text-red-400 mt-0.5">{v.explanation}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {dv.warnings.length > 0 && (
+                <div className="space-y-2">
+                  {dv.warnings.map((w) => (
+                    <div key={w.id} className="flex items-start gap-2 rounded-lg border border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/30 p-3">
+                      <AlertTriangle className="size-4 text-amber-600 mt-0.5 shrink-0" />
+                      <div>
+                        <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
+                          WARN: {w.field} = {String(w.value)} (limit: {String(w.limit)})
+                        </p>
+                        <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">{w.explanation}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {dv.valid && dv.warnCount === 0 && (
+                <div className="flex items-center gap-2 rounded-lg border border-green-200 dark:border-green-900 bg-green-50 dark:bg-green-950/30 p-3">
+                  <ShieldCheck className="size-4 text-green-600" />
+                  <p className="text-sm text-green-800 dark:text-green-300">All design rules pass. No violations or warnings.</p>
+                </div>
+              )}
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      <div className="flex justify-between">
+        <Button variant="outline" onClick={wiz.prev} className="gap-1.5">
+          <ArrowLeft className="size-4" /> Back
+        </Button>
+        <Button
+          onClick={() => wiz.proceedToEconomics()}
+          disabled={dv != null && !dv.valid}
+          className="gap-1.5"
+        >
+          Continue to economics <ArrowRight className="size-4" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/* ================================================================== */
+/*  STEP 7 — Economics & Market (enhanced with competitor bench)       */
+/* ================================================================== */
+
+export function Step7Economics({ wiz }: { wiz: Wiz }) {
   const e = wiz.economics;
   const [prices, setPrices] = useState<PgmPrices>({ ...e.pgmPrices });
   const [pen, setPen] = useState(10);
@@ -527,9 +881,9 @@ export function Step5Economics({ wiz }: { wiz: Wiz }) {
     <div className="space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Step 5 — Economics &amp; market sizing</CardTitle>
+          <CardTitle className="text-lg">Step 7 — Economics &amp; market sizing</CardTitle>
           <CardDescription>
-            Cost breakdown and revenue potential across all three variants. Adjust PGM spot prices and AM penetration rate.
+            Cost breakdown, revenue potential, and competitor benchmarking.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
@@ -557,6 +911,8 @@ export function Step5Economics({ wiz }: { wiz: Wiz }) {
 
           {hasCosts && (
             <>
+              <CostBarChart costs={e.variantCosts} />
+
               <Separator />
               <h3 className="text-sm font-semibold">Cost breakdown per brick (€)</h3>
               <div className="overflow-auto rounded-md border">
@@ -613,6 +969,50 @@ export function Step5Economics({ wiz }: { wiz: Wiz }) {
               </div>
             </>
           )}
+
+          {e.benchmark && (
+            <>
+              <Separator />
+              <h3 className="text-sm font-semibold">Competitor benchmarking</h3>
+              <p className="text-xs text-muted-foreground">{e.benchmark.summary}</p>
+              <div className="overflow-auto rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Competitor</TableHead>
+                      <TableHead>PGM</TableHead>
+                      <TableHead>Price</TableHead>
+                      <TableHead>Warranty</TableHead>
+                      <TableHead>Position</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {e.benchmark.comparisons.map((c) => (
+                      <TableRow key={c.competitor.shortName}>
+                        <TableCell className="font-medium">{c.competitor.shortName}</TableCell>
+                        <TableCell>
+                          <Badge variant={c.pgmComparison === "higher" ? "default" : c.pgmComparison === "lower" ? "destructive" : "secondary"} className="text-[10px]">
+                            {c.pgmComparison} ({c.pgmDiffPct > 0 ? "+" : ""}{c.pgmDiffPct}%)
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={c.priceComparison === "cheaper" ? "default" : c.priceComparison === "more-expensive" ? "destructive" : "secondary"} className="text-[10px]">
+                            {c.priceComparison}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-xs">{c.warrantyComparison}</TableCell>
+                        <TableCell>
+                          <Badge variant={c.position === "advantage" ? "default" : c.position === "disadvantage" ? "destructive" : "outline"} className="text-[10px]">
+                            {c.position}
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </>
+          )}
         </CardContent>
       </Card>
 
@@ -621,7 +1021,7 @@ export function Step5Economics({ wiz }: { wiz: Wiz }) {
           <ArrowLeft className="size-4" /> Back
         </Button>
         <Button onClick={wiz.next} className="gap-1.5">
-          Continue to spec card <ArrowRight className="size-4" />
+          Continue to spec card &amp; test plan <ArrowRight className="size-4" />
         </Button>
       </div>
     </div>
@@ -629,10 +1029,10 @@ export function Step5Economics({ wiz }: { wiz: Wiz }) {
 }
 
 /* ================================================================== */
-/*  STEP 6 — Spec Card & Export                                       */
+/*  STEP 8 — Spec Card & Test Plan (enhanced)                         */
 /* ================================================================== */
 
-export function Step6SpecCard({ wiz }: { wiz: Wiz }) {
+export function Step8SpecCard({ wiz }: { wiz: Wiz }) {
   const selected = wiz.variants.variants.find((v) => v.tier === wiz.variants.selectedTier);
   const c = wiz.chemistry;
   const cost = wiz.economics.variantCosts[wiz.variants.selectedTier ?? "balanced"];
@@ -641,6 +1041,8 @@ export function Step6SpecCard({ wiz }: { wiz: Wiz }) {
   const scope = wiz.vehicleScope;
   const pinned = wiz.pinnedRecords;
   const ref = pinned[0];
+  const tp = wiz.specCardData.testPlan;
+  const r103 = wiz.specCardData.r103Scope;
 
   const specText = useMemo(() => {
     if (!selected) return "";
@@ -652,6 +1054,7 @@ export function Step6SpecCard({ wiz }: { wiz: Wiz }) {
       `  Target engine:  ${ref?.engineFamily ?? scope.engineSearch} (${ref?.engineCodes ?? "—"})`,
       `  Emission std:   ${ref?.emissionStandard ?? scope.emissionStandard}`,
       `  OEM reference:  ${ref?.brand ?? scope.brand} — ${ref?.componentType ?? "CC-TWC"}`,
+      `  Architecture:   ${scope.systemArchitecture}`,
       `  Database:       ${OEM_DB_MANIFEST.databaseVersion} (${OEM_DB_MANIFEST.sourceFile})`,
       "",
       "── SUBSTRATE ──────────────────────────────────────",
@@ -686,9 +1089,11 @@ export function Step6SpecCard({ wiz }: { wiz: Wiz }) {
       `  Total: ${selected.pgm.totalGPerL} g/L (${selected.pgm.totalGPerFt3} g/ft³)`,
       `  Pd:Rh ratio: ${selected.pgm.pdRhRatio}:1`,
       "",
-      "── PERFORMANCE TARGETS ────────────────────────────",
-      `  OSC:       ${selected.oscTargetGPerL} g/L`,
-      `  OSC ratio: ${selected.oscRatio} (AM/OEM fresh)`,
+      "── AGING PREDICTION ───────────────────────────────",
+      `  T50 CO (aged): ${selected.agingPrediction?.predictedT50CoC ?? "—"}°C`,
+      `  T50 HC (aged): ${selected.agingPrediction?.predictedT50HcC ?? "—"}°C`,
+      `  OSC retention: ${selected.agingPrediction?.osc.retentionPct ?? "—"}%`,
+      `  Pd dispersion: ${selected.agingPrediction?.pgmPd.agedDispersionPct ?? "—"}%`,
       "",
       "── OBD COMPATIBILITY ──────────────────────────────",
       `  Risk:  ${selected.obdRisk}`,
@@ -710,11 +1115,11 @@ export function Step6SpecCard({ wiz }: { wiz: Wiz }) {
       "── HOMOLOGATION ───────────────────────────────────",
       `  Test vehicle:  ${ref?.vehicleExamples ?? "TBD"} (lowest-emission variant)`,
       `  R103 scope:    ${ref?.engineFamily ?? scope.engineSearch} family`,
-      `  Aging:         80,000 km bench equivalent`,
+      `  Aging:         ${tp ? `${tp.sections[5]?.items?.[2] ?? "80,000 km bench equivalent"}` : "80,000 km bench equivalent"}`,
       "╚══════════════════════════════════════════════════╝",
     ];
     return lines.join("\n");
-  }, [selected, c, cost, market, ref, scope, baseline]);
+  }, [selected, c, cost, market, ref, scope, tp]);
 
   const copySpec = useCallback(async () => {
     try {
@@ -728,7 +1133,16 @@ export function Step6SpecCard({ wiz }: { wiz: Wiz }) {
   const exportJson = useCallback(() => {
     if (!selected) return;
     const blob = new Blob(
-      [JSON.stringify({ variant: selected, chemistry: c, cost, market, oemBaseline: baseline, scope }, null, 2)],
+      [JSON.stringify({
+        variant: selected,
+        chemistry: c,
+        cost,
+        market,
+        oemBaseline: baseline,
+        scope,
+        testPlan: tp,
+        r103Scope: r103,
+      }, null, 2)],
       { type: "application/json" },
     );
     const url = URL.createObjectURL(blob);
@@ -737,15 +1151,15 @@ export function Step6SpecCard({ wiz }: { wiz: Wiz }) {
     a.download = `bosal-am-spec-${selected.tier}-${Date.now()}.json`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [selected, c, cost, market, baseline, scope]);
+  }, [selected, c, cost, market, baseline, scope, tp, r103]);
 
   return (
     <div className="space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Step 6 — AM product specification card</CardTitle>
+          <CardTitle className="text-lg">Step 8 — Specification &amp; R103 test plan</CardTitle>
           <CardDescription>
-            Final specification for {selected?.label ?? "—"}. Copy or export for PLM/ERP.
+            Final specification for {selected?.label ?? "—"}. Includes R103 test plan and engine family expansion.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -764,6 +1178,76 @@ export function Step6SpecCard({ wiz }: { wiz: Wiz }) {
               <RotateCcw className="size-4" /> Start new product
             </Button>
           </div>
+
+          {tp && (
+            <>
+              <Separator />
+              <h3 className="text-sm font-semibold">R103 Test Plan — {tp.title}</h3>
+              <p className="text-xs text-muted-foreground">
+                Ref: {tp.reference} · Est. {tp.estimatedDurationDays} days · Est. €{tp.estimatedCostEur.toLocaleString()}
+              </p>
+              <div className="space-y-3">
+                {tp.sections.map((s) => (
+                  <div key={s.number} className="rounded-lg border p-3">
+                    <p className="text-sm font-medium">{s.number}. {s.title}</p>
+                    <p className="text-xs text-muted-foreground mt-1">{s.content}</p>
+                    {s.items && s.items.length > 0 && (
+                      <ul className="mt-2 space-y-0.5 text-xs text-muted-foreground list-disc pl-4">
+                        {s.items.filter(Boolean).map((item, i) => (
+                          <li key={i}>{item}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+
+          {r103 && (
+            <>
+              <Separator />
+              <h3 className="text-sm font-semibold">R103 Scope Optimization</h3>
+              <p className="text-xs text-muted-foreground">
+                Test vehicle: {r103.testVehicle.engineCode} — {r103.selectionReason}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Min test vehicles: {r103.minTestVehicles}
+              </p>
+              {r103.memberRisks.length > 0 && (
+                <div className="overflow-auto rounded-md border mt-2">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Engine</TableHead>
+                        <TableHead className="text-right">Disp cc</TableHead>
+                        <TableHead className="text-right">Power kW</TableHead>
+                        <TableHead>Risk</TableHead>
+                        <TableHead>Factors</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {r103.memberRisks.map((mr) => (
+                        <TableRow key={mr.member.engineCode}>
+                          <TableCell className="font-medium">{mr.member.engineCode}</TableCell>
+                          <TableCell className="text-right font-mono text-xs">{mr.member.displacementCc}</TableCell>
+                          <TableCell className="text-right font-mono text-xs">{mr.member.powerKw}</TableCell>
+                          <TableCell>
+                            <Badge variant={mr.riskLevel === "LOW" ? "default" : mr.riskLevel === "MEDIUM" ? "secondary" : "destructive"} className="text-[10px]">
+                              {mr.riskLevel}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground max-w-[200px]">
+                            {mr.riskFactors.length > 0 ? mr.riskFactors.join("; ") : "—"}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </>
+          )}
         </CardContent>
       </Card>
 
@@ -772,6 +1256,23 @@ export function Step6SpecCard({ wiz }: { wiz: Wiz }) {
           <ArrowLeft className="size-4" /> Back
         </Button>
       </div>
+    </div>
+  );
+}
+
+/* ================================================================== */
+/*  Shared: Info Card                                                 */
+/* ================================================================== */
+
+function InfoCard({ label, value, variant }: { label: string; value: string; variant?: "success" | "warning" | "danger" }) {
+  const color = variant === "success" ? "text-green-600 dark:text-green-400"
+    : variant === "warning" ? "text-amber-600 dark:text-amber-400"
+    : variant === "danger" ? "text-red-600 dark:text-red-400"
+    : "";
+  return (
+    <div className="rounded-lg border p-3">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className={`text-sm font-semibold mt-0.5 ${color}`}>{value}</p>
     </div>
   );
 }

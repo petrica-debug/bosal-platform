@@ -1,6 +1,7 @@
 /**
  * Pure deterministic calculations for AM variant generation.
- * PGM/OSC derating, substrate sizing, washcoat spec, cost, and market sizing.
+ * PGM/OSC derating, substrate sizing, washcoat spec, cost, market sizing,
+ * and L3 chemistry/aging integration.
  */
 
 import type { EcsComponentRecord } from "@/lib/catsizer/oem-database/types";
@@ -14,6 +15,7 @@ import {
   VARIANT_TIER_OFFSETS,
   WASHCOAT_COST_EUR_PER_GPL,
 } from "@/lib/catsizer/oem-database/homologation-workflow";
+import { predictFullAging, type FullAgingPrediction } from "@/lib/catsizer/catalyst-chemistry";
 import type {
   AmVariant,
   CostBreakdown,
@@ -175,12 +177,38 @@ function computeSubstrate(baseline: OemBaseline): SubstrateSpec {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Generate 3 variants                                               */
+/*  L3: Compute aging prediction for a variant                        */
+/* ------------------------------------------------------------------ */
+
+export function computeVariantAging(
+  pgm: PgmSplit,
+  oscGPerL: number,
+  substrate: SubstrateSpec,
+  cePercent: number = 45,
+): FullAgingPrediction {
+  return predictFullAging({
+    cePercent,
+    oscLoadingGPerL: oscGPerL,
+    pdGPerL: pgm.pdGPerL,
+    rhGPerL: pgm.rhGPerL,
+    ptGPerL: pgm.ptGPerL,
+    substrateVolumeL: substrate.volumeL,
+    agingTempC: 1050,
+    agingHours: 12,
+    targetMileageKm: 160_000,
+    fuelType: "gasoline",
+    oilConsumptionLPer1000km: 0.2,
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/*  Generate 3 variants (with L3 aging predictions)                   */
 /* ------------------------------------------------------------------ */
 
 export function generateVariants(
   baseline: OemBaseline,
   emissionStandard: string,
+  cePercent: number = 45,
 ): AmVariant[] {
   const range = deratingRange(emissionStandard);
   const tiers: VariantTier[] = ["performance", "balanced", "value"];
@@ -215,6 +243,8 @@ export function generateVariants(
       +(oscFactor + 0.04).toFixed(2),
     ];
 
+    const agingPrediction = computeVariantAging(pgm, oscTargetGPerL, substrate, cePercent);
+
     return {
       tier,
       label: labels[tier],
@@ -227,6 +257,7 @@ export function generateVariants(
       obdRisk: risk,
       obdNote: note,
       aiCommentary: null,
+      agingPrediction,
     };
   });
 }

@@ -11,31 +11,38 @@ import {
   DEFAULT_PGM_PRICES,
   DEFAULT_AM_PENETRATION_PCT,
 } from "@/lib/catsizer/oem-database/homologation-workflow";
+import { designSystem } from "@/lib/catsizer/system-design";
+import { verifyObdMultiCycle } from "@/lib/catsizer/obd-simulation";
+import { validateDesign } from "@/lib/catsizer/design-rules";
+import { generateTestPlan } from "@/lib/catsizer/test-plan-generator";
+import { benchmarkVsCompetitors } from "@/lib/catsizer/competitor-bench";
+import { optimizeR103Scope, type EngineFamilyMember } from "@/lib/catsizer/family-expansion";
 import {
   computeCost,
   computeMarket,
   computeOemBaseline,
   computeWashcoatSpec,
   generateVariants,
+  computeVariantAging,
   type OemBaseline,
 } from "./variant-engine";
 import type {
-  AmVariant,
   ChemistrySpec,
-  ComponentScope,
   CostBreakdown,
   EconomicsData,
   MarketEstimate,
+  ObdValidationData,
   OemReferenceSelection,
   PgmPrices,
-  TargetMarket,
+  SpecCardData,
+  SystemDesignData,
   VariantSelection,
   VariantTier,
   VehicleScopeInput,
-  WizardState,
 } from "./wizard-types";
 
 const MAX_PINNED = 12;
+const TOTAL_STEPS = 8;
 
 function initialVehicleScope(): VehicleScopeInput {
   return {
@@ -45,11 +52,16 @@ function initialVehicleScope(): VehicleScopeInput {
     componentScope: ["CC-TWC"],
     targetMarket: "EU-West",
     packagingConstraints: "",
+    systemArchitecture: "CC-TWC-only",
   };
 }
 
 function initialOemRef(): OemReferenceSelection {
   return { pinnedIndices: [], aiBaselineSummary: null, baselineLoading: false };
+}
+
+function initialSystemDesign(): SystemDesignData {
+  return { result: null };
 }
 
 function initialVariants(): VariantSelection {
@@ -64,7 +76,12 @@ function initialChemistry(): ChemistrySpec {
     oscFormulation: "Ce₀.₄₅Zr₀.₄₅La₀.₀₅Nd₀.₀₅O₂",
     aiChemistryNotes: null,
     chemistryLoading: false,
+    cePercent: 45,
   };
+}
+
+function initialObdValidation(): ObdValidationData {
+  return { obdStrategy: "amplitude", multiCycleResult: null, designValidation: null };
 }
 
 function initialEconomics(): EconomicsData {
@@ -72,16 +89,24 @@ function initialEconomics(): EconomicsData {
     pgmPrices: { ...DEFAULT_PGM_PRICES },
     variantCosts: {} as Record<VariantTier, CostBreakdown>,
     variantMarket: {} as Record<VariantTier, MarketEstimate>,
+    benchmark: null,
   };
+}
+
+function initialSpecCardData(): SpecCardData {
+  return { testPlan: null, familyExpansion: null, r103Scope: null, familyMembers: [] };
 }
 
 export function useWizard() {
   const [step, setStep] = useState(0);
   const [vehicleScope, setVehicleScope] = useState<VehicleScopeInput>(initialVehicleScope);
   const [oemRef, setOemRef] = useState<OemReferenceSelection>(initialOemRef);
+  const [systemDesign, setSystemDesign] = useState<SystemDesignData>(initialSystemDesign);
   const [variants, setVariants] = useState<VariantSelection>(initialVariants);
   const [chemistry, setChemistry] = useState<ChemistrySpec>(initialChemistry);
+  const [obdValidation, setObdValidation] = useState<ObdValidationData>(initialObdValidation);
   const [economics, setEconomics] = useState<EconomicsData>(initialEconomics);
+  const [specCardData, setSpecCardData] = useState<SpecCardData>(initialSpecCardData);
 
   /* ---- Step 1: filter ECS rows ---- */
   const matchedRows: EcsFilteredRow[] = useMemo(
@@ -121,10 +146,10 @@ export function useWizard() {
 
   /* ---- Step navigation ---- */
   const goTo = useCallback((s: number) => {
-    setStep(Math.max(0, Math.min(5, s)));
+    setStep(Math.max(0, Math.min(TOTAL_STEPS - 1, s)));
   }, []);
 
-  const next = useCallback(() => setStep((s) => Math.min(5, s + 1)), []);
+  const next = useCallback(() => setStep((s) => Math.min(TOTAL_STEPS - 1, s + 1)), []);
   const prev = useCallback(() => setStep((s) => Math.max(0, s - 1)), []);
 
   /* ---- Step 1 → 2 transition ---- */
@@ -173,17 +198,31 @@ export function useWizard() {
     }
   }, [oemRef.pinnedIndices]);
 
-  /* ---- Step 2 → 3: generate variants ---- */
+  /* ---- Step 2 → 3: compute system design ---- */
+  const proceedToSystemDesign = useCallback(() => {
+    const arch = vehicleScope.systemArchitecture;
+    const result = designSystem({
+      architecture: arch,
+      totalPgmBudgetGPerL: oemBaseline.totalPgmGPerL * 0.60,
+      totalOscBudgetGPerL: oemBaseline.totalOscGPerL * 0.65,
+      ratedExhaustFlowKgPerH: 120,
+      oemBackpressureKPa: 8,
+    });
+    setSystemDesign({ result });
+    next();
+  }, [vehicleScope.systemArchitecture, oemBaseline, next]);
+
+  /* ---- Step 3 → 4: generate variants ---- */
   const generateAmVariants = useCallback(() => {
     const emStd = vehicleScope.emissionStandard === "all"
       ? pinnedRecords[0]?.emissionStandard ?? "Euro 6d"
       : vehicleScope.emissionStandard;
-    const vs = generateVariants(oemBaseline, emStd);
+    const vs = generateVariants(oemBaseline, emStd, chemistry.cePercent);
     setVariants({ variants: vs, selectedTier: null, aiLoading: false });
     next();
-  }, [oemBaseline, vehicleScope.emissionStandard, pinnedRecords, next]);
+  }, [oemBaseline, vehicleScope.emissionStandard, pinnedRecords, next, chemistry.cePercent]);
 
-  /* ---- Step 3: AI commentary for variants ---- */
+  /* ---- Step 4: AI commentary for variants ---- */
   const requestVariantCommentary = useCallback(async () => {
     if (variants.variants.length === 0) return;
     setVariants((p) => ({ ...p, aiLoading: true }));
@@ -221,12 +260,12 @@ export function useWizard() {
     }
   }, [variants.variants, oemRef.pinnedIndices, vehicleScope.emissionStandard, vehicleScope.componentScope]);
 
-  /* ---- Step 3: select variant ---- */
+  /* ---- Step 4: select variant ---- */
   const selectVariant = useCallback((tier: VariantTier) => {
     setVariants((p) => ({ ...p, selectedTier: tier }));
   }, []);
 
-  /* ---- Step 3 → 4: compute chemistry ---- */
+  /* ---- Step 4 → 5: compute chemistry ---- */
   const proceedToChemistry = useCallback(() => {
     const selected = variants.variants.find((v) => v.tier === variants.selectedTier);
     if (!selected) {
@@ -242,11 +281,28 @@ export function useWizard() {
       oscFormulation: oscFactor >= 0.70 ? "Ce₀.₄₅Zr₀.₄₅La₀.₀₅Nd₀.₀₅O₂" : "Ce₀.₃₅Zr₀.₅₅La₀.₀₅Nd₀.₀₅O₂",
       aiChemistryNotes: null,
       chemistryLoading: false,
+      cePercent: chemistry.cePercent,
     });
     next();
-  }, [variants, oemBaseline, next]);
+  }, [variants, oemBaseline, next, chemistry.cePercent]);
 
-  /* ---- Step 4: AI chemistry notes ---- */
+  /* ---- Step 5: Ce% slider ---- */
+  const setCePercent = useCallback((ce: number) => {
+    setChemistry((p) => ({ ...p, cePercent: ce }));
+    // Re-compute aging for selected variant with new Ce%
+    const selected = variants.variants.find((v) => v.tier === variants.selectedTier);
+    if (selected) {
+      const aging = computeVariantAging(selected.pgm, selected.oscTargetGPerL, selected.substrate, ce);
+      setVariants((p) => ({
+        ...p,
+        variants: p.variants.map((v) =>
+          v.tier === p.selectedTier ? { ...v, agingPrediction: aging } : v,
+        ),
+      }));
+    }
+  }, [variants]);
+
+  /* ---- Step 5: AI chemistry notes ---- */
   const requestChemistryNotes = useCallback(async () => {
     setChemistry((p) => ({ ...p, chemistryLoading: true, aiChemistryNotes: null }));
     const selected = variants.variants.find((v) => v.tier === variants.selectedTier);
@@ -255,7 +311,7 @@ export function useWizard() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: `For the selected ${selected?.label ?? "balanced"} variant (PGM ${selected?.pgm.totalGPerL ?? 0} g/L, OSC ratio ${selected?.oscRatio ?? 0}), provide washcoat chemistry recommendations: L1/L2 layer roles, OSC formulation choice, PGM impregnation strategy, and comparison to OEM fresh vs aged. Include supplier options (BASF, JM, Umicore).`,
+          message: `For the selected ${selected?.label ?? "balanced"} variant (PGM ${selected?.pgm.totalGPerL ?? 0} g/L, OSC ratio ${selected?.oscRatio ?? 0}, Ce ${chemistry.cePercent}%), provide washcoat chemistry recommendations: L1/L2 layer roles, OSC formulation choice (Ce:Zr ratio impact on aging), PGM impregnation strategy, poison resistance, and comparison to OEM fresh vs aged. Include supplier options (BASF, JM, Umicore).`,
           selectedIndices: oemRef.pinnedIndices,
           includeFullWashcoat: true,
           answerFocus: "pgm",
@@ -269,9 +325,50 @@ export function useWizard() {
       toast.error(e instanceof Error ? e.message : "Failed to get chemistry notes");
       setChemistry((p) => ({ ...p, chemistryLoading: false }));
     }
-  }, [variants, oemRef.pinnedIndices]);
+  }, [variants, oemRef.pinnedIndices, chemistry.cePercent]);
 
-  /* ---- Step 4 → 5: compute economics ---- */
+  /* ---- Step 5 → 6: OBD simulation & design validation ---- */
+  const proceedToObdValidation = useCallback(() => {
+    const selected = variants.variants.find((v) => v.tier === variants.selectedTier);
+    if (!selected || !selected.agingPrediction) {
+      toast.error("No variant or aging data available");
+      return;
+    }
+
+    const amOscUmol = selected.agingPrediction.osc.agedUmolO2PerBrick;
+    const oemOscUmol = selected.agingPrediction.osc.freshUmolO2PerBrick * 0.4; // OEM aged ~40% of fresh
+
+    const mc = verifyObdMultiCycle({
+      amOscCapacityUmol: amOscUmol,
+      oemAgedOscUmol: oemOscUmol,
+      strategy: obdValidation.obdStrategy,
+    });
+
+    const dv = validateDesign(
+      {
+        pdGPerL: selected.pgm.pdGPerL,
+        rhGPerL: selected.pgm.rhGPerL,
+        ptGPerL: selected.pgm.ptGPerL,
+        totalPgmGPerL: selected.pgm.totalGPerL,
+        oscGPerL: selected.oscTargetGPerL,
+        washcoatGPerL: chemistry.totalWashcoatGPerL,
+        substrateDiameterMm: selected.substrate.diameterMm,
+        substrateLengthMm: selected.substrate.lengthMm,
+        substrateVolumeL: selected.substrate.volumeL,
+        predictedT50CoC: selected.agingPrediction.predictedT50CoC,
+      },
+      {
+        oemFreshPgmGPerL: oemBaseline.totalPgmGPerL,
+        oemFreshOscGPerL: oemBaseline.totalOscGPerL,
+        oemAgedT50CoC: 300, // typical OEM aged T50
+      },
+    );
+
+    setObdValidation({ obdStrategy: obdValidation.obdStrategy, multiCycleResult: mc, designValidation: dv });
+    next();
+  }, [variants, oemBaseline, chemistry.totalWashcoatGPerL, obdValidation.obdStrategy, next]);
+
+  /* ---- Step 6 → 7: compute economics + competitor benchmark ---- */
   const proceedToEconomics = useCallback(
     (prices?: PgmPrices) => {
       const p = prices ?? { ...DEFAULT_PGM_PRICES };
@@ -284,14 +381,78 @@ export function useWizard() {
         variantCosts[v.tier] = cost;
         variantMarket[v.tier] = computeMarket(oemBaseline.productionVolumeEu, cost.targetRetail, pen);
       }
+
+      // Competitor benchmarking for selected variant
+      const selected = variants.variants.find((v) => v.tier === variants.selectedTier);
+      const selectedCost = selected ? variantCosts[selected.tier] : null;
+      const benchmark = selected && selectedCost
+        ? benchmarkVsCompetitors({
+            bosalPgmGPerL: selected.pgm.totalGPerL,
+            oemFreshPgmGPerL: oemBaseline.totalPgmGPerL,
+            bosalEstimatedRetailEur: selectedCost.targetRetail,
+          })
+        : null;
+
       setEconomics({
         pgmPrices: p,
         variantCosts: variantCosts as Record<VariantTier, CostBreakdown>,
         variantMarket: variantMarket as Record<VariantTier, MarketEstimate>,
+        benchmark,
       });
+
+      // Generate test plan and R103 scope
+      const ref = pinnedRecords[0];
+      const emStd = vehicleScope.emissionStandard === "all"
+        ? ref?.emissionStandard ?? "Euro 6d"
+        : vehicleScope.emissionStandard;
+
+      const familyMembers: EngineFamilyMember[] = pinnedRecords.slice(0, 5).map((r) => ({
+        engineCode: String(r.engineCodes ?? r.engineFamily ?? "Unknown"),
+        displacementCc: (parseFloat(String(r.displacementL ?? "1.0")) || 1.0) * 1000,
+        powerKw: parseFloat(String(r.powerKw ?? "100")) || 100,
+        maxExhaustTempC: 850,
+        inertiaClassKg: 1500,
+        vehicleModel: String(r.vehicleExamples ?? ""),
+      }));
+
+      let r103Scope = null;
+      if (familyMembers.length > 0) {
+        try {
+          r103Scope = optimizeR103Scope({
+            familyMembers,
+            emissionStandard: emStd,
+            amComponentList: vehicleScope.componentScope,
+          });
+        } catch { /* ignore if fails */ }
+      }
+
+      const testPlan = generateTestPlan({
+        emissionStandard: emStd,
+        engineFamilyCodes: familyMembers.map((m) => m.engineCode),
+        displacementRange: [
+          Math.min(...familyMembers.map((m) => m.displacementCc)),
+          Math.max(...familyMembers.map((m) => m.displacementCc)),
+        ],
+        powerRange: [
+          Math.min(...familyMembers.map((m) => m.powerKw)),
+          Math.max(...familyMembers.map((m) => m.powerKw)),
+        ],
+        amComponents: vehicleScope.componentScope,
+        testVehicleModel: r103Scope?.testVehicle.vehicleModel ?? familyMembers[0]?.vehicleModel ?? "TBD",
+        testVehicleEngineCode: r103Scope?.testVehicle.engineCode ?? familyMembers[0]?.engineCode ?? "TBD",
+        testVehicleInertiaKg: r103Scope?.testVehicle.inertiaClassKg ?? 1500,
+        agingProtocol: "RAT-A (EU standard)",
+        agingTempC: 1050,
+        agingHours: 12,
+        targetMileageKm: 160_000,
+        fuelType: "gasoline",
+        type6Required: vehicleScope.componentScope.includes("CC-TWC"),
+      });
+
+      setSpecCardData({ testPlan, familyExpansion: null, r103Scope, familyMembers });
       next();
     },
-    [variants.variants, oemBaseline, next],
+    [variants.variants, variants.selectedTier, oemBaseline, pinnedRecords, vehicleScope, next],
   );
 
   /* ---- Recalculate economics with new prices ---- */
@@ -305,13 +466,25 @@ export function useWizard() {
         variantCosts[v.tier] = cost;
         variantMarket[v.tier] = computeMarket(oemBaseline.productionVolumeEu, cost.targetRetail, penetration);
       }
+
+      const selected = variants.variants.find((v) => v.tier === variants.selectedTier);
+      const selectedCost = selected ? variantCosts[selected.tier] : null;
+      const benchmark = selected && selectedCost
+        ? benchmarkVsCompetitors({
+            bosalPgmGPerL: selected.pgm.totalGPerL,
+            oemFreshPgmGPerL: oemBaseline.totalPgmGPerL,
+            bosalEstimatedRetailEur: selectedCost.targetRetail,
+          })
+        : null;
+
       setEconomics({
         pgmPrices: prices,
         variantCosts: variantCosts as Record<VariantTier, CostBreakdown>,
         variantMarket: variantMarket as Record<VariantTier, MarketEstimate>,
+        benchmark,
       });
     },
-    [variants.variants, oemBaseline],
+    [variants.variants, variants.selectedTier, oemBaseline],
   );
 
   /* ---- Reset ---- */
@@ -319,9 +492,12 @@ export function useWizard() {
     setStep(0);
     setVehicleScope(initialVehicleScope());
     setOemRef(initialOemRef());
+    setSystemDesign(initialSystemDesign());
     setVariants(initialVariants());
     setChemistry(initialChemistry());
+    setObdValidation(initialObdValidation());
     setEconomics(initialEconomics());
+    setSpecCardData(initialSpecCardData());
   }, []);
 
   return {
@@ -337,18 +513,24 @@ export function useWizard() {
     togglePin,
     pinnedRecords,
     oemBaseline,
+    systemDesign,
     variants,
     selectVariant,
     chemistry,
     setChemistry,
+    setCePercent,
+    obdValidation,
     economics,
     setEconomics,
+    specCardData,
     submitVehicleScope,
     requestBaselineSummary,
+    proceedToSystemDesign,
     generateAmVariants,
     requestVariantCommentary,
     proceedToChemistry,
     requestChemistryNotes,
+    proceedToObdValidation,
     proceedToEconomics,
     recalcEconomics,
     resetWizard,

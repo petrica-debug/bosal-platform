@@ -1,4 +1,11 @@
 import type { EcsComponentRecord } from "@/lib/catsizer/oem-database/types";
+import type { FullAgingPrediction } from "@/lib/catsizer/catalyst-chemistry";
+import type { MultiCycleResult, ObdStrategy } from "@/lib/catsizer/obd-simulation";
+import type { SystemDesignResult, SystemArchitecture } from "@/lib/catsizer/system-design";
+import type { FamilyExpansionResult, R103ScopeResult, EngineFamilyMember } from "@/lib/catsizer/family-expansion";
+import type { ValidationResult } from "@/lib/catsizer/design-rules";
+import type { TestPlanResult } from "@/lib/catsizer/test-plan-generator";
+import type { BenchmarkResult } from "@/lib/catsizer/competitor-bench";
 
 /* ------------------------------------------------------------------ */
 /*  Step 1 — Vehicle & Scope                                          */
@@ -26,6 +33,8 @@ export interface VehicleScopeInput {
   componentScope: ComponentScope[];
   targetMarket: TargetMarket;
   packagingConstraints: string;
+  /** L3: selected system architecture */
+  systemArchitecture: SystemArchitecture;
 }
 
 /* ------------------------------------------------------------------ */
@@ -39,7 +48,15 @@ export interface OemReferenceSelection {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Step 3 — AM Design Variants                                       */
+/*  Step 3 — System Design (NEW)                                      */
+/* ------------------------------------------------------------------ */
+
+export interface SystemDesignData {
+  result: SystemDesignResult | null;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Step 4 — AM Design Variants (enhanced)                            */
 /* ------------------------------------------------------------------ */
 
 export type VariantTier = "performance" | "balanced" | "value";
@@ -79,6 +96,8 @@ export interface AmVariant {
   obdRisk: OBDRisk;
   obdNote: string;
   aiCommentary: string | null;
+  /** L3: full aging prediction */
+  agingPrediction: FullAgingPrediction | null;
 }
 
 export interface VariantSelection {
@@ -88,7 +107,7 @@ export interface VariantSelection {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Step 4 — Chemistry & Washcoat                                     */
+/*  Step 5 — Chemistry & Washcoat (enhanced)                          */
 /* ------------------------------------------------------------------ */
 
 export interface WashcoatLayerSpec {
@@ -108,10 +127,22 @@ export interface ChemistrySpec {
   oscFormulation: string;
   aiChemistryNotes: string | null;
   chemistryLoading: boolean;
+  /** L3: Ce:Zr slider value (Ce%) */
+  cePercent: number;
 }
 
 /* ------------------------------------------------------------------ */
-/*  Step 5 — Economics & Market                                       */
+/*  Step 6 — OBD & Validation (NEW)                                   */
+/* ------------------------------------------------------------------ */
+
+export interface ObdValidationData {
+  obdStrategy: ObdStrategy;
+  multiCycleResult: MultiCycleResult | null;
+  designValidation: ValidationResult | null;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Step 7 — Economics & Market (enhanced)                            */
 /* ------------------------------------------------------------------ */
 
 export interface PgmPrices {
@@ -140,10 +171,12 @@ export interface EconomicsData {
   pgmPrices: PgmPrices;
   variantCosts: Record<VariantTier, CostBreakdown>;
   variantMarket: Record<VariantTier, MarketEstimate>;
+  /** L3: competitor benchmarking */
+  benchmark: BenchmarkResult | null;
 }
 
 /* ------------------------------------------------------------------ */
-/*  Step 6 — Spec Card                                                */
+/*  Step 8 — Spec Card & Test Plan (enhanced)                         */
 /* ------------------------------------------------------------------ */
 
 export interface SpecCard {
@@ -168,17 +201,30 @@ export interface SpecCard {
   agingProtocol: string;
 }
 
+export interface SpecCardData {
+  /** L3: R103 test plan */
+  testPlan: TestPlanResult | null;
+  /** L3: engine family expansion */
+  familyExpansion: FamilyExpansionResult | null;
+  /** L3: R103 scope optimization */
+  r103Scope: R103ScopeResult | null;
+  /** L3: engine family members (user-editable) */
+  familyMembers: EngineFamilyMember[];
+}
+
 /* ------------------------------------------------------------------ */
-/*  Wizard State                                                      */
+/*  Wizard Steps & State                                              */
 /* ------------------------------------------------------------------ */
 
 export const WIZARD_STEPS = [
   { label: "Vehicle & scope", description: "Select target application" },
   { label: "OEM reference", description: "Review OEM baseline" },
+  { label: "System design", description: "Multi-brick architecture" },
   { label: "AM variants", description: "Compare design options" },
-  { label: "Chemistry", description: "Washcoat specification" },
-  { label: "Economics", description: "Cost & market sizing" },
-  { label: "Spec card", description: "Export final specification" },
+  { label: "Chemistry", description: "Washcoat & aging" },
+  { label: "OBD & validation", description: "OBD simulation & rules" },
+  { label: "Economics", description: "Cost, market & competitors" },
+  { label: "Spec & test plan", description: "Export & R103 plan" },
 ] as const;
 
 export interface WizardState {
@@ -186,7 +232,10 @@ export interface WizardState {
   vehicleScope: VehicleScopeInput;
   matchedRows: { record: EcsComponentRecord; globalIndex: number }[];
   oemRef: OemReferenceSelection;
+  systemDesign: SystemDesignData;
   variants: VariantSelection;
   chemistry: ChemistrySpec;
+  obdValidation: ObdValidationData;
   economics: EconomicsData;
+  specCardData: SpecCardData;
 }

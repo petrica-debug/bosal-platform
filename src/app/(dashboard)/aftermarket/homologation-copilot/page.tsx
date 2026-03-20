@@ -84,10 +84,12 @@ import { WIZARD_STEPS } from "./wizard-types";
 import {
   Step1VehicleScope,
   Step2OemReference,
-  Step3Variants,
-  Step4Chemistry,
-  Step5Economics,
-  Step6SpecCard,
+  Step3SystemDesign,
+  Step4Variants,
+  Step5Chemistry,
+  Step6ObdValidation,
+  Step7Economics,
+  Step8SpecCard,
 } from "./wizard-steps";
 
 const MAX_PINNED = 12;
@@ -304,10 +306,12 @@ export default function HomologationCopilotPage() {
           />
           {wiz.step === 0 && <Step1VehicleScope wiz={wiz} />}
           {wiz.step === 1 && <Step2OemReference wiz={wiz} />}
-          {wiz.step === 2 && <Step3Variants wiz={wiz} />}
-          {wiz.step === 3 && <Step4Chemistry wiz={wiz} />}
-          {wiz.step === 4 && <Step5Economics wiz={wiz} />}
-          {wiz.step === 5 && <Step6SpecCard wiz={wiz} />}
+          {wiz.step === 2 && <Step3SystemDesign wiz={wiz} />}
+          {wiz.step === 3 && <Step4Variants wiz={wiz} />}
+          {wiz.step === 4 && <Step5Chemistry wiz={wiz} />}
+          {wiz.step === 5 && <Step6ObdValidation wiz={wiz} />}
+          {wiz.step === 6 && <Step7Economics wiz={wiz} />}
+          {wiz.step === 7 && <Step8SpecCard wiz={wiz} />}
         </TabsContent>
 
         <TabsContent value="ecs" className="space-y-4">
