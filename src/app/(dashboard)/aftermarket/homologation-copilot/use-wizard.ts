@@ -27,6 +27,8 @@ import {
   type OemBaseline,
 } from "./variant-engine";
 import type {
+  AgingParams,
+  AmVariant,
   ChemistrySpec,
   CostBreakdown,
   EconomicsData,
@@ -35,10 +37,12 @@ import type {
   OemReferenceSelection,
   PgmPrices,
   SpecCardData,
+  SubstrateSpec,
   SystemDesignData,
   VariantSelection,
   VariantTier,
   VehicleScopeInput,
+  WashcoatLayerSpec,
 } from "./wizard-types";
 
 const MAX_PINNED = 12;
@@ -81,7 +85,11 @@ function initialChemistry(): ChemistrySpec {
 }
 
 function initialObdValidation(): ObdValidationData {
-  return { obdStrategy: "amplitude", multiCycleResult: null, designValidation: null };
+  return { obdStrategy: "amplitude", multiCycleResult: null, designValidation: null, exhaustFlowKgPerH: 120 };
+}
+
+function initialAgingParams(): AgingParams {
+  return { protocol: "RAT-A", agingTempC: 1050, agingHours: 12, exhaustFlowKgPerH: 120 };
 }
 
 function initialEconomics(): EconomicsData {
@@ -107,6 +115,7 @@ export function useWizard() {
   const [obdValidation, setObdValidation] = useState<ObdValidationData>(initialObdValidation);
   const [economics, setEconomics] = useState<EconomicsData>(initialEconomics);
   const [specCardData, setSpecCardData] = useState<SpecCardData>(initialSpecCardData);
+  const [agingParams, setAgingParamsState] = useState<AgingParams>(initialAgingParams);
 
   /* ---- Step 1: filter ECS rows ---- */
   const matchedRows: EcsFilteredRow[] = useMemo(
@@ -260,10 +269,132 @@ export function useWizard() {
     }
   }, [variants.variants, oemRef.pinnedIndices, vehicleScope.emissionStandard, vehicleScope.componentScope]);
 
+  /* ---- Helper: re-compute aging for all variants ---- */
+  const recomputeAllAging = useCallback(
+    (vs: AmVariant[], ce: number, ap: AgingParams) => {
+      return vs.map((v) => ({
+        ...v,
+        agingPrediction: computeVariantAging(v.pgm, v.oscTargetGPerL, v.substrate, ce, ap.agingTempC, ap.agingHours, ap.exhaustFlowKgPerH),
+      }));
+    },
+    [],
+  );
+
   /* ---- Step 4: select variant ---- */
   const selectVariant = useCallback((tier: VariantTier) => {
     setVariants((p) => ({ ...p, selectedTier: tier }));
   }, []);
+
+  /* ---- Step 4: update PGM field for a tier (live recalc aging) ---- */
+  const updateVariantPgm = useCallback(
+    (tier: VariantTier, field: "pdGPerL" | "rhGPerL" | "ptGPerL", value: number) => {
+      setVariants((prev) => {
+        const G_PER_FT3 = 0.0353147;
+        const updated = prev.variants.map((v) => {
+          if (v.tier !== tier) return v;
+          const newPgm = { ...v.pgm, [field]: value };
+          const total = +(newPgm.pdGPerL + newPgm.rhGPerL + newPgm.ptGPerL).toFixed(3);
+          const vol = v.substrate.volumeL || 1;
+          newPgm.totalGPerL = total;
+          newPgm.totalGPerFt3 = +(total / G_PER_FT3).toFixed(1);
+          newPgm.pdGPerBrick = +(newPgm.pdGPerL * vol).toFixed(3);
+          newPgm.rhGPerBrick = +(newPgm.rhGPerL * vol).toFixed(3);
+          newPgm.ptGPerBrick = +(newPgm.ptGPerL * vol).toFixed(3);
+          newPgm.pdRhRatio = newPgm.rhGPerL > 0 ? +((newPgm.pdGPerL / newPgm.rhGPerL).toFixed(1)) : 0;
+          const aging = computeVariantAging(newPgm, v.oscTargetGPerL, v.substrate, chemistry.cePercent, agingParams.agingTempC, agingParams.agingHours, agingParams.exhaustFlowKgPerH);
+          return { ...v, pgm: newPgm, agingPrediction: aging };
+        });
+        return { ...prev, variants: updated };
+      });
+    },
+    [chemistry.cePercent, agingParams],
+  );
+
+  /* ---- Step 4: update OSC target for a tier ---- */
+  const updateVariantOsc = useCallback(
+    (tier: VariantTier, oscGPerL: number) => {
+      setVariants((prev) => {
+        const updated = prev.variants.map((v) => {
+          if (v.tier !== tier) return v;
+          const newOscRatio = oemBaseline.totalOscGPerL > 0 ? +(oscGPerL / oemBaseline.totalOscGPerL).toFixed(3) : v.oscRatio;
+          const aging = computeVariantAging(v.pgm, oscGPerL, v.substrate, chemistry.cePercent, agingParams.agingTempC, agingParams.agingHours, agingParams.exhaustFlowKgPerH);
+          return { ...v, oscTargetGPerL: oscGPerL, oscRatio: newOscRatio, agingPrediction: aging };
+        });
+        return { ...prev, variants: updated };
+      });
+    },
+    [oemBaseline.totalOscGPerL, chemistry.cePercent, agingParams],
+  );
+
+  /* ---- Step 4: update substrate for a tier ---- */
+  const updateVariantSubstrate = useCallback(
+    (tier: VariantTier, field: keyof SubstrateSpec, value: number | string) => {
+      setVariants((prev) => {
+        const updated = prev.variants.map((v) => {
+          if (v.tier !== tier) return v;
+          const newSub = { ...v.substrate, [field]: value };
+          if (field === "diameterMm" || field === "lengthMm") {
+            const d = field === "diameterMm" ? (value as number) : newSub.diameterMm;
+            const l = field === "lengthMm" ? (value as number) : newSub.lengthMm;
+            newSub.volumeL = +((Math.PI * (d / 2) ** 2 * l) / 1e6).toFixed(3);
+          }
+          const aging = computeVariantAging(v.pgm, v.oscTargetGPerL, newSub, chemistry.cePercent, agingParams.agingTempC, agingParams.agingHours, agingParams.exhaustFlowKgPerH);
+          return { ...v, substrate: newSub, agingPrediction: aging };
+        });
+        return { ...prev, variants: updated };
+      });
+    },
+    [chemistry.cePercent, agingParams],
+  );
+
+  /* ---- Step 4/5: update aging protocol, re-run all variants ---- */
+  const updateAgingParams = useCallback(
+    (updates: Partial<AgingParams>) => {
+      setAgingParamsState((prev) => {
+        const next = { ...prev, ...updates };
+        setVariants((vPrev) => ({
+          ...vPrev,
+          variants: recomputeAllAging(vPrev.variants, chemistry.cePercent, next),
+        }));
+        return next;
+      });
+    },
+    [chemistry.cePercent, recomputeAllAging],
+  );
+
+  /* ---- Step 5: update a washcoat layer field inline ---- */
+  const updateChemistryLayer = useCallback(
+    (layer: "layer1" | "layer2", field: keyof WashcoatLayerSpec, value: number) => {
+      setChemistry((prev) => {
+        const updated = { ...prev[layer], [field]: value };
+        updated.totalGPerL = +(
+          updated.aluminaGPerL + updated.oscGPerL + updated.baoGPerL + updated.la2o3GPerL + updated.nd2o3GPerL
+        ).toFixed(1);
+        const newChem = { ...prev, [layer]: updated };
+        newChem.totalWashcoatGPerL = +(newChem.layer1.totalGPerL + newChem.layer2.totalGPerL).toFixed(1);
+        if (field === "oscCePercent") {
+          const avgCe = Math.round((newChem.layer1.oscCePercent + newChem.layer2.oscCePercent) / 2);
+          newChem.cePercent = avgCe;
+        }
+        return newChem;
+      });
+    },
+    [],
+  );
+
+  /* ---- Step 6: update OBD strategy ---- */
+  const updateObdStrategy = useCallback((strategy: ObdValidationData["obdStrategy"]) => {
+    setObdValidation((prev) => ({ ...prev, obdStrategy: strategy }));
+  }, []);
+
+  /* ---- Step 6: update exhaust flow ---- */
+  const updateExhaustFlow = useCallback(
+    (kgPerH: number) => {
+      setObdValidation((prev) => ({ ...prev, exhaustFlowKgPerH: kgPerH }));
+      updateAgingParams({ exhaustFlowKgPerH: kgPerH });
+    },
+    [updateAgingParams],
+  );
 
   /* ---- Step 4 → 5: compute chemistry ---- */
   const proceedToChemistry = useCallback(() => {
@@ -289,18 +420,11 @@ export function useWizard() {
   /* ---- Step 5: Ce% slider ---- */
   const setCePercent = useCallback((ce: number) => {
     setChemistry((p) => ({ ...p, cePercent: ce }));
-    // Re-compute aging for selected variant with new Ce%
-    const selected = variants.variants.find((v) => v.tier === variants.selectedTier);
-    if (selected) {
-      const aging = computeVariantAging(selected.pgm, selected.oscTargetGPerL, selected.substrate, ce);
-      setVariants((p) => ({
-        ...p,
-        variants: p.variants.map((v) =>
-          v.tier === p.selectedTier ? { ...v, agingPrediction: aging } : v,
-        ),
-      }));
-    }
-  }, [variants]);
+    setVariants((vPrev) => ({
+      ...vPrev,
+      variants: recomputeAllAging(vPrev.variants, ce, agingParams),
+    }));
+  }, [agingParams, recomputeAllAging]);
 
   /* ---- Step 5: AI chemistry notes ---- */
   const requestChemistryNotes = useCallback(async () => {
@@ -342,6 +466,7 @@ export function useWizard() {
       amOscCapacityUmol: amOscUmol,
       oemAgedOscUmol: oemOscUmol,
       strategy: obdValidation.obdStrategy,
+      exhaustFlowKgPerH: obdValidation.exhaustFlowKgPerH,
     });
 
     const dv = validateDesign(
@@ -364,9 +489,9 @@ export function useWizard() {
       },
     );
 
-    setObdValidation({ obdStrategy: obdValidation.obdStrategy, multiCycleResult: mc, designValidation: dv });
+    setObdValidation({ obdStrategy: obdValidation.obdStrategy, multiCycleResult: mc, designValidation: dv, exhaustFlowKgPerH: obdValidation.exhaustFlowKgPerH });
     next();
-  }, [variants, oemBaseline, chemistry.totalWashcoatGPerL, obdValidation.obdStrategy, next]);
+  }, [variants, oemBaseline, chemistry.totalWashcoatGPerL, obdValidation.obdStrategy, obdValidation.exhaustFlowKgPerH, next]);
 
   /* ---- Step 6 → 7: compute economics + competitor benchmark ---- */
   const proceedToEconomics = useCallback(
@@ -498,6 +623,7 @@ export function useWizard() {
     setObdValidation(initialObdValidation());
     setEconomics(initialEconomics());
     setSpecCardData(initialSpecCardData());
+    setAgingParamsState(initialAgingParams());
   }, []);
 
   return {
@@ -516,10 +642,18 @@ export function useWizard() {
     systemDesign,
     variants,
     selectVariant,
+    updateVariantPgm,
+    updateVariantOsc,
+    updateVariantSubstrate,
     chemistry,
     setChemistry,
     setCePercent,
+    updateChemistryLayer,
+    agingParams,
+    updateAgingParams,
     obdValidation,
+    updateObdStrategy,
+    updateExhaustFlow,
     economics,
     setEconomics,
     specCardData,

@@ -185,6 +185,9 @@ export function computeVariantAging(
   oscGPerL: number,
   substrate: SubstrateSpec,
   cePercent: number = 45,
+  agingTempC: number = 1050,
+  agingHours: number = 12,
+  exhaustFlowKgPerH: number = 120,
 ): FullAgingPrediction {
   return predictFullAging({
     cePercent,
@@ -193,8 +196,9 @@ export function computeVariantAging(
     rhGPerL: pgm.rhGPerL,
     ptGPerL: pgm.ptGPerL,
     substrateVolumeL: substrate.volumeL,
-    agingTempC: 1050,
-    agingHours: 12,
+    agingTempC,
+    agingHours,
+    exhaustFlowKgPerH,
     targetMileageKm: 160_000,
     fuelType: "gasoline",
     oilConsumptionLPer1000km: 0.2,

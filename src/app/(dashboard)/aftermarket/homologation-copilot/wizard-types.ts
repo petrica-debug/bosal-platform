@@ -132,6 +132,19 @@ export interface ChemistrySpec {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Aging Parameters (user-adjustable)                                */
+/* ------------------------------------------------------------------ */
+
+export interface AgingParams {
+  /** Aging protocol label */
+  protocol: "RAT-A" | "ZDAKW" | "Bosal-bench" | "Custom";
+  agingTempC: number;
+  agingHours: number;
+  /** Exhaust flow for light-off / SV calc */
+  exhaustFlowKgPerH: number;
+}
+
+/* ------------------------------------------------------------------ */
 /*  Step 6 — OBD & Validation (NEW)                                   */
 /* ------------------------------------------------------------------ */
 
@@ -139,6 +152,7 @@ export interface ObdValidationData {
   obdStrategy: ObdStrategy;
   multiCycleResult: MultiCycleResult | null;
   designValidation: ValidationResult | null;
+  exhaustFlowKgPerH: number;
 }
 
 /* ------------------------------------------------------------------ */
@@ -238,4 +252,6 @@ export interface WizardState {
   obdValidation: ObdValidationData;
   economics: EconomicsData;
   specCardData: SpecCardData;
+  /** User-adjustable aging protocol for live recalculation */
+  agingParams: AgingParams;
 }

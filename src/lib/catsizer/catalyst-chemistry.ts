@@ -272,6 +272,172 @@ export function computeAgingEquivalence(params: {
 }
 
 /* ================================================================== */
+/*  Light-off Curve                                                   */
+/* ================================================================== */
+
+export interface LightOffPoint {
+  tempC: number;
+  coPct: number;
+  hcPct: number;
+  noxPct: number;
+}
+
+export interface LightOffCurve {
+  fresh: LightOffPoint[];
+  aged: LightOffPoint[];
+  t50FreshCo: number;
+  t50FreshHc: number;
+  t50AgedCo: number;
+  t50AgedHc: number;
+  /** Space velocity in h⁻¹ */
+  svH: number;
+}
+
+/**
+ * Sigmoidal light-off curve: conversion% = 100 / (1 + exp(-(T - T50) / k))
+ *
+ * T50 is derived from PGM loading and space velocity.
+ * Higher PGM loading → lower T50. Higher SV → higher T50.
+ * Steepness k ≈ 25°C for fresh TWC, 30°C after aging.
+ */
+export function computeLightOffCurve(params: {
+  pdGPerL: number;
+  rhGPerL: number;
+  ptGPerL?: number;
+  oscGPerL: number;
+  substrateVolumeL: number;
+  /** Rated exhaust flow in kg/h (default 120 kg/h) */
+  exhaustFlowKgPerH?: number;
+  agingTempC?: number;
+  agingHours?: number;
+  cePercent?: number;
+}): LightOffCurve {
+  const {
+    pdGPerL, rhGPerL, ptGPerL = 0, oscGPerL, substrateVolumeL,
+    exhaustFlowKgPerH = 120, agingTempC = 1050, agingHours = 12, cePercent = 45,
+  } = params;
+
+  // Space velocity: SV (h⁻¹) = exhaust flow (L/h) / catalyst volume (L)
+  // Exhaust density ≈ 0.45 kg/m³ at 500°C → ~2222 L/kg
+  const exhaustFlowLPerH = exhaustFlowKgPerH * 2222;
+  const svH = exhaustFlowLPerH / Math.max(substrateVolumeL, 0.01);
+
+  // Base T50 from PGM: empirical correlation (lower PGM → higher T50)
+  const totalPgm = pdGPerL + rhGPerL + ptGPerL;
+  const t50BaseCo = 300 - Math.min(80, totalPgm * 40); // 300°C at 0 PGM, ~220°C at 2 g/L
+  const t50BaseHc = t50BaseCo + 20;
+
+  // SV correction: each doubling of SV adds ~15°C to T50
+  const svRef = 50_000;
+  const svCorrectionCo = Math.max(0, Math.log2(svH / svRef) * 15);
+  const svCorrectionHc = svCorrectionCo * 1.1;
+
+  const t50FreshCo = +(t50BaseCo + svCorrectionCo).toFixed(1);
+  const t50FreshHc = +(t50BaseHc + svCorrectionHc).toFixed(1);
+
+  // Aging T50 shift: from sintering model
+  const pdDisp = computePgmDispersion({ metal: "Pd", loadingGPerL: pdGPerL, agingTempC, agingHours });
+  const rhDisp = computePgmDispersion({ metal: "Rh", loadingGPerL: rhGPerL, agingTempC, agingHours });
+  const ptDisp = ptGPerL > 0 ? computePgmDispersion({ metal: "Pt", loadingGPerL: ptGPerL, agingTempC, agingHours }) : null;
+
+  const pdWeight = pdGPerL / Math.max(0.01, totalPgm);
+  const rhWeight = rhGPerL / Math.max(0.01, totalPgm);
+  const ptWeight = ptGPerL / Math.max(0.01, totalPgm);
+  const sinterShift = pdDisp.t50ShiftC * pdWeight + rhDisp.t50ShiftC * rhWeight + (ptDisp?.t50ShiftC ?? 0) * ptWeight;
+
+  // Poison T50 shift
+  const osc = computeOscCapacity({ cePercent, agingTempC, agingHours, oscLoadingGPerL: oscGPerL, substrateVolumeL });
+  const poisonShift = osc.retentionPct < 60 ? (60 - osc.retentionPct) * 0.4 : 0;
+
+  const totalShiftCo = sinterShift + poisonShift;
+  const totalShiftHc = sinterShift * 1.1 + poisonShift * 1.2;
+
+  const t50AgedCo = +(t50FreshCo + totalShiftCo).toFixed(1);
+  const t50AgedHc = +(t50FreshHc + totalShiftHc).toFixed(1);
+
+  // Rh also controls NOx — T50 NOx relates to Rh loading
+  const t50FreshNox = 270 - Math.min(70, rhGPerL * 60) + svCorrectionCo * 0.8;
+  const t50AgedNox = t50FreshNox + rhDisp.t50ShiftC;
+
+  // Generate curves: 100–600°C in 10°C steps
+  const kFresh = 25;
+  const kAged = 32;
+
+  function sigmoid(T: number, T50: number, k: number) {
+    return +(100 / (1 + Math.exp(-(T - T50) / k))).toFixed(1);
+  }
+
+  const freshPoints: LightOffPoint[] = [];
+  const agedPoints: LightOffPoint[] = [];
+
+  for (let T = 100; T <= 600; T += 10) {
+    freshPoints.push({
+      tempC: T,
+      coPct: sigmoid(T, t50FreshCo, kFresh),
+      hcPct: sigmoid(T, t50FreshHc, kFresh),
+      noxPct: sigmoid(T, t50FreshNox, kFresh * 1.2),
+    });
+    agedPoints.push({
+      tempC: T,
+      coPct: sigmoid(T, t50AgedCo, kAged),
+      hcPct: sigmoid(T, t50AgedHc, kAged),
+      noxPct: sigmoid(T, t50AgedNox, kAged * 1.2),
+    });
+  }
+
+  return {
+    fresh: freshPoints,
+    aged: agedPoints,
+    t50FreshCo,
+    t50FreshHc,
+    t50AgedCo,
+    t50AgedHc,
+    svH: +svH.toFixed(0),
+  };
+}
+
+/* ================================================================== */
+/*  Space Velocity Analysis                                           */
+/* ================================================================== */
+
+export interface SpaceVelocityPoint {
+  svH: number;
+  conversionCo: number;
+  conversionHc: number;
+}
+
+/**
+ * Conversion efficiency at rated conditions vs space velocity.
+ * At high SV, residence time is too short for complete conversion.
+ */
+export function computeSpaceVelocityEffect(params: {
+  pdGPerL: number;
+  rhGPerL: number;
+  substrateVolumeL?: number;
+  evalTempC?: number;
+}): SpaceVelocityPoint[] {
+  const { pdGPerL, rhGPerL, evalTempC = 450 } = params;
+  const totalPgm = pdGPerL + rhGPerL;
+  const t50Co = 300 - Math.min(80, totalPgm * 40);
+  const t50Hc = t50Co + 20;
+
+  const points: SpaceVelocityPoint[] = [];
+  const svValues = [10000, 20000, 30000, 50000, 75000, 100000, 150000, 200000];
+
+  for (const sv of svValues) {
+    const svRef = 50_000;
+    const svCorr = Math.max(0, Math.log2(sv / svRef) * 15);
+    const t50SvCo = t50Co + svCorr;
+    const t50SvHc = t50Hc + svCorr * 1.1;
+    const convCo = +(100 / (1 + Math.exp(-(evalTempC - t50SvCo) / 25))).toFixed(1);
+    const convHc = +(100 / (1 + Math.exp(-(evalTempC - t50SvHc) / 25))).toFixed(1);
+    points.push({ svH: sv, conversionCo: convCo, conversionHc: convHc });
+  }
+
+  return points;
+}
+
+/* ================================================================== */
 /*  Composite: full aging prediction for a catalyst spec              */
 /* ================================================================== */
 
@@ -286,6 +452,14 @@ export interface FullAgingPrediction {
   predictedT50CoC: number;
   /** Predicted T50 HC after aging */
   predictedT50HcC: number;
+  /** Fresh T50 CO (before aging) */
+  freshT50CoC: number;
+  /** Fresh T50 HC (before aging) */
+  freshT50HcC: number;
+  /** Light-off curve for selected variant */
+  lightOffCurve: LightOffCurve;
+  /** Space velocity at rated flow */
+  svH: number;
 }
 
 export function predictFullAging(params: {
@@ -303,6 +477,7 @@ export function predictFullAging(params: {
   targetMileageKm?: number;
   fuelType?: "gasoline" | "diesel";
   oilConsumptionLPer1000km?: number;
+  exhaustFlowKgPerH?: number;
 }): FullAgingPrediction {
   const {
     cePercent, oscLoadingGPerL, pdGPerL, rhGPerL, ptGPerL,
@@ -311,6 +486,7 @@ export function predictFullAging(params: {
     agingTempC = 1050, agingHours = 12,
     targetMileageKm = 160_000,
     fuelType = "gasoline", oilConsumptionLPer1000km = 0.2,
+    exhaustFlowKgPerH = 120,
   } = params;
 
   const osc = computeOscCapacity({ cePercent, agingTempC, agingHours, oscLoadingGPerL, substrateVolumeL });
@@ -331,5 +507,24 @@ export function predictFullAging(params: {
   const predictedT50CoC = +(freshT50CoC + sinterShift + poison.t50ShiftFromPoisonC).toFixed(1);
   const predictedT50HcC = +(freshT50HcC + sinterShift * 1.1 + poison.t50ShiftFromPoisonC * 1.2).toFixed(1);
 
-  return { osc, pgmPd, pgmRh, pgmPt, poison, aging, predictedT50CoC, predictedT50HcC };
+  const lightOffCurve = computeLightOffCurve({
+    pdGPerL,
+    rhGPerL,
+    ptGPerL,
+    oscGPerL: oscLoadingGPerL,
+    substrateVolumeL,
+    exhaustFlowKgPerH,
+    agingTempC,
+    agingHours,
+    cePercent,
+  });
+
+  return {
+    osc, pgmPd, pgmRh, pgmPt, poison, aging,
+    predictedT50CoC, predictedT50HcC,
+    freshT50CoC: lightOffCurve.t50FreshCo,
+    freshT50HcC: lightOffCurve.t50FreshHc,
+    lightOffCurve,
+    svH: lightOffCurve.svH,
+  };
 }

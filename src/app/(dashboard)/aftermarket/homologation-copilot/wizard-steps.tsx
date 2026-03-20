@@ -67,7 +67,8 @@ import type {
   VariantTier,
   VehicleScopeInput,
 } from "./wizard-types";
-import { AgingCurvesChart, ObdSignalChart, VariantRadarChart, CostBarChart } from "./wizard-charts";
+import { AgingCurvesChart, ObdSignalChart, VariantRadarChart, CostBarChart, LightOffCurveChart, T50ComparisonChart, SpaceVelocityChart } from "./wizard-charts";
+import { computeSpaceVelocityEffect } from "@/lib/catsizer/catalyst-chemistry";
 
 type Wiz = ReturnType<typeof useWizard>;
 
@@ -503,17 +504,88 @@ function VariantCard({ v, selected, onSelect }: { v: AmVariant; selected: boolea
   );
 }
 
+const AGING_PROTOCOL_PRESETS: Record<string, { agingTempC: number; agingHours: number }> = {
+  "RAT-A": { agingTempC: 1050, agingHours: 12 },
+  "ZDAKW": { agingTempC: 1000, agingHours: 25 },
+  "Bosal-bench": { agingTempC: 1080, agingHours: 8 },
+  "Custom": { agingTempC: 1050, agingHours: 12 },
+};
+
+const TOOLING_DIAMETERS = [93, 101.6, 105.7, 118.4, 127, 132, 143, 152.4, 170];
+
 export function Step4Variants({ wiz }: { wiz: Wiz }) {
+  const [editingTier, setEditingTier] = useState<VariantTier | null>(null);
+  const selectedVariant = wiz.variants.variants.find((v) => v.tier === wiz.variants.selectedTier)
+    ?? wiz.variants.variants[0];
+  const editingVariant = wiz.variants.variants.find((v) => v.tier === editingTier);
+
   return (
     <div className="space-y-4">
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">Step 4 — AM design variants</CardTitle>
           <CardDescription>
-            Three variants with aging predictions from OEM baseline ({wiz.oemBaseline.totalPgmGPerL.toFixed(2)} g/L PGM, {wiz.oemBaseline.totalOscGPerL.toFixed(1)} g/L OSC). Select one to proceed.
+            Three variants from OEM baseline ({wiz.oemBaseline.totalPgmGPerL.toFixed(2)} g/L PGM, {wiz.oemBaseline.totalOscGPerL.toFixed(1)} g/L OSC).
+            Select a variant and click <strong>Adjust</strong> to tune PGM, substrate, and aging protocol with live recalculation.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {/* Aging protocol selector — top level, applies to all variants */}
+          <div className="rounded-lg border bg-muted/30 p-3">
+            <p className="text-xs font-semibold text-muted-foreground mb-2">Aging protocol (applies to all variants)</p>
+            <div className="flex flex-wrap gap-3 items-end">
+              <div>
+                <Label className="text-xs">Protocol</Label>
+                <Select
+                  value={wiz.agingParams.protocol}
+                  onValueChange={(v) => {
+                    const preset = AGING_PROTOCOL_PRESETS[v as string];
+                    wiz.updateAgingParams({ protocol: v as typeof wiz.agingParams.protocol, ...preset });
+                  }}
+                >
+                  <SelectTrigger className="h-8 w-36 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.keys(AGING_PROTOCOL_PRESETS).map((p) => (
+                      <SelectItem key={p} value={p} className="text-xs">{p}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs">Temp (°C)</Label>
+                <Input
+                  type="number" min={900} max={1150} step={10}
+                  value={wiz.agingParams.agingTempC}
+                  onChange={(e) => wiz.updateAgingParams({ protocol: "Custom", agingTempC: +e.target.value })}
+                  className="h-8 w-24 text-xs font-mono"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Hours</Label>
+                <Input
+                  type="number" min={1} max={100} step={1}
+                  value={wiz.agingParams.agingHours}
+                  onChange={(e) => wiz.updateAgingParams({ protocol: "Custom", agingHours: +e.target.value })}
+                  className="h-8 w-20 text-xs font-mono"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Flow (kg/h)</Label>
+                <Input
+                  type="number" min={30} max={400} step={10}
+                  value={wiz.agingParams.exhaustFlowKgPerH}
+                  onChange={(e) => wiz.updateAgingParams({ exhaustFlowKgPerH: +e.target.value })}
+                  className="h-8 w-24 text-xs font-mono"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground self-end pb-1">
+                SV: {selectedVariant?.agingPrediction?.svH ? `${(selectedVariant.agingPrediction.svH / 1000).toFixed(0)}k h⁻¹` : "—"}
+              </p>
+            </div>
+          </div>
+
           <Button
             variant="secondary"
             className="gap-1.5"
@@ -530,27 +602,164 @@ export function Step4Variants({ wiz }: { wiz: Wiz }) {
 
           <div className="grid gap-4 md:grid-cols-3">
             {wiz.variants.variants.map((v) => (
-              <VariantCard
-                key={v.tier}
-                v={v}
-                selected={wiz.variants.selectedTier === v.tier}
-                onSelect={() => wiz.selectVariant(v.tier)}
-              />
+              <div key={v.tier} className="space-y-2">
+                <VariantCard
+                  v={v}
+                  selected={wiz.variants.selectedTier === v.tier}
+                  onSelect={() => wiz.selectVariant(v.tier)}
+                />
+                <Button
+                  size="sm"
+                  variant={editingTier === v.tier ? "secondary" : "outline"}
+                  className="w-full gap-1 text-xs h-7"
+                  onClick={() => setEditingTier(editingTier === v.tier ? null : v.tier)}
+                >
+                  {editingTier === v.tier ? "Close adjust" : "Adjust design"}
+                </Button>
+              </div>
             ))}
           </div>
 
-          {wiz.variants.variants[0]?.agingPrediction && (
+          {/* Inline editing panel */}
+          {editingTier && editingVariant && (
+            <Card className="border-primary/30 bg-primary/5">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Adjust: {editingVariant.label}</CardTitle>
+                <CardDescription className="text-xs">All changes trigger live recalculation of aging, OBD risk, and cost.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* PGM */}
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground mb-2">PGM loading (g/L)</p>
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    {(["pdGPerL", "rhGPerL", "ptGPerL"] as const).map((field) => (
+                      <div key={field}>
+                        <Label className="text-xs">{field === "pdGPerL" ? "Pd" : field === "rhGPerL" ? "Rh" : "Pt"} g/L</Label>
+                        <Input
+                          type="number" min={0} max={5} step={0.01}
+                          value={editingVariant.pgm[field]}
+                          onChange={(e) => wiz.updateVariantPgm(editingTier, field, +e.target.value)}
+                          className="h-8 font-mono text-xs"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Total: <strong>{editingVariant.pgm.totalGPerL} g/L</strong> — Pd:Rh <strong>{editingVariant.pgm.pdRhRatio}:1</strong>
+                  </p>
+                </div>
+
+                {/* OSC */}
+                <div>
+                  <Label className="text-xs">OSC target (g/L)</Label>
+                  <div className="flex items-center gap-2 mt-1">
+                    <Input
+                      type="number" min={0} max={200} step={1}
+                      value={editingVariant.oscTargetGPerL}
+                      onChange={(e) => wiz.updateVariantOsc(editingTier, +e.target.value)}
+                      className="h-8 font-mono text-xs w-28"
+                    />
+                    <span className="text-xs text-muted-foreground">OEM: {wiz.oemBaseline.totalOscGPerL.toFixed(1)} g/L</span>
+                  </div>
+                </div>
+
+                {/* Substrate */}
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground mb-2">Substrate</p>
+                  <div className="grid gap-3 sm:grid-cols-4">
+                    <div>
+                      <Label className="text-xs">Diameter (mm)</Label>
+                      <Select
+                        value={String(editingVariant.substrate.diameterMm)}
+                        onValueChange={(v) => wiz.updateVariantSubstrate(editingTier, "diameterMm", +v)}
+                      >
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {TOOLING_DIAMETERS.map((d) => (
+                            <SelectItem key={d} value={String(d)} className="text-xs">{d} mm</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-xs">Length (mm)</Label>
+                      <Input
+                        type="number" min={50} max={305} step={5}
+                        value={editingVariant.substrate.lengthMm}
+                        onChange={(e) => wiz.updateVariantSubstrate(editingTier, "lengthMm", +e.target.value)}
+                        className="h-8 font-mono text-xs"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">CPSI</Label>
+                      <Select
+                        value={String(editingVariant.substrate.cpsi)}
+                        onValueChange={(v) => wiz.updateVariantSubstrate(editingTier, "cpsi", +v)}
+                      >
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {[400, 600, 900].map((c) => (
+                            <SelectItem key={c} value={String(c)} className="text-xs">{c} CPSI</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <InfoCard label="Volume" value={`${editingVariant.substrate.volumeL} L`} />
+                  </div>
+                </div>
+
+                {/* Live aging preview after edit */}
+                {editingVariant.agingPrediction && (
+                  <div className="grid gap-2 sm:grid-cols-4 text-xs">
+                    <InfoCard label="OSC retention" value={`${editingVariant.agingPrediction.osc.retentionPct}%`} variant={editingVariant.agingPrediction.osc.retentionPct < 55 ? "danger" : editingVariant.agingPrediction.osc.retentionPct < 65 ? "warning" : "success"} />
+                    <InfoCard label="T50 CO (fresh)" value={`${editingVariant.agingPrediction.freshT50CoC}°C`} />
+                    <InfoCard label="T50 CO (aged)" value={`${editingVariant.agingPrediction.predictedT50CoC}°C`} variant={editingVariant.agingPrediction.predictedT50CoC > 320 ? "danger" : editingVariant.agingPrediction.predictedT50CoC > 290 ? "warning" : "success"} />
+                    <InfoCard label="Pd dispersion (aged)" value={`${editingVariant.agingPrediction.pgmPd.agedDispersionPct}%`} />
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Aging curves + light-off curves for selected variant */}
+          {selectedVariant?.agingPrediction && (
+            <div className="grid gap-4 md:grid-cols-2">
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm">Aging curves — {selectedVariant.label}</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <AgingCurvesChart prediction={selectedVariant.agingPrediction} />
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm">T50 comparison — fresh vs aged</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <T50ComparisonChart
+                    freshT50Co={selectedVariant.agingPrediction.freshT50CoC}
+                    freshT50Hc={selectedVariant.agingPrediction.freshT50HcC}
+                    agedT50Co={selectedVariant.agingPrediction.predictedT50CoC}
+                    agedT50Hc={selectedVariant.agingPrediction.predictedT50HcC}
+                  />
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {selectedVariant?.agingPrediction && (
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm">Aging curves — selected variant</CardTitle>
+                <CardTitle className="text-sm">Light-off curves — fresh vs aged ({wiz.agingParams.agingTempC}°C / {wiz.agingParams.agingHours}h)</CardTitle>
+                <CardDescription className="text-xs">Solid = fresh, dashed = aged. Shift indicates performance margin loss.</CardDescription>
               </CardHeader>
               <CardContent>
-                <AgingCurvesChart
-                  prediction={
-                    wiz.variants.variants.find((v) => v.tier === wiz.variants.selectedTier)?.agingPrediction ??
-                    wiz.variants.variants[0].agingPrediction!
-                  }
-                />
+                <LightOffCurveChart curve={selectedVariant.agingPrediction.lightOffCurve} />
               </CardContent>
             </Card>
           )}
@@ -605,33 +814,50 @@ export function Step5Chemistry({ wiz }: { wiz: Wiz }) {
             </p>
           </div>
 
+          {/* Editable washcoat layers */}
           <div className="grid gap-6 md:grid-cols-2">
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm">Layer 1 — Inner (substrate-side)</CardTitle>
-              </CardHeader>
-              <CardContent className="text-sm space-y-1">
-                <Row label="γ-Al₂O₃" value={`${c.layer1.aluminaGPerL} g/L`} />
-                <Row label="CeO₂-ZrO₂ OSC" value={`${c.layer1.oscGPerL} g/L (Ce ${c.layer1.oscCePercent}%)`} />
-                <Row label="BaO" value={`${c.layer1.baoGPerL} g/L`} />
-                <Row label="La₂O₃" value={`${c.layer1.la2o3GPerL} g/L`} />
-                <Row label="Nd₂O₃" value={`${c.layer1.nd2o3GPerL} g/L`} />
-                <Separator className="my-2" />
-                <Row label="Layer total" value={`${c.layer1.totalGPerL} g/L`} bold />
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm">Layer 2 — Outer (gas-side)</CardTitle>
-              </CardHeader>
-              <CardContent className="text-sm space-y-1">
-                <Row label="γ-Al₂O₃" value={`${c.layer2.aluminaGPerL} g/L`} />
-                <Row label="CeO₂-ZrO₂ OSC" value={`${c.layer2.oscGPerL} g/L (Ce ${c.layer2.oscCePercent}%)`} />
-                <Row label="La₂O₃" value={`${c.layer2.la2o3GPerL} g/L`} />
-                <Separator className="my-2" />
-                <Row label="Layer total" value={`${c.layer2.totalGPerL} g/L`} bold />
-              </CardContent>
-            </Card>
+            {(["layer1", "layer2"] as const).map((layerKey) => {
+              const layer = c[layerKey];
+              const isL1 = layerKey === "layer1";
+              return (
+                <Card key={layerKey}>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm">{isL1 ? "Layer 1 — Inner (substrate-side)" : "Layer 2 — Outer (gas-side)"}</CardTitle>
+                    <CardDescription className="text-xs">{isL1 ? "Pd-rich, BaO NOx trapping, high OSC" : "Rh-rich, lean NOx reduction, lower OSC"}</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    {(
+                      [
+                        { field: "aluminaGPerL" as const, label: "γ-Al₂O₃ (g/L)", hint: "Support material — thermal stability" },
+                        { field: "oscGPerL" as const, label: "CeO₂-ZrO₂ OSC (g/L)", hint: "Oxygen buffer — higher = more OBD buffer" },
+                        { field: "oscCePercent" as const, label: "Ce content (%)", hint: "Higher Ce% = more OSC capacity, faster aging" },
+                        ...(isL1 ? [{ field: "baoGPerL" as const, label: "BaO (g/L)", hint: "NOx trap — lean burn stabiliser" }] : []),
+                        { field: "la2o3GPerL" as const, label: "La₂O₃ (g/L)", hint: "Thermal stabiliser for alumina" },
+                        ...(isL1 ? [{ field: "nd2o3GPerL" as const, label: "Nd₂O₃ (g/L)", hint: "Redox promoter" }] : []),
+                      ] as { field: keyof typeof layer; label: string; hint: string }[]
+                    ).map(({ field, label, hint }) => (
+                      <div key={field}>
+                        <Label className="text-xs">{label}</Label>
+                        <div className="flex gap-2 items-center">
+                          <Input
+                            type="number" min={0} max={field === "oscCePercent" ? 70 : 300} step={field === "oscCePercent" ? 1 : 0.5}
+                            value={layer[field]}
+                            onChange={(e) => wiz.updateChemistryLayer(layerKey, field, +e.target.value)}
+                            className="h-7 font-mono text-xs w-24"
+                          />
+                          <span className="text-xs text-muted-foreground">{hint}</span>
+                        </div>
+                      </div>
+                    ))}
+                    <Separator className="my-1" />
+                    <div className="flex justify-between text-xs">
+                      <span className="text-muted-foreground">Layer total</span>
+                      <span className="font-semibold font-mono">{layer.totalGPerL} g/L</span>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
           </div>
 
           <div className="flex items-center gap-4 text-sm">
@@ -657,6 +883,42 @@ export function Step5Chemistry({ wiz }: { wiz: Wiz }) {
                 </div>
               </CardContent>
             </Card>
+          )}
+
+          <Separator />
+
+          {/* Light-off curve and SV analysis for selected variant */}
+          {selected?.agingPrediction && (
+            <>
+              <Separator />
+              <div className="grid gap-4 md:grid-cols-2">
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm">Light-off curve — CO / HC / NOx</CardTitle>
+                    <CardDescription className="text-xs">
+                      SV: {(selected.agingPrediction.svH / 1000).toFixed(0)}k h⁻¹. Solid = fresh, dashed = aged.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <LightOffCurveChart curve={selected.agingPrediction.lightOffCurve} />
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm">Space velocity effect @ 450°C</CardTitle>
+                    <CardDescription className="text-xs">
+                      Higher SV = shorter contact time = lower conversion. Red dot = current SV.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <SpaceVelocityChart
+                      points={computeSpaceVelocityEffect({ pdGPerL: selected.pgm.pdGPerL, rhGPerL: selected.pgm.rhGPerL, substrateVolumeL: selected.substrate.volumeL })}
+                      svCurrent={selected.agingPrediction.svH}
+                    />
+                  </CardContent>
+                </Card>
+              </div>
+            </>
           )}
 
           <Separator />
@@ -704,10 +966,17 @@ function Row({ label, value, bold }: { label: string; value: string; bold?: bool
 /*  STEP 6 — OBD & Validation (NEW)                                   */
 /* ================================================================== */
 
+const OBD_STRATEGY_OPTIONS: { value: string; label: string; description: string }[] = [
+  { value: "amplitude", label: "Amplitude (VAG, BMW)", description: "Compares rear-O₂ switch amplitude to threshold. Common in German OEMs." },
+  { value: "delay", label: "Delay (PSA, Stellantis)", description: "Measures lag between front/rear switch events. Detects slow OSC." },
+  { value: "ratio", label: "Ratio (Toyota, Honda)", description: "Front/rear switch frequency ratio. Robust across lambda cycles." },
+];
+
 export function Step6ObdValidation({ wiz }: { wiz: Wiz }) {
   const obd = wiz.obdValidation;
   const mc = obd.multiCycleResult;
   const dv = obd.designValidation;
+  const selected = wiz.variants.variants.find((v) => v.tier === wiz.variants.selectedTier);
 
   return (
     <div className="space-y-4">
@@ -715,10 +984,56 @@ export function Step6ObdValidation({ wiz }: { wiz: Wiz }) {
         <CardHeader>
           <CardTitle className="text-lg">Step 6 — OBD simulation &amp; design validation</CardTitle>
           <CardDescription>
-            Rear-O₂ signal simulation, P0420 prediction, and design rules check.
+            Rear-O₂ signal simulation, P0420 prediction, and design rules check. Adjust strategy and flow to match target OEM calibration.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
+
+          {/* OBD Controls */}
+          <div className="rounded-lg border bg-muted/30 p-3 space-y-3">
+            <p className="text-xs font-semibold text-muted-foreground">OBD simulation parameters</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <Label className="text-xs">OBD monitoring strategy</Label>
+                <Select
+                  value={obd.obdStrategy}
+                  onValueChange={(v) => wiz.updateObdStrategy(v as typeof obd.obdStrategy)}
+                >
+                  <SelectTrigger className="h-8 text-xs mt-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {OBD_STRATEGY_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value} className="text-xs">{opt.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {OBD_STRATEGY_OPTIONS.find((o) => o.value === obd.obdStrategy)?.description}
+                </p>
+              </div>
+              <div>
+                <Label className="text-xs">Rated exhaust flow (kg/h)</Label>
+                <Input
+                  type="number" min={30} max={400} step={10}
+                  value={obd.exhaustFlowKgPerH}
+                  onChange={(e) => wiz.updateExhaustFlow(+e.target.value)}
+                  className="h-8 font-mono text-xs mt-1"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Higher flow = shorter residence time = weaker OSC buffering = harder OBD.
+                </p>
+              </div>
+            </div>
+            {selected?.agingPrediction && (
+              <div className="grid gap-2 sm:grid-cols-3 text-xs">
+                <InfoCard label="AM OSC (aged)" value={`${selected.agingPrediction.osc.agedUmolO2PerBrick.toFixed(0)} µmol`} />
+                <InfoCard label="SV" value={`${(selected.agingPrediction.svH / 1000).toFixed(0)}k h⁻¹`} />
+                <InfoCard label="Ce content" value={`${wiz.chemistry.cePercent}%`} />
+              </div>
+            )}
+          </div>
+
           {mc && (
             <>
               <div className="grid gap-3 sm:grid-cols-4">

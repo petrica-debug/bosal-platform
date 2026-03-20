@@ -19,7 +19,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import type { FullAgingPrediction } from "@/lib/catsizer/catalyst-chemistry";
+import type { FullAgingPrediction, LightOffCurve, SpaceVelocityPoint } from "@/lib/catsizer/catalyst-chemistry";
 import type { RearO2Signal } from "@/lib/catsizer/obd-simulation";
 import type { AmVariant, CostBreakdown } from "./wizard-types";
 
@@ -148,6 +148,165 @@ export function VariantRadarChart({ variants }: { variants: AmVariant[] }) {
           <Radar name="Balanced" dataKey="balanced" stroke="#f59e0b" fill="#f59e0b" fillOpacity={0.15} />
           <Radar name="Value" dataKey="value" stroke="#10b981" fill="#10b981" fillOpacity={0.15} />
         </RadarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+/* ================================================================== */
+/*  Light-off Curve Chart                                             */
+/* ================================================================== */
+
+export function LightOffCurveChart({
+  curve,
+  showAged = true,
+}: {
+  curve: LightOffCurve;
+  showAged?: boolean;
+}) {
+  // Build combined dataset: fresh + aged with T marker at 200°C intervals
+  const data = curve.fresh.map((pt, i) => ({
+    tempC: pt.tempC,
+    freshCO: pt.coPct,
+    freshHC: pt.hcPct,
+    freshNOx: pt.noxPct,
+    agedCO: curve.aged[i]?.coPct ?? null,
+    agedHC: curve.aged[i]?.hcPct ?? null,
+    agedNOx: curve.aged[i]?.noxPct ?? null,
+  }));
+
+  return (
+    <div className="w-full h-[300px]">
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={data} margin={{ top: 5, right: 20, bottom: 20, left: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+          <XAxis
+            dataKey="tempC"
+            label={{ value: "Inlet temperature (°C)", position: "insideBottom", offset: -10 }}
+            className="text-xs"
+            tickCount={6}
+          />
+          <YAxis
+            domain={[0, 100]}
+            label={{ value: "Conversion (%)", angle: -90, position: "insideLeft", offset: 10 }}
+            className="text-xs"
+          />
+          <Tooltip contentStyle={{ fontSize: 11 }} formatter={(v: number) => `${v}%`} />
+          <Legend wrapperStyle={{ fontSize: 10 }} />
+          <Line type="monotone" dataKey="freshCO" name="Fresh CO" stroke="#3b82f6" strokeWidth={2} dot={false} />
+          <Line type="monotone" dataKey="freshHC" name="Fresh HC" stroke="#10b981" strokeWidth={2} dot={false} />
+          <Line type="monotone" dataKey="freshNOx" name="Fresh NOx" stroke="#8b5cf6" strokeWidth={2} dot={false} />
+          {showAged && (
+            <>
+              <Line type="monotone" dataKey="agedCO" name="Aged CO" stroke="#3b82f6" strokeWidth={1.5} strokeDasharray="4 3" dot={false} />
+              <Line type="monotone" dataKey="agedHC" name="Aged HC" stroke="#10b981" strokeWidth={1.5} strokeDasharray="4 3" dot={false} />
+              <Line type="monotone" dataKey="agedNOx" name="Aged NOx" stroke="#8b5cf6" strokeWidth={1.5} strokeDasharray="4 3" dot={false} />
+            </>
+          )}
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+/* ================================================================== */
+/*  T50 Comparison Bar Chart                                          */
+/* ================================================================== */
+
+interface T50BarData {
+  species: string;
+  freshAM: number;
+  agedAM: number;
+  oemAged?: number;
+}
+
+export function T50ComparisonChart({
+  freshT50Co,
+  freshT50Hc,
+  agedT50Co,
+  agedT50Hc,
+  oemAgedT50Co,
+  oemAgedT50Hc,
+}: {
+  freshT50Co: number;
+  freshT50Hc: number;
+  agedT50Co: number;
+  agedT50Hc: number;
+  oemAgedT50Co?: number;
+  oemAgedT50Hc?: number;
+}) {
+  const data: T50BarData[] = [
+    { species: "CO", freshAM: freshT50Co, agedAM: agedT50Co, oemAged: oemAgedT50Co },
+    { species: "HC", freshAM: freshT50Hc, agedAM: agedT50Hc, oemAged: oemAgedT50Hc },
+  ];
+
+  return (
+    <div className="w-full h-[220px]">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={data} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+          <XAxis dataKey="species" className="text-xs" />
+          <YAxis domain={[150, 350]} label={{ value: "T50 (°C)", angle: -90, position: "insideLeft" }} className="text-xs" />
+          <Tooltip contentStyle={{ fontSize: 11 }} formatter={(v: number) => `${v}°C`} />
+          <Legend wrapperStyle={{ fontSize: 10 }} />
+          <Bar dataKey="freshAM" name="AM fresh" fill="#3b82f6" />
+          <Bar dataKey="agedAM" name="AM aged" fill="#f59e0b" />
+          {data[0].oemAged !== undefined && (
+            <Bar dataKey="oemAged" name="OEM aged" fill="#ef4444" />
+          )}
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+/* ================================================================== */
+/*  Space Velocity Effect Chart                                       */
+/* ================================================================== */
+
+export function SpaceVelocityChart({ points, svCurrent }: { points: SpaceVelocityPoint[]; svCurrent?: number }) {
+  return (
+    <div className="w-full h-[220px]">
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={points} margin={{ top: 5, right: 20, bottom: 20, left: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+          <XAxis
+            dataKey="svH"
+            tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}k`}
+            label={{ value: "Space velocity (h⁻¹)", position: "insideBottom", offset: -10 }}
+            className="text-xs"
+          />
+          <YAxis
+            domain={[40, 100]}
+            label={{ value: "Conv. %", angle: -90, position: "insideLeft" }}
+            className="text-xs"
+          />
+          <Tooltip
+            contentStyle={{ fontSize: 11 }}
+            formatter={(v: number) => `${v}%`}
+            labelFormatter={(sv: number) => `SV: ${(sv / 1000).toFixed(0)}k h⁻¹`}
+          />
+          <Legend wrapperStyle={{ fontSize: 10 }} />
+          {svCurrent && (
+            <Line
+              type="monotone"
+              dataKey="conversionCo"
+              name="CO conv."
+              stroke="#3b82f6"
+              strokeWidth={2}
+              dot={(props) => {
+                if (Math.abs(props.payload.svH - svCurrent) < 12000) {
+                  return <circle key={props.key} cx={props.cx} cy={props.cy} r={5} fill="#ef4444" stroke="white" strokeWidth={1} />;
+                }
+                return <circle key={props.key} cx={props.cx} cy={props.cy} r={2} fill="#3b82f6" />;
+              }}
+            />
+          )}
+          {!svCurrent && (
+            <Line type="monotone" dataKey="conversionCo" name="CO conv." stroke="#3b82f6" strokeWidth={2} dot={false} />
+          )}
+          <Line type="monotone" dataKey="conversionHc" name="HC conv." stroke="#10b981" strokeWidth={2} dot={false} />
+        </LineChart>
       </ResponsiveContainer>
     </div>
   );
