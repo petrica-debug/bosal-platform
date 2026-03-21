@@ -74,7 +74,22 @@ import {
   oscRetentionToAgingFactor,
   type SharedCatalystDesign,
 } from "@/lib/catsizer/shared-catalyst-context";
-import { Share2 } from "lucide-react";
+import { Share2, Play } from "lucide-react";
+import {
+  LIGHT_DUTY_PRESETS,
+  WLTP_EMISSION_LIMITS,
+  type WLTPEmissionStandard,
+} from "@/lib/catsizer/wltp-transient-engine";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from "recharts";
 
 type Wiz = ReturnType<typeof useWizard>;
 
@@ -969,7 +984,242 @@ function Row({ label, value, bold }: { label: string; value: string; bold?: bool
 }
 
 /* ================================================================== */
-/*  STEP 6 — OBD & Validation (NEW)                                   */
+/*  STEP 6 — WLTP Simulation                                          */
+/* ================================================================== */
+
+export function Step6WltpSimulation({ wiz }: { wiz: Wiz }) {
+  const selected =
+    wiz.variants.variants.find((v) => v.tier === wiz.variants.selectedTier) ??
+    wiz.variants.variants[0];
+  const preset = LIGHT_DUTY_PRESETS[wiz.wltpSim.enginePresetIndex] ?? LIGHT_DUTY_PRESETS[0];
+  const result = wiz.wltpSim.result;
+
+  const emissionStdOptions = Object.entries(WLTP_EMISSION_LIMITS).map(([key, val]) => ({
+    key: key as WLTPEmissionStandard,
+    label: val.label,
+  }));
+
+  const verdictColor =
+    result?.overallVerdict === "green"
+      ? "text-green-600 dark:text-green-400"
+      : result?.overallVerdict === "amber"
+        ? "text-amber-600 dark:text-amber-400"
+        : "text-red-600 dark:text-red-400";
+
+  const chartData = result?.homologation.map((h) => ({
+    species: h.species,
+    Actual: parseFloat(h.cumulative_g_km.toFixed(4)),
+    Limit: parseFloat(h.limit_g_km.toFixed(4)),
+  }));
+
+  return (
+    <div className="space-y-4">
+      {/* Simulation inputs */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Play className="size-4 text-[#C8102E]" />
+            WLTP Transient Simulation
+          </CardTitle>
+          <CardDescription>
+            Validate your catalyst design against a real driving cycle using the engine selected in
+            Step 1. Results feed directly into the OBD check in Step 7.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Pre-filled summary */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="rounded-lg border bg-muted/30 p-3">
+              <p className="text-xs text-muted-foreground">Engine (from Step 1)</p>
+              <p className="text-sm font-semibold">{preset.name}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {preset.displacement_L} L · {preset.power_kW} kW · {preset.fuelType}
+              </p>
+            </div>
+            <div className="rounded-lg border bg-muted/30 p-3">
+              <p className="text-xs text-muted-foreground">Catalyst (from Step 4)</p>
+              {selected ? (
+                <>
+                  <p className="text-sm font-semibold capitalize">{selected.tier} variant</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {selected.pgm.totalGPerFt3.toFixed(0)} g/ft³ · ⌀{selected.substrate.diameterMm}×
+                    {selected.substrate.lengthMm} mm · {selected.substrate.cpsi} CPSI
+                  </p>
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground">No variant selected yet (go back to Step 4)</p>
+              )}
+            </div>
+          </div>
+
+          {/* Adjustable inputs */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>Engine Preset</Label>
+              <Select
+                value={String(wiz.wltpSim.enginePresetIndex)}
+                onValueChange={(v) => wiz.setWltpEnginePreset(Number(v))}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {LIGHT_DUTY_PRESETS.map((p, i) => (
+                    <SelectItem key={i} value={String(i)}>
+                      {p.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Emission Standard</Label>
+              <Select
+                value={wiz.wltpSim.emissionStandard}
+                onValueChange={(v) => wiz.setWltpEmissionStandard(v as WLTPEmissionStandard)}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {emissionStdOptions.map((o) => (
+                    <SelectItem key={o.key} value={o.key}>
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <Button
+            className="w-full gap-2"
+            onClick={wiz.runWltpSim}
+            disabled={wiz.wltpSim.isRunning || !selected}
+          >
+            {wiz.wltpSim.isRunning ? (
+              <>
+                <Loader2 className="size-4 animate-spin" /> Running WLTP simulation…
+              </>
+            ) : (
+              <>
+                <Play className="size-4" /> Run WLTP Simulation
+              </>
+            )}
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* Results */}
+      {result && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <span className={`text-base font-bold ${verdictColor}`}>
+                {result.overallVerdict === "green"
+                  ? "✓ PASS"
+                  : result.overallVerdict === "amber"
+                    ? "⚠ MARGINAL"
+                    : "✗ FAIL"}
+              </span>
+              <span className="text-sm text-muted-foreground font-normal">— Homologation Results</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Species cards */}
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {result.homologation.map((h) => (
+                <div
+                  key={h.species}
+                  className={`rounded-lg border p-3 text-center ${
+                    h.verdict === "green"
+                      ? "border-green-200 bg-green-50 dark:border-green-900 dark:bg-green-950/30"
+                      : h.verdict === "amber"
+                        ? "border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30"
+                        : "border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30"
+                  }`}
+                >
+                  <p className="text-xs font-medium text-muted-foreground">{h.species}</p>
+                  <p
+                    className={`text-lg font-bold mt-0.5 ${
+                      h.verdict === "green"
+                        ? "text-green-700 dark:text-green-400"
+                        : h.verdict === "amber"
+                          ? "text-amber-700 dark:text-amber-400"
+                          : "text-red-700 dark:text-red-400"
+                    }`}
+                  >
+                    {h.cumulative_g_km.toFixed(3)}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground">
+                    limit: {h.limit_g_km.toFixed(3)} g/km
+                  </p>
+                  <p className="text-[10px] font-medium mt-0.5">
+                    margin: {h.margin_percent > 0 ? "+" : ""}
+                    {h.margin_percent.toFixed(1)}%
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            {/* Actual vs limit bar chart */}
+            <div>
+              <p className="text-xs font-medium text-muted-foreground mb-1">
+                Actual vs Limit (g/km)
+              </p>
+              <ResponsiveContainer width="100%" height={180}>
+                <BarChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="species" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} />
+                  <Tooltip />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  <Bar dataKey="Actual" fill="#ef4444" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="Limit" fill="#94a3b8" radius={[3, 3, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Key metrics */}
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <InfoCard label="Light-off time" value={`${result.lightOffTime_s.toFixed(0)} s`} />
+              <InfoCard
+                label="Peak GHSV"
+                value={`${Math.round(result.peakGHSV_h).toLocaleString()} h⁻¹`}
+              />
+              <InfoCard label="Distance" value={`${result.totalDistance_km.toFixed(1)} km`} />
+              <InfoCard label="Aging factor" value={result.agingFactor.toFixed(2)} />
+            </div>
+
+            <p className="text-xs text-muted-foreground">
+              For detailed phase breakdown, SGB data upload, and advanced pre-dev sweep,{" "}
+              <a
+                href="/aftermarket/wltp"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline hover:text-foreground"
+              >
+                open the full WLTP Simulator →
+              </a>
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      <div className="flex justify-between">
+        <Button variant="outline" onClick={wiz.prev} className="gap-1.5">
+          <ArrowLeft className="size-4" /> Back
+        </Button>
+        <Button onClick={wiz.next} className="gap-1.5">
+          Next — OBD Validation <ArrowRight className="size-4" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/* ================================================================== */
+/*  STEP 7 — OBD & Validation                                         */
 /* ================================================================== */
 
 const OBD_STRATEGY_OPTIONS: { value: string; label: string; description: string }[] = [
@@ -978,7 +1228,7 @@ const OBD_STRATEGY_OPTIONS: { value: string; label: string; description: string 
   { value: "ratio", label: "Ratio (Toyota, Honda)", description: "Front/rear switch frequency ratio. Robust across lambda cycles." },
 ];
 
-export function Step6ObdValidation({ wiz }: { wiz: Wiz }) {
+export function Step7ObdValidation({ wiz }: { wiz: Wiz }) {
   const obd = wiz.obdValidation;
   const mc = obd.multiCycleResult;
   const dv = obd.designValidation;
@@ -1184,7 +1434,7 @@ export function Step6ObdValidation({ wiz }: { wiz: Wiz }) {
 /*  STEP 7 — Economics & Market (enhanced with competitor bench)       */
 /* ================================================================== */
 
-export function Step7Economics({ wiz }: { wiz: Wiz }) {
+export function Step8Economics({ wiz }: { wiz: Wiz }) {
   const e = wiz.economics;
   const [prices, setPrices] = useState<PgmPrices>({ ...e.pgmPrices });
   const [pen, setPen] = useState(10);
@@ -1353,7 +1603,7 @@ export function Step7Economics({ wiz }: { wiz: Wiz }) {
 /*  STEP 8 — Spec Card & Test Plan (enhanced)                         */
 /* ================================================================== */
 
-export function Step8SpecCard({ wiz }: { wiz: Wiz }) {
+export function Step9SpecCard({ wiz }: { wiz: Wiz }) {
   const selected = wiz.variants.variants.find((v) => v.tier === wiz.variants.selectedTier);
   const c = wiz.chemistry;
   const cost = wiz.economics.variantCosts[wiz.variants.selectedTier ?? "balanced"];

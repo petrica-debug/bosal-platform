@@ -6,6 +6,7 @@ import type { FamilyExpansionResult, R103ScopeResult, EngineFamilyMember } from 
 import type { ValidationResult } from "@/lib/catsizer/design-rules";
 import type { TestPlanResult } from "@/lib/catsizer/test-plan-generator";
 import type { BenchmarkResult } from "@/lib/catsizer/competitor-bench";
+import type { TransientSimResult, WLTPEmissionStandard } from "@/lib/catsizer/wltp-transient-engine";
 
 /* ------------------------------------------------------------------ */
 /*  Step 1 — Vehicle & Scope                                          */
@@ -145,7 +146,19 @@ export interface AgingParams {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Step 6 — OBD & Validation (NEW)                                   */
+/*  Step 6 — WLTP Simulation (NEW)                                    */
+/* ------------------------------------------------------------------ */
+
+export interface WltpSimulationData {
+  result: TransientSimResult | null;
+  isRunning: boolean;
+  /** Index into LIGHT_DUTY_PRESETS */
+  enginePresetIndex: number;
+  emissionStandard: WLTPEmissionStandard;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Step 7 — OBD & Validation                                         */
 /* ------------------------------------------------------------------ */
 
 export interface ObdValidationData {
@@ -236,6 +249,7 @@ export const WIZARD_STEPS = [
   { label: "System design", description: "Multi-brick architecture" },
   { label: "AM variants", description: "Compare design options" },
   { label: "Chemistry", description: "Washcoat & aging" },
+  { label: "WLTP simulation", description: "Transient cycle pass/fail" },
   { label: "OBD & validation", description: "OBD simulation & rules" },
   { label: "Economics", description: "Cost, market & competitors" },
   { label: "Spec & test plan", description: "Export & R103 plan" },
@@ -249,6 +263,7 @@ export interface WizardState {
   systemDesign: SystemDesignData;
   variants: VariantSelection;
   chemistry: ChemistrySpec;
+  wltpSim: WltpSimulationData;
   obdValidation: ObdValidationData;
   economics: EconomicsData;
   specCardData: SpecCardData;

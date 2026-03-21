@@ -87,9 +87,10 @@ import {
   Step3SystemDesign,
   Step4Variants,
   Step5Chemistry,
-  Step6ObdValidation,
-  Step7Economics,
-  Step8SpecCard,
+  Step6WltpSimulation,
+  Step7ObdValidation,
+  Step8Economics,
+  Step9SpecCard,
 } from "./wizard-steps";
 
 const MAX_PINNED = 12;
@@ -309,9 +310,10 @@ export default function HomologationCopilotPage() {
           {wiz.step === 2 && <Step3SystemDesign wiz={wiz} />}
           {wiz.step === 3 && <Step4Variants wiz={wiz} />}
           {wiz.step === 4 && <Step5Chemistry wiz={wiz} />}
-          {wiz.step === 5 && <Step6ObdValidation wiz={wiz} />}
-          {wiz.step === 6 && <Step7Economics wiz={wiz} />}
-          {wiz.step === 7 && <Step8SpecCard wiz={wiz} />}
+          {wiz.step === 5 && <Step6WltpSimulation wiz={wiz} />}
+          {wiz.step === 6 && <Step7ObdValidation wiz={wiz} />}
+          {wiz.step === 7 && <Step8Economics wiz={wiz} />}
+          {wiz.step === 8 && <Step9SpecCard wiz={wiz} />}
         </TabsContent>
 
         <TabsContent value="ecs" className="space-y-4">

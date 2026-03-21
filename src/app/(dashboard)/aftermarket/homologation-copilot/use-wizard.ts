@@ -18,6 +18,12 @@ import { generateTestPlan } from "@/lib/catsizer/test-plan-generator";
 import { benchmarkVsCompetitors } from "@/lib/catsizer/competitor-bench";
 import { optimizeR103Scope, type EngineFamilyMember } from "@/lib/catsizer/family-expansion";
 import {
+  runTransientWLTPSim,
+  LIGHT_DUTY_PRESETS,
+  type WLTPEmissionStandard,
+} from "@/lib/catsizer/wltp-transient-engine";
+import { WLTP_CYCLE } from "@/lib/catsizer/wltp-cycles";
+import {
   computeCost,
   computeMarket,
   computeOemBaseline,
@@ -43,10 +49,11 @@ import type {
   VariantTier,
   VehicleScopeInput,
   WashcoatLayerSpec,
+  WltpSimulationData,
 } from "./wizard-types";
 
 const MAX_PINNED = 12;
-const TOTAL_STEPS = 8;
+const TOTAL_STEPS = 9;
 
 function initialVehicleScope(): VehicleScopeInput {
   return {
@@ -84,6 +91,15 @@ function initialChemistry(): ChemistrySpec {
   };
 }
 
+function initialWltpSim(): WltpSimulationData {
+  return {
+    result: null,
+    isRunning: false,
+    enginePresetIndex: 4, // first gasoline preset
+    emissionStandard: "euro_6d_gasoline",
+  };
+}
+
 function initialObdValidation(): ObdValidationData {
   return { obdStrategy: "amplitude", multiCycleResult: null, designValidation: null, exhaustFlowKgPerH: 120 };
 }
@@ -112,6 +128,7 @@ export function useWizard() {
   const [systemDesign, setSystemDesign] = useState<SystemDesignData>(initialSystemDesign);
   const [variants, setVariants] = useState<VariantSelection>(initialVariants);
   const [chemistry, setChemistry] = useState<ChemistrySpec>(initialChemistry);
+  const [wltpSim, setWltpSim] = useState<WltpSimulationData>(initialWltpSim);
   const [obdValidation, setObdValidation] = useState<ObdValidationData>(initialObdValidation);
   const [economics, setEconomics] = useState<EconomicsData>(initialEconomics);
   const [specCardData, setSpecCardData] = useState<SpecCardData>(initialSpecCardData);
@@ -382,12 +399,81 @@ export function useWizard() {
     [],
   );
 
-  /* ---- Step 6: update OBD strategy ---- */
+  /* ---- Step 6: WLTP engine preset selector ---- */
+  const setWltpEnginePreset = useCallback((idx: number) => {
+    setWltpSim((prev) => ({ ...prev, enginePresetIndex: idx, result: null }));
+  }, []);
+
+  /* ---- Step 6: WLTP emission standard selector ---- */
+  const setWltpEmissionStandard = useCallback((std: WLTPEmissionStandard) => {
+    setWltpSim((prev) => ({ ...prev, emissionStandard: std, result: null }));
+  }, []);
+
+  /* ---- Step 6: run WLTP transient simulation ---- */
+  const runWltpSim = useCallback(() => {
+    const selected =
+      variants.variants.find((v) => v.tier === variants.selectedTier) ??
+      variants.variants[0];
+    if (!selected) {
+      toast.error("Select an AM variant first (Step 4)");
+      return;
+    }
+    const preset = LIGHT_DUTY_PRESETS[wltpSim.enginePresetIndex] ?? LIGHT_DUTY_PRESETS[0];
+    const isGasoline =
+      vehicleScope.componentScope.includes("CC-TWC") ||
+      vehicleScope.componentScope.includes("UF-TWC");
+
+    setWltpSim((prev) => ({ ...prev, isRunning: true, result: null }));
+
+    setTimeout(() => {
+      try {
+        const simConfig = {
+          engine: {
+            displacement_L: preset.displacement_L,
+            ratedPower_kW: preset.power_kW,
+            fuelType: preset.fuelType,
+            numberOfCylinders: preset.cylinders,
+            rawCO_ppm: preset.rawCO_ppm,
+            rawHC_ppm: preset.rawHC_ppm,
+            rawNOx_ppm: preset.rawNOx_ppm,
+            rawPM_mg_Nm3: preset.rawPM_mg_Nm3,
+          },
+          catalyst: {
+            cpsi: selected.substrate.cpsi,
+            wallThickness_mil: selected.substrate.wallMil,
+            washcoatType: isGasoline
+              ? ("ceria" as const)
+              : ("oxidation" as const),
+            pgmLoading_g_ft3: selected.pgm.totalGPerFt3,
+            diameter_mm: selected.substrate.diameterMm,
+            length_mm: selected.substrate.lengthMm,
+            splitConfig: "single" as const,
+          },
+          emissionStandard: wltpSim.emissionStandard,
+          agingHours: agingParams.agingHours,
+          maxTemp_C: agingParams.agingTempC,
+          fuelSulfur_ppm: 10,
+        };
+        const cycle = WLTP_CYCLE.map((p) => ({
+          time: p.time,
+          speed: p.speed,
+          phase: p.phase ?? "Low",
+        }));
+        const result = runTransientWLTPSim(cycle, simConfig);
+        setWltpSim((prev) => ({ ...prev, result, isRunning: false }));
+      } catch (e) {
+        toast.error("Simulation error: " + (e instanceof Error ? e.message : String(e)));
+        setWltpSim((prev) => ({ ...prev, isRunning: false }));
+      }
+    }, 80);
+  }, [variants, vehicleScope, wltpSim.enginePresetIndex, wltpSim.emissionStandard, agingParams]);
+
+  /* ---- Step 7: update OBD strategy ---- */
   const updateObdStrategy = useCallback((strategy: ObdValidationData["obdStrategy"]) => {
     setObdValidation((prev) => ({ ...prev, obdStrategy: strategy }));
   }, []);
 
-  /* ---- Step 6: update exhaust flow ---- */
+  /* ---- Step 7: update exhaust flow ---- */
   const updateExhaustFlow = useCallback(
     (kgPerH: number) => {
       setObdValidation((prev) => ({ ...prev, exhaustFlowKgPerH: kgPerH }));
@@ -451,7 +537,7 @@ export function useWizard() {
     }
   }, [variants, oemRef.pinnedIndices, chemistry.cePercent]);
 
-  /* ---- Step 5 → 6: OBD simulation & design validation ---- */
+  /* ---- Step 6 → 7: OBD simulation & design validation ---- */
   const proceedToObdValidation = useCallback(() => {
     const selected = variants.variants.find((v) => v.tier === variants.selectedTier);
     if (!selected || !selected.agingPrediction) {
@@ -620,6 +706,7 @@ export function useWizard() {
     setSystemDesign(initialSystemDesign());
     setVariants(initialVariants());
     setChemistry(initialChemistry());
+    setWltpSim(initialWltpSim());
     setObdValidation(initialObdValidation());
     setEconomics(initialEconomics());
     setSpecCardData(initialSpecCardData());
@@ -651,6 +738,10 @@ export function useWizard() {
     updateChemistryLayer,
     agingParams,
     updateAgingParams,
+    wltpSim,
+    runWltpSim,
+    setWltpEnginePreset,
+    setWltpEmissionStandard,
     obdValidation,
     updateObdStrategy,
     updateExhaustFlow,

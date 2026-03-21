@@ -208,39 +208,12 @@ export const NAV_ITEMS: readonly NavItem[] = [
 
   // -- Aftermarket --
   {
-    title: 'Engine DB',
-    href: '/aftermarket/engines',
-    icon: 'Database',
-    phase: 'P1',
-    description: 'Engine family database with exhaust maps',
-    requiredRoles: ALL_ROLES,
-    group: 'Aftermarket',
-  },
-  {
-    title: 'Product Config',
-    href: '/aftermarket/products',
-    icon: 'Layers',
-    phase: 'P1',
-    description: 'Substrate selection, multi-brick configs, zone coating',
-    requiredRoles: ALL_ROLES,
-    group: 'Aftermarket',
-  },
-  {
-    title: 'WLTP Simulation',
-    href: '/aftermarket/wltp',
-    icon: 'Activity',
-    phase: 'P2',
-    description: 'Transient cycle simulation with pass/fail prediction',
-    requiredRoles: ALL_ROLES,
-    group: 'Aftermarket',
-  },
-  {
-    title: 'AM Homologation Copilot',
+    title: 'AM Product Development',
     href: '/aftermarket/homologation-copilot',
-    icon: 'BookOpen',
+    icon: 'FlaskConical',
     phase: 'P0',
     description:
-      'OEM Catalyst Database V5 — reference data & AI copilot for AM homologation',
+      'End-to-end AM catalyst development: engine selection → chemistry → WLTP simulation → OBD validation → economics → spec card',
     requiredRoles: ALL_ROLES,
     group: 'Aftermarket',
   },
