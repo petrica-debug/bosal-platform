@@ -73,8 +73,16 @@ export function computeOemBaseline(rows: EcsComponentRecord[]): OemBaseline {
       l1WcGPerL: 140, l2WcGPerL: 80, productionVolumeEu: 0,
     };
   }
-  const avg = (fn: (r: EcsComponentRecord) => number) =>
-    rows.reduce((s, r) => s + fn(r), 0) / rows.length;
+  /**
+   * Average only over rows that have a valid (>0) value for the given field.
+   * Rows with null / undefined / 0 are excluded from both sum and count so they
+   * don't dilute the average.  A fallback is returned when no row has data.
+   */
+  const avg = (fn: (r: EcsComponentRecord) => number, fallback = 0): number => {
+    const valid = rows.map(fn).filter((v) => Number.isFinite(v) && v > 0);
+    if (valid.length === 0) return fallback;
+    return valid.reduce((s, v) => s + v, 0) / valid.length;
+  };
 
   const material = rows.some((r) => String(r.substrate ?? "").toLowerCase().includes("metal"))
     ? "metallic" as const
@@ -86,23 +94,31 @@ export function computeOemBaseline(rows: EcsComponentRecord[]): OemBaseline {
     vol += parseFloat(raw) || 0;
   }
 
+  // Derive individual PGM components; if totalPgmGPerL is missing, sum the
+  // individual metals.  If those are also missing, fall back to typical TWC values.
+  const ptAvg = avg((r) => num(r.ptGPerL), 0);
+  const pdAvg = avg((r) => num(r.pdGPerL), 0);
+  const rhAvg = avg((r) => num(r.rhGPerL), 0.05);
+  const metalSum = ptAvg + pdAvg + rhAvg;
+  const totalPgmAvg = avg((r) => num(r.totalPgmGPerL), metalSum > 0 ? metalSum : 1.2);
+
   return {
-    ptGPerL: avg((r) => num(r.ptGPerL)),
-    pdGPerL: avg((r) => num(r.pdGPerL)),
-    rhGPerL: avg((r) => num(r.rhGPerL)),
-    totalPgmGPerL: avg((r) => num(r.totalPgmGPerL)),
-    totalOscGPerL: avg((r) => num(r.totalOscGPerL)),
-    diameterMm: avg((r) => num(r.diameterMm, 105.7)),
-    lengthMm: avg((r) => num(r.lengthMm, 127)),
-    volumeL: avg((r) => num(r.volumeL, 1.11)),
-    cpsi: avg((r) => num(r.cpsi, 600)),
-    wallMil: avg((r) => num(r.wallMil, 3.5)),
+    ptGPerL: ptAvg,
+    pdGPerL: pdAvg,
+    rhGPerL: rhAvg,
+    totalPgmGPerL: totalPgmAvg,
+    totalOscGPerL: avg((r) => num(r.totalOscGPerL), 30),
+    diameterMm: avg((r) => num(r.diameterMm), 105.7),
+    lengthMm: avg((r) => num(r.lengthMm), 127),
+    volumeL: avg((r) => num(r.volumeL), 1.11),
+    cpsi: avg((r) => num(r.cpsi), 600),
+    wallMil: avg((r) => num(r.wallMil), 3.5),
     material,
-    wcTotalGPerL: avg((r) => num(r.wcTotalGPerL, 220)),
-    l1OscGPerL: avg((r) => num(r.l1OscGPerL, 80)),
-    l2OscGPerL: avg((r) => num(r.l2OscGPerL, 45)),
-    l1WcGPerL: avg((r) => num(r.l1WcGPerL, 140)),
-    l2WcGPerL: avg((r) => num(r.l2WcGPerL, 80)),
+    wcTotalGPerL: avg((r) => num(r.wcTotalGPerL), 220),
+    l1OscGPerL: avg((r) => num(r.l1OscGPerL), 80),
+    l2OscGPerL: avg((r) => num(r.l2OscGPerL), 45),
+    l1WcGPerL: avg((r) => num(r.l1WcGPerL), 140),
+    l2WcGPerL: avg((r) => num(r.l2WcGPerL), 80),
     productionVolumeEu: vol,
   };
 }
