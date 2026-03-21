@@ -103,41 +103,46 @@ export function validateDesign(
     });
   }
 
-  // --- PGM maximum: total PGM <= OEM fresh * 0.85 ---
-  const pgmMaxFrac = 0.85;
-  const pgmMax = baseline.oemFreshPgmGPerL * pgmMaxFrac;
-  if (design.totalPgmGPerL > pgmMax) {
+  // --- PGM upper cost advisory: total PGM > OEM fresh × 1.10 ---
+  // There is no technical upper limit on AM PGM — higher loading improves durability and
+  // OBD margin. A warning is issued only when cost exceeds OEM by >10%, as a commercial flag.
+  // (The previous 0.85 cap inverted the causality: more PGM makes the OBD monitor happier.)
+  const pgmCostLimit = baseline.oemFreshPgmGPerL * 1.10;
+  if (pgmCostLimit > 0 && design.totalPgmGPerL > pgmCostLimit) {
     violations.push({
-      id: "pgm-max",
+      id: "pgm-cost",
       field: "Total PGM",
       value: design.totalPgmGPerL,
-      limit: +pgmMax.toFixed(2),
+      limit: +pgmCostLimit.toFixed(2),
       severity: "WARN",
-      explanation: `Total PGM ${design.totalPgmGPerL} g/L exceeds 85% of OEM fresh (${pgmMax.toFixed(2)} g/L). Higher PGM than needed increases cost without proportional benefit and may trigger OBD adaptation issues.`,
+      explanation: `Total PGM ${design.totalPgmGPerL} g/L is more than 10% above OEM fresh loading (${pgmCostLimit.toFixed(2)} g/L). Performance will be excellent but verify the cost target is met.`,
     });
   }
 
-  // --- OSC window: 0.55–0.80 of OEM fresh ---
-  const oscMin = baseline.oemFreshOscGPerL * 0.55;
-  const oscMax = baseline.oemFreshOscGPerL * 0.80;
-  if (design.oscGPerL < oscMin) {
+  // --- OSC window — validated against OEM FRESH g/L as a proxy for aged buffering.
+  // The P0420 calibration is on the aged OE part; however, without the aged µmol/brick value
+  // available here, fresh g/L is the practical field check for gross under/over-loading.
+  // The aging simulation in the optimizer is the authoritative OBD check.
+  const oscMin = baseline.oemFreshOscGPerL > 0 ? baseline.oemFreshOscGPerL * 0.55 : 0;
+  const oscMax = baseline.oemFreshOscGPerL > 0 ? baseline.oemFreshOscGPerL * 0.85 : Infinity;
+  if (oscMin > 0 && design.oscGPerL < oscMin) {
     violations.push({
       id: "osc-low",
       field: "OSC loading",
       value: design.oscGPerL,
       limit: +oscMin.toFixed(1),
       severity: "BLOCK",
-      explanation: `OSC ${design.oscGPerL} g/L is below 55% of OEM fresh (${oscMin.toFixed(1)} g/L). Insufficient OSC will cause OBD P0420 failure — the rear O2 sensor will detect inadequate oxygen buffering.`,
+      explanation: `OSC ${design.oscGPerL} g/L is below 55% of OEM fresh loading (${oscMin.toFixed(1)} g/L). After aging, buffering capacity will be critically low — P0420 failure highly probable.`,
     });
   }
-  if (design.oscGPerL > oscMax) {
+  if (oscMax < Infinity && design.oscGPerL > oscMax) {
     violations.push({
       id: "osc-high",
       field: "OSC loading",
       value: design.oscGPerL,
       limit: +oscMax.toFixed(1),
       severity: "WARN",
-      explanation: `OSC ${design.oscGPerL} g/L exceeds 80% of OEM fresh (${oscMax.toFixed(1)} g/L). Excess OSC adds cost and weight without meaningful emission benefit after aging.`,
+      explanation: `OSC ${design.oscGPerL} g/L exceeds 85% of OEM fresh loading (${oscMax.toFixed(1)} g/L). Excess OSC adds cost; verify aged performance with the full aging simulation.`,
     });
   }
 

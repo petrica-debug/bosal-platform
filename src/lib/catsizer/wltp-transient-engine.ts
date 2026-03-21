@@ -616,10 +616,9 @@ export function runTransientWLTPSim(
   const overallVerdict: RAGVerdict = homologation.some((h) => h.verdict === "red")
     ? "red" : homologation.some((h) => h.verdict === "amber") ? "amber" : "green";
 
-  // Cold start penalty — actual g/km in first 60s (the highest-emission window)
+  // Cold start penalty — cold-start mass (g) normalised to full-cycle distance (km)
+  // so the result is in true g/km units, directly comparable to homologation limits.
   const first60 = steps.filter((s) => s.time <= 60);
-  const coldDistance_km = first60.reduce((a, s) => a + (cycle[0]?.speed ?? 0 / 3600), 0.001);
-  // Sum g/s × 1s = total g, then normalise to the full-cycle distance for comparability
   const coldCO_g = first60.reduce((a, s) => a + s.tailpipeCO_g_s, 0);
   const coldHC_g = first60.reduce((a, s) => a + s.tailpipeHC_g_s, 0);
   const coldNOx_g = first60.reduce((a, s) => a + s.tailpipeNOx_g_s, 0);
