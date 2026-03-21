@@ -28,6 +28,7 @@ import {
   Activity,
   FileText,
   MessageSquare,
+  TestTube2,
   type LucideIcon,
 } from "lucide-react";
 
@@ -91,6 +92,7 @@ const ICON_MAP: Record<string, LucideIcon> = {
   Activity,
   FileText,
   MessageSquare,
+  TestTube2,
 };
 
 const PHASE_VARIANT: Record<Phase, "default" | "secondary" | "outline"> = {

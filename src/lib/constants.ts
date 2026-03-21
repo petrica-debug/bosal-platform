@@ -217,6 +217,16 @@ export const NAV_ITEMS: readonly NavItem[] = [
     requiredRoles: ALL_ROLES,
     group: 'Aftermarket',
   },
+  {
+    title: 'Lab Data',
+    href: '/aftermarket/lab-data',
+    icon: 'TestTube2',
+    phase: 'P0',
+    description:
+      'Upload real test data (light-off, substrate datasheets, chassis dyno DF) to calibrate the digital twin and replace model estimates with measured values',
+    requiredRoles: ALL_ROLES,
+    group: 'Aftermarket',
+  },
 
   // -- Commercial --
   {

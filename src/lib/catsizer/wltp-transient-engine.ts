@@ -31,6 +31,13 @@ import {
   type RAGVerdict,
 } from "./predev-engine";
 import { assessDeactivation, type DeactivationInputs } from "./deactivation";
+import {
+  computeLambda,
+  updateOscFill,
+  computeTWCConversion,
+  TWC_DEFAULT_T90_OFFSET_C,
+  TWC_COLD_START_OSC_FILL,
+} from "./twc-lambda-model";
 
 // ============================================================
 // TYPES
@@ -73,6 +80,18 @@ export interface TransientSimConfig {
    * the cumulative g/km.  Values come from Step 5 agingPrediction.
    */
   t50Override_C?: { CO?: number; HC?: number; NOx?: number };
+  /**
+   * Aged OSC capacity (μmol O₂/brick) from agingPrediction.osc.agedUmolO2PerBrick.
+   * When provided (and washcoatType === "ceria"), the full TWC lambda-OSC model
+   * is used instead of the scalar agingActivity multiplier.  This is the primary
+   * mechanism for realistic DF prediction — low OSC narrows the lambda window.
+   */
+  oscCapacity_umol?: number;
+  /**
+   * Lambda oscillation frequency (Hz) from ECU closed-loop control.
+   * Typical: 0.5 Hz at idle, 1–2 Hz at cruise. Default 1.0 Hz.
+   */
+  lambdaFreqHz?: number;
 }
 
 export interface TransientStep {
@@ -84,6 +103,10 @@ export interface TransientStep {
   exhaustTemp_C: number;
   catalystTemp_C: number;
   GHSV_h: number;
+  /** Instantaneous lambda (TWC only; 1.0 for DOC) */
+  lambda: number;
+  /** OSC fill fraction 0–1 (TWC only; 1.0 for DOC) */
+  oscFillFrac: number;
   // Engine-out (g/s)
   engineCO_g_s: number;
   engineHC_g_s: number;
@@ -437,13 +460,40 @@ export function runTransientWLTPSim(
   cycle: Array<{ time: number; speed: number; phase?: string }>,
   config: TransientSimConfig
 ): TransientSimResult {
-  const { engine, catalyst, emissionStandard, agingHours, maxTemp_C, fuelSulfur_ppm, t50Override_C } = config;
+  const {
+    engine, catalyst, emissionStandard, agingHours, maxTemp_C, fuelSulfur_ppm,
+    t50Override_C,
+    oscCapacity_umol,
+    lambdaFreqHz = 1.0,
+  } = config;
+
+  // Is this a TWC (gasoline, lambda-controlled) or DOC (lean, no lambda)?
+  const isTWC = catalyst.washcoatType === "ceria";
 
   // Catalyst setup
   const profile = getProfile(catalyst.washcoatType);
   const gsaFac = cpsiMassTransferFactor(catalyst.cpsi, catalyst.wallThickness_mil);
   const split = splitBoost(catalyst.splitConfig);
   const pgmFac = pgmLoadingFactor(catalyst.pgmLoading_g_ft3, profile.composition.totalPGM_g_ft3);
+
+  // Extract T50 and T90 from profile reactions for use in TWC lambda model
+  const rxnCO  = profile.activity.reactions.find(r => r.species === "CO");
+  const rxnHC  = profile.activity.reactions.find(r => r.species === "HC");
+  const rxnNOx = profile.activity.reactions.find(r => r.species === "NOx");
+  const profileT50CO  = rxnCO?.T50_lightOff_C  ?? 175;
+  const profileT50HC  = rxnHC?.T50_lightOff_C  ?? 220;
+  const profileT50NOx = rxnNOx?.T50_lightOff_C ?? 250;
+  const profileMaxConv = Math.max(
+    rxnCO?.maxConversion_percent  ?? 99,
+    rxnHC?.maxConversion_percent  ?? 98,
+    rxnNOx?.maxConversion_percent ?? 55
+  );
+
+  // TWC T90 values (for sigmoid steepness in lambda model)
+  // Use T50 + species-specific offset as best estimate when not measured
+  const t90CO  = (t50Override_C?.CO  ?? profileT50CO)  + TWC_DEFAULT_T90_OFFSET_C.CO;
+  const t90HC  = (t50Override_C?.HC  ?? profileT50HC)  + TWC_DEFAULT_T90_OFFSET_C.HC;
+  const t90NOx = (t50Override_C?.NOx ?? profileT50NOx) + TWC_DEFAULT_T90_OFFSET_C.NOx;
 
   const catVolume_L =
     Math.PI * Math.pow(catalyst.diameter_mm / 2000, 2) * (catalyst.length_mm / 1000) * 1000;
@@ -482,6 +532,9 @@ export function runTransientWLTPSim(
   let cumCO_fresh = 0, cumHC_fresh = 0, cumNOx_fresh = 0;
   let cumDistance = 0;
   const dt = 1; // 1 second timestep
+
+  // TWC lambda-OSC state (only meaningful for TWC; DOC stays at lambda=1, oscFill=1)
+  let oscFillFrac = TWC_COLD_START_OSC_FILL; // partially discharged at cold start
 
   const steps: TransientStep[] = [];
   let peakGHSV = 0;
@@ -562,26 +615,78 @@ export function runTransientWLTPSim(
       exhaustFlow_kg_h, load, engine.fuelType
     );
 
-    // Instantaneous conversion using real catalyst physics
-    const convCO_fresh = predictConversion(
-      profile, "CO", catalystTemp, catVolume_L, molarFlowPlaceholder,
-      pgmFac, gsaFac, split.factor, isLean, exhaustFlow_kg_h
-    );
-    const convHC_fresh = predictConversion(
-      profile, "HC", catalystTemp, catVolume_L, molarFlowPlaceholder,
-      pgmFac, gsaFac, split.factor, isLean, exhaustFlow_kg_h
-    );
-    const convNOx_fresh = predictConversion(
-      profile, "NOx", catalystTemp, catVolume_L, molarFlowPlaceholder,
-      pgmFac, gsaFac, split.factor, isLean, exhaustFlow_kg_h
-    );
+    // Lambda and OSC dynamics (TWC only)
+    let lambda = 1.0;
+    if (isTWC) {
+      lambda = computeLambda(load, time, speed, prevSpeed, lambdaFreqHz, dt);
+      oscFillFrac = updateOscFill(
+        oscFillFrac, lambda,
+        oscCapacity_umol ?? 1200,  // 1200 μmol/brick default if not provided
+        exhaustFlow_kg_h, catalystTemp, dt
+      );
+    }
 
-    // Aged conversion: use chemistry-derived T50 when available (direct coupling
-    // from Step 5), otherwise fall back to scalar agingActivity multiplier.
+    // Instantaneous conversion — FRESH catalyst
+    // For TWC: use lambda-coupled model for consistent physics
+    // For DOC/lean: use existing predictConversion (correct — no lambda coupling needed)
+    let convCO_fresh: number;
+    let convHC_fresh: number;
+    let convNOx_fresh: number;
+
+    if (isTWC) {
+      convCO_fresh  = computeTWCConversion("CO",  catalystTemp, lambda, oscFillFrac,
+        profileT50CO,  t90CO,  pgmFac, gsaFac, profileMaxConv, false);
+      convHC_fresh  = computeTWCConversion("HC",  catalystTemp, lambda, oscFillFrac,
+        profileT50HC,  t90HC,  pgmFac, gsaFac, profileMaxConv, false);
+      convNOx_fresh = computeTWCConversion("NOx", catalystTemp, lambda, oscFillFrac,
+        profileT50NOx, t90NOx, pgmFac, gsaFac, profileMaxConv, false);
+    } else {
+      convCO_fresh = predictConversion(
+        profile, "CO", catalystTemp, catVolume_L, molarFlowPlaceholder,
+        pgmFac, gsaFac, split.factor, isLean, exhaustFlow_kg_h
+      );
+      convHC_fresh = predictConversion(
+        profile, "HC", catalystTemp, catVolume_L, molarFlowPlaceholder,
+        pgmFac, gsaFac, split.factor, isLean, exhaustFlow_kg_h
+      );
+      convNOx_fresh = predictConversion(
+        profile, "NOx", catalystTemp, catVolume_L, molarFlowPlaceholder,
+        pgmFac, gsaFac, split.factor, isLean, exhaustFlow_kg_h
+      );
+    }
+
+    // Instantaneous conversion — AGED catalyst
+    // For TWC with OSC + T50 data: use full lambda-OSC model with aged T50
+    // For TWC without OSC data: fall back to T50-shifted model if available, else scalar
+    // For DOC: scalar agingActivity multiplier (correct for lean chemistry)
     let convCO_aged: number;
     let convHC_aged: number;
     let convNOx_aged: number;
-    if (t50Override_C) {
+
+    if (isTWC) {
+      // Aged OSC capacity from config or fallback to degraded default
+      const agedOscCapacity = oscCapacity_umol ?? 800 * agingActivity; // aged OSC degrades similarly to PGM activity
+      // Re-run OSC fill with aged capacity for the aged pass
+      const agedOscFill = updateOscFill(
+        oscFillFrac, lambda, agedOscCapacity, exhaustFlow_kg_h, catalystTemp, 0
+      ); // dt=0 means just apply capacity scaling, not advance time
+
+      // Aged T50: use chemistry override if available, else shift fresh T50 by aging factor
+      // agingActivity < 1 means the catalyst is degraded → T50 increases (harder to light off)
+      // T50_aged ≈ T50_fresh + ΔT50 where ΔT50 = 40°C × (1 - agingActivity)
+      const deltaT50 = 40 * (1 - agingActivity);
+      const agedT50CO  = t50Override_C?.CO  ?? (profileT50CO  + deltaT50);
+      const agedT50HC  = t50Override_C?.HC  ?? (profileT50HC  + deltaT50);
+      const agedT50NOx = t50Override_C?.NOx ?? (profileT50NOx + deltaT50);
+      const maxConv = profileMaxConv;
+
+      convCO_aged  = computeTWCConversion("CO",  catalystTemp, lambda, agedOscFill,
+        agedT50CO,  t90CO,  pgmFac * agingActivity, gsaFac, maxConv, true);
+      convHC_aged  = computeTWCConversion("HC",  catalystTemp, lambda, agedOscFill,
+        agedT50HC,  t90HC,  pgmFac * agingActivity, gsaFac, maxConv, true);
+      convNOx_aged = computeTWCConversion("NOx", catalystTemp, lambda, agedOscFill,
+        agedT50NOx, t90NOx, pgmFac * agingActivity, gsaFac, maxConv, true);
+    } else if (t50Override_C) {
       convCO_aged  = t50Override_C.CO  !== undefined
         ? computeConvAtT50("CO",  catalystTemp, t50Override_C.CO,  GHSV)
         : Math.min(100, Math.max(0, convCO_fresh  * agingActivity));
@@ -632,6 +737,8 @@ export function runTransientWLTPSim(
       exhaustFlow_kg_h, exhaustTemp_C: Math.round(exhaustTemp * 10) / 10,
       catalystTemp_C: Math.round(catalystTemp * 10) / 10,
       GHSV_h: Math.round(GHSV),
+      lambda: +lambda.toFixed(4),
+      oscFillFrac: +oscFillFrac.toFixed(3),
       engineCO_g_s: eo.CO_g_s, engineHC_g_s: eo.HC_g_s,
       engineNOx_g_s: eo.NOx_g_s, enginePM_g_s: eo.PM_g_s,
       convCO_fresh, convHC_fresh, convNOx_fresh,

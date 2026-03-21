@@ -486,6 +486,12 @@ export function useWizard() {
           maxTemp_C: agingParams.agingTempC,
           fuelSulfur_ppm: wltpSim.fuelSulfurPpm,
           t50Override_C: t50Override,
+          // TWC lambda-OSC coupling: pass aged OSC capacity from chemistry model.
+          // This is the physically correct path — low OSC capacity narrows the lambda
+          // window and increases the DF, which the scalar agingActivity cannot capture.
+          oscCapacity_umol: selected.agingPrediction?.osc?.agedUmolO2PerBrick,
+          // Lambda oscillation frequency from OBD validation step (ECU control param)
+          lambdaFreqHz: obdValidation.lambdaFreqHz ?? 1.0,
         };
         const cycle = WLTP_CYCLE.map((p) => ({
           time: p.time,

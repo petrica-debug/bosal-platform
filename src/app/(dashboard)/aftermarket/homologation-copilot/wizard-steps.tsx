@@ -51,6 +51,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ProvenanceBadge } from "@/components/ui/provenance-badge";
 
 import {
   OEM_DB_MANIFEST,
@@ -524,7 +525,10 @@ function VariantCard({ v, selected, onSelect }: { v: AmVariant; selected: boolea
       <CardContent className="space-y-3 text-sm">
         <div className="grid grid-cols-2 gap-x-4 gap-y-1">
           <span className="text-muted-foreground">PGM total</span>
-          <span className="font-mono">{v.pgm.totalGPerL} g/L ({v.pgm.totalGPerFt3} g/ft³)</span>
+          <span className="font-mono flex items-center gap-1.5">
+            {v.pgm.totalGPerL} g/L ({v.pgm.totalGPerFt3} g/ft³)
+            <ProvenanceBadge sv={{ value: v.pgm.totalGPerFt3, tier: "literature", source: "OEM database / scaling model", confidencePct: 20 }} />
+          </span>
           <span className="text-muted-foreground">Pd / Rh / Pt</span>
           <span className="font-mono text-xs">{v.pgm.pdGPerL} / {v.pgm.rhGPerL} / {v.pgm.ptGPerL} g/L</span>
           <span className="text-muted-foreground">Pd:Rh ratio</span>
@@ -545,9 +549,15 @@ function VariantCard({ v, selected, onSelect }: { v: AmVariant; selected: boolea
               <span className="text-muted-foreground">Pd dispersion</span>
               <span className="font-mono">{aging.pgmPd.agedDispersionPct}%</span>
               <span className="text-muted-foreground">T50 CO (aged)</span>
-              <span className="font-mono">{aging.predictedT50CoC}°C</span>
+              <span className="font-mono flex items-center gap-1.5">
+                {aging.predictedT50CoC}°C
+                <ProvenanceBadge sv={{ value: aging.predictedT50CoC, tier: "estimated", source: "PGM dispersion + OSC sintering model", confidencePct: 15 }} />
+              </span>
               <span className="text-muted-foreground">T50 HC (aged)</span>
-              <span className="font-mono">{aging.predictedT50HcC}°C</span>
+              <span className="font-mono flex items-center gap-1.5">
+                {aging.predictedT50HcC}°C
+                <ProvenanceBadge sv={{ value: aging.predictedT50HcC, tier: "estimated", source: "PGM dispersion + OSC sintering model", confidencePct: 15 }} />
+              </span>
             </div>
           </>
         )}
@@ -2619,9 +2629,13 @@ export function Step5PerformanceTest({ wiz }: { wiz: Wiz }) {
                   <TrendingDown className="size-4 text-[#C8102E]" />
                   Deterioration Factor — R103 Compliance
                 </CardTitle>
-                <CardDescription>
-                  DF = aged g/km ÷ fresh g/km. R103 requires DF<sub>AM</sub> ≤ 1.15 × DF<sub>OEM</sub>.
-                  Reference OEM DFs: CO 1.35 · HC 1.25 · NOx 1.20 (Euro 6d TWC).
+                <CardDescription className="space-y-1">
+                  <span>DF = aged g/km ÷ fresh g/km. R103 requires DF<sub>AM</sub> ≤ 1.15 × DF<sub>OEM</sub>.
+                  Reference OEM DFs: CO 1.35 · HC 1.25 · NOx 1.20 (Euro 6d TWC).</span>
+                  <span className="flex items-center gap-2 mt-1">
+                    <ProvenanceBadge sv={{ value: 0, tier: "estimated", source: "TWC lambda-OSC simulation (fresh vs aged passes)", confidencePct: 20 }} />
+                    <span className="text-xs text-amber-600 dark:text-amber-400">Upload chassis dyno results in Lab Data to validate with measured DF.</span>
+                  </span>
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -2668,7 +2682,10 @@ export function Step5PerformanceTest({ wiz }: { wiz: Wiz }) {
                         <TableCell className="text-right font-mono text-xs">{row.fresh.toFixed(4)}</TableCell>
                         <TableCell className="text-right font-mono text-xs">{row.aged.toFixed(4)}</TableCell>
                         <TableCell className={`text-right font-mono text-xs font-semibold ${row.ok ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
-                          {row.df.toFixed(2)}
+                          <span className="flex items-center justify-end gap-1">
+                            {row.df.toFixed(2)}
+                            <ProvenanceBadge sv={{ value: row.df, tier: "estimated", source: "TWC lambda-OSC model", confidencePct: 20 }} />
+                          </span>
                         </TableCell>
                         <TableCell className="text-right font-mono text-xs text-muted-foreground">≤ {row.limit.toFixed(2)}</TableCell>
                         <TableCell className="text-center">
