@@ -54,7 +54,7 @@ import type {
 } from "./wizard-types";
 
 const MAX_PINNED = 12;
-const TOTAL_STEPS = 9;
+const TOTAL_STEPS = 7;
 
 function initialVehicleScope(): VehicleScopeInput {
   return {
@@ -448,6 +448,17 @@ export function useWizard() {
 
     setTimeout(() => {
       try {
+        // Inject chemistry-derived aged T50 from Step 4 when available.
+        // This couples Ce%, OSC, and PGM dispersion directly to the WLTP cold-start result.
+        const t50Override = selected.agingPrediction
+          ? {
+              CO:  selected.agingPrediction.predictedT50CoC,
+              HC:  selected.agingPrediction.predictedT50HcC,
+              // NOx T50 typically lags CO T50 by ~15°C
+              NOx: selected.agingPrediction.predictedT50CoC + 15,
+            }
+          : undefined;
+
         const simConfig = {
           engine: {
             displacement_L: preset.displacement_L,
@@ -474,6 +485,7 @@ export function useWizard() {
           agingHours: agingParams.agingHours,
           maxTemp_C: agingParams.agingTempC,
           fuelSulfur_ppm: wltpSim.fuelSulfurPpm,
+          t50Override_C: t50Override,
         };
         const cycle = WLTP_CYCLE.map((p) => ({
           time: p.time,

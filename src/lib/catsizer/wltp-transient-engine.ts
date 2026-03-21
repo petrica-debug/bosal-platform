@@ -65,6 +65,14 @@ export interface TransientSimConfig {
   agingHours: number;
   maxTemp_C: number;
   fuelSulfur_ppm: number;
+  /**
+   * Chemistry-derived aged T50 overrides (°C).
+   * When provided these replace the scalar agingActivity multiplier for the
+   * aged conversion pass — a catalyst with higher aged T50 (from Ce% or OSC
+   * degradation) will fail to light off during cold start, directly raising
+   * the cumulative g/km.  Values come from Step 5 agingPrediction.
+   */
+  t50Override_C?: { CO?: number; HC?: number; NOx?: number };
 }
 
 export interface TransientStep {
@@ -139,6 +147,23 @@ export interface TransientSimResult {
   avgGHSV_h: number;
   lightOffTime_s: number;
   T50_reached_s: { CO: number; HC: number; NOx: number };
+  /** Cumulative g/km on a FRESH (un-aged) catalyst — used for DF calculation */
+  freshCO_g_km: number;
+  freshHC_g_km: number;
+  freshNOx_g_km: number;
+  /**
+   * Deterioration Factor per species: DF = aged_g_km / fresh_g_km.
+   * The R103 requirement is DF_AM ≤ 1.15 × DF_OEM_ref.
+   */
+  DF_CO: number;
+  DF_HC: number;
+  DF_NOx: number;
+  /**
+   * R103 compliance per species.
+   * Reference OEM DF: CO=1.35, HC=1.25, NOx=1.20 (conservative Euro 6d TWC).
+   * Threshold: DF_AM ≤ 1.15 × DF_OEM_ref.
+   */
+  r103DFCompliance: { CO: boolean; HC: boolean; NOx: boolean };
 }
 
 // ============================================================
@@ -412,7 +437,7 @@ export function runTransientWLTPSim(
   cycle: Array<{ time: number; speed: number; phase?: string }>,
   config: TransientSimConfig
 ): TransientSimResult {
-  const { engine, catalyst, emissionStandard, agingHours, maxTemp_C, fuelSulfur_ppm } = config;
+  const { engine, catalyst, emissionStandard, agingHours, maxTemp_C, fuelSulfur_ppm, t50Override_C } = config;
 
   // Catalyst setup
   const profile = getProfile(catalyst.washcoatType);
@@ -453,6 +478,8 @@ export function runTransientWLTPSim(
   // Simulation state
   let catalystTemp = 25; // cold start
   let cumCO = 0, cumHC = 0, cumNOx = 0, cumPM = 0;
+  // Fresh-catalyst cumulative — tracked in parallel for DF calculation
+  let cumCO_fresh = 0, cumHC_fresh = 0, cumNOx_fresh = 0;
   let cumDistance = 0;
   const dt = 1; // 1 second timestep
 
@@ -461,6 +488,37 @@ export function runTransientWLTPSim(
   let sumGHSV = 0;
   let lightOffTime = -1;
   const t50Reached = { CO: -1, HC: -1, NOx: -1 };
+
+  /**
+   * Compute conversion at an explicit aged T50 (°C), bypassing profile lookup.
+   * Used when chemistry-derived T50 override is available from Step 5.
+   * The override is the FINAL aged T50 — loading corrections are already baked
+   * into the chemistry model, so we skip the PGM/GSA/split delta terms.
+   */
+  function computeConvAtT50(
+    species: string,
+    T_C: number,
+    t50Aged_C: number,
+    GHSV_cur: number
+  ): number {
+    const reaction = profile.activity.reactions.find(
+      (r) => r.species.toLowerCase() === species.toLowerCase()
+    );
+    if (!reaction) return 0;
+    let maxConv = reaction.maxConversion_percent;
+    if (isLean && species.toLowerCase() === "nox") maxConv = Math.min(maxConv, 15);
+
+    const T50_K = t50Aged_C + 273.15;
+    const steepness = (reaction.Ea_kJ_mol * 1000) / (4 * 8.314 * T50_K);
+    const k_sig = Math.max(0.03, Math.min(0.12, steepness));
+
+    const GHSV_eff = GHSV_cur / (gsaFac * pgmFac * split.factor + 1e-10);
+    const ghsvPenalty = 1 - Math.exp(-50000 / (GHSV_eff + 1));
+    const maxConv_eff = maxConv * Math.max(0.3, Math.min(1.0, ghsvPenalty));
+
+    const X = maxConv_eff / (1 + Math.exp(-k_sig * (T_C - t50Aged_C)));
+    return Math.max(0, Math.min(maxConv, X));
+  }
 
   // Seeded PRNG for reproducible noise
   let seed = 42;
@@ -518,10 +576,26 @@ export function runTransientWLTPSim(
       pgmFac, gsaFac, split.factor, isLean, exhaustFlow_kg_h
     );
 
-    // Clamp aged conversion to [0, 100] to prevent negative tailpipe values
-    const convCO_aged = Math.min(100, Math.max(0, convCO_fresh * agingActivity));
-    const convHC_aged = Math.min(100, Math.max(0, convHC_fresh * agingActivity));
-    const convNOx_aged = Math.min(100, Math.max(0, convNOx_fresh * agingActivity));
+    // Aged conversion: use chemistry-derived T50 when available (direct coupling
+    // from Step 5), otherwise fall back to scalar agingActivity multiplier.
+    let convCO_aged: number;
+    let convHC_aged: number;
+    let convNOx_aged: number;
+    if (t50Override_C) {
+      convCO_aged  = t50Override_C.CO  !== undefined
+        ? computeConvAtT50("CO",  catalystTemp, t50Override_C.CO,  GHSV)
+        : Math.min(100, Math.max(0, convCO_fresh  * agingActivity));
+      convHC_aged  = t50Override_C.HC  !== undefined
+        ? computeConvAtT50("HC",  catalystTemp, t50Override_C.HC,  GHSV)
+        : Math.min(100, Math.max(0, convHC_fresh  * agingActivity));
+      convNOx_aged = t50Override_C.NOx !== undefined
+        ? computeConvAtT50("NOx", catalystTemp, t50Override_C.NOx, GHSV)
+        : Math.min(100, Math.max(0, convNOx_fresh * agingActivity));
+    } else {
+      convCO_aged  = Math.min(100, Math.max(0, convCO_fresh  * agingActivity));
+      convHC_aged  = Math.min(100, Math.max(0, convHC_fresh  * agingActivity));
+      convNOx_aged = Math.min(100, Math.max(0, convNOx_fresh * agingActivity));
+    }
 
     // DPF/GPF PM filtration is a mechanical process (wall-flow inertial/diffusion capture),
     // NOT governed by chemical aging activity — an aged DPF retains >97% FE.
@@ -534,12 +608,16 @@ export function runTransientWLTPSim(
     const tailpipeNOx = eo.NOx_g_s * (1 - convNOx_aged / 100);
     const tailpipePM = eo.PM_g_s * (1 - convPM / 100);
 
-    // Cumulative
+    // Cumulative (aged)
     cumCO += tailpipeCO * dt;
     cumHC += tailpipeHC * dt;
     cumNOx += tailpipeNOx * dt;
     cumPM += tailpipePM * dt;
     cumDistance += (speed / 3600) * dt;
+    // Cumulative (fresh) — for DF calculation
+    cumCO_fresh  += eo.CO_g_s  * (1 - convCO_fresh  / 100) * dt;
+    cumHC_fresh  += eo.HC_g_s  * (1 - convHC_fresh  / 100) * dt;
+    cumNOx_fresh += eo.NOx_g_s * (1 - convNOx_fresh / 100) * dt;
 
     const dist = Math.max(cumDistance, 0.001);
 
@@ -624,6 +702,26 @@ export function runTransientWLTPSim(
   const coldNOx_g = first60.reduce((a, s) => a + s.tailpipeNOx_g_s, 0);
   const fullDist = Math.max(cumDistance, 0.001);
 
+  // DF calculation
+  const freshCO_g_km  = cumCO_fresh  / fullDist;
+  const freshHC_g_km  = cumHC_fresh  / fullDist;
+  const freshNOx_g_km = cumNOx_fresh / fullDist;
+  const agedCO_g_km   = finalStep.cumCO_g_km;
+  const agedHC_g_km   = finalStep.cumHC_g_km;
+  const agedNOx_g_km  = finalStep.cumNOx_g_km;
+  // Avoid div-by-zero: use 1.0 as fallback DF when fresh emissions are negligible
+  const DF_CO  = freshCO_g_km  > 0.0001 ? agedCO_g_km  / freshCO_g_km  : 1.0;
+  const DF_HC  = freshHC_g_km  > 0.0001 ? agedHC_g_km  / freshHC_g_km  : 1.0;
+  const DF_NOx = freshNOx_g_km > 0.0001 ? agedNOx_g_km / freshNOx_g_km : 1.0;
+  // R103 DF compliance: DF_AM ≤ 1.15 × DF_OEM_ref
+  // Reference OEM DFs from published Euro 6d TWC type approval data
+  const DF_OEM_REF = { CO: 1.35, HC: 1.25, NOx: 1.20 };
+  const r103DFCompliance = {
+    CO:  DF_CO  <= 1.15 * DF_OEM_REF.CO,
+    HC:  DF_HC  <= 1.15 * DF_OEM_REF.HC,
+    NOx: DF_NOx <= 1.15 * DF_OEM_REF.NOx,
+  };
+
   return {
     steps,
     phases,
@@ -648,6 +746,13 @@ export function runTransientWLTPSim(
       HC: t50Reached.HC >= 0 ? t50Reached.HC : 999,
       NOx: t50Reached.NOx >= 0 ? t50Reached.NOx : 999,
     },
+    freshCO_g_km:  +freshCO_g_km.toFixed(4),
+    freshHC_g_km:  +freshHC_g_km.toFixed(4),
+    freshNOx_g_km: +freshNOx_g_km.toFixed(4),
+    DF_CO:  +DF_CO.toFixed(3),
+    DF_HC:  +DF_HC.toFixed(3),
+    DF_NOx: +DF_NOx.toFixed(3),
+    r103DFCompliance,
   };
 }
 

@@ -266,15 +266,13 @@ export interface SpecCardData {
 /* ------------------------------------------------------------------ */
 
 export const WIZARD_STEPS = [
-  { label: "Vehicle & scope", description: "Select target application" },
-  { label: "OEM reference", description: "Review OEM baseline" },
-  { label: "System design", description: "Multi-brick architecture" },
-  { label: "AM variants", description: "Compare design options" },
-  { label: "Chemistry", description: "Washcoat & aging" },
-  { label: "WLTP simulation", description: "Transient cycle pass/fail" },
-  { label: "OBD & validation", description: "OBD simulation & rules" },
-  { label: "Economics", description: "Cost, market & competitors" },
-  { label: "Spec & test plan", description: "Export & R103 plan" },
+  { label: "Target Vehicle",  description: "Engine, market and system scope" },
+  { label: "OEM Benchmark",   description: "Reference design from database" },
+  { label: "System Brief",    description: "Architecture and packaging constraints" },
+  { label: "Catalyst Design", description: "PGM, substrate, washcoat and aging" },
+  { label: "Performance Test",description: "WLTP pass/fail, DF and OBD check" },
+  { label: "Business Case",   description: "Cost, market and engine family" },
+  { label: "R103 Package",    description: "Specification and type approval" },
 ] as const;
 
 export interface WizardState {

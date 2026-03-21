@@ -50,6 +50,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import {
   OEM_DB_MANIFEST,
@@ -2493,4 +2494,224 @@ function InfoCard({ label, value, variant }: { label: string; value: string; var
       <p className={`text-sm font-semibold mt-0.5 ${color}`}>{value}</p>
     </div>
   );
+}
+
+/* ================================================================== */
+/*  NEW MERGED STEP 4 — Catalyst Design (Variants + Chemistry)        */
+/* ================================================================== */
+
+export function Step4CatalystDesign({ wiz }: { wiz: Wiz }) {
+  const hasVariant = wiz.variants.selectedTier !== null;
+  const result = wiz.wltpSim.result;
+
+  const wltpBadge = result ? (
+    <span
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${
+        result.overallVerdict === "green"
+          ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300"
+          : result.overallVerdict === "amber"
+            ? "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+            : "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300"
+      }`}
+    >
+      WLTP {result.overallVerdict === "green" ? "PASS" : result.overallVerdict === "amber" ? "MARGINAL" : "FAIL"}
+    </span>
+  ) : null;
+
+  return (
+    <div className="space-y-3">
+      {/* Live WLTP status strip */}
+      {result && (
+        <div className="flex items-center gap-2 rounded-lg border bg-muted/30 px-3 py-2 text-xs">
+          <span className="text-muted-foreground">Chemistry impact:</span>
+          {wltpBadge}
+          <span className="text-muted-foreground">—</span>
+          <span className="font-mono">
+            CO {(result.homologation.find((h) => h.species === "CO")?.cumulative_g_km ?? 0).toFixed(3)} /
+            HC {(result.homologation.find((h) => h.species === "HC" || h.species === "THC")?.cumulative_g_km ?? 0).toFixed(3)} /
+            NOx {(result.homologation.find((h) => h.species === "NOx")?.cumulative_g_km ?? 0).toFixed(3)} g/km
+          </span>
+          {wiz.wltpSim.isRunning && (
+            <Loader2 className="size-3 animate-spin ml-auto text-muted-foreground" />
+          )}
+        </div>
+      )}
+
+      <Tabs defaultValue="variants" className="space-y-0">
+        <TabsList className="w-full">
+          <TabsTrigger value="variants" className="flex-1">
+            Variants &amp; PGM
+          </TabsTrigger>
+          <TabsTrigger value="chemistry" className="flex-1" disabled={!hasVariant}>
+            Chemistry &amp; Aging
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="variants" className="mt-3">
+          <Step4Variants wiz={wiz} />
+        </TabsContent>
+
+        <TabsContent value="chemistry" className="mt-3">
+          <Step5Chemistry wiz={wiz} />
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+/* ================================================================== */
+/*  NEW MERGED STEP 5 — Performance Test (WLTP+DF | OBD)              */
+/* ================================================================== */
+
+export function Step5PerformanceTest({ wiz }: { wiz: Wiz }) {
+  const result = wiz.wltpSim.result;
+
+  const overallColor =
+    result?.overallVerdict === "green"
+      ? "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200"
+      : result?.overallVerdict === "amber"
+        ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
+        : result
+          ? "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200"
+          : "bg-muted text-muted-foreground";
+
+  const overallLabel = result
+    ? result.overallVerdict === "green" ? "PASS" : result.overallVerdict === "amber" ? "MARGINAL" : "FAIL"
+    : "Not run";
+
+  return (
+    <div className="space-y-3">
+      {/* Overall verdict strip */}
+      <div className={`flex items-center gap-3 rounded-lg px-4 py-3 ${overallColor}`}>
+        {result?.overallVerdict === "green" ? (
+          <ShieldCheck className="size-5 shrink-0" />
+        ) : result?.overallVerdict === "amber" ? (
+          <ShieldAlert className="size-5 shrink-0" />
+        ) : (
+          <XCircle className="size-5 shrink-0" />
+        )}
+        <div>
+          <p className="font-semibold text-sm">WLTP + OBD: {overallLabel}</p>
+          {result && (
+            <p className="text-xs opacity-80">
+              {wiz.wltpSim.emissionStandard.replace(/_/g, " ")} · Aged {wiz.agingParams.agingHours}h at {wiz.agingParams.agingTempC}°C
+            </p>
+          )}
+        </div>
+      </div>
+
+      <Tabs defaultValue="wltp" className="space-y-0">
+        <TabsList className="w-full">
+          <TabsTrigger value="wltp" className="flex-1">
+            WLTP &amp; Deterioration Factor
+          </TabsTrigger>
+          <TabsTrigger value="obd" className="flex-1">
+            OBD Check
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="wltp" className="mt-3 space-y-4">
+          {/* DF Table — shown when simulation has run */}
+          {result && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <TrendingDown className="size-4 text-[#C8102E]" />
+                  Deterioration Factor — R103 Compliance
+                </CardTitle>
+                <CardDescription>
+                  DF = aged g/km ÷ fresh g/km. R103 requires DF<sub>AM</sub> ≤ 1.15 × DF<sub>OEM</sub>.
+                  Reference OEM DFs: CO 1.35 · HC 1.25 · NOx 1.20 (Euro 6d TWC).
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Species</TableHead>
+                      <TableHead className="text-right">Fresh g/km</TableHead>
+                      <TableHead className="text-right">Aged g/km</TableHead>
+                      <TableHead className="text-right">DF (AM)</TableHead>
+                      <TableHead className="text-right">R103 limit</TableHead>
+                      <TableHead className="text-center">Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {[
+                      {
+                        sp: "CO",
+                        fresh: result.freshCO_g_km,
+                        aged: result.homologation.find((h) => h.species === "CO")?.cumulative_g_km ?? 0,
+                        df: result.DF_CO,
+                        limit: +(1.15 * 1.35).toFixed(3),
+                        ok: result.r103DFCompliance.CO,
+                      },
+                      {
+                        sp: "HC",
+                        fresh: result.freshHC_g_km,
+                        aged: result.homologation.find((h) => h.species === "HC" || h.species === "THC")?.cumulative_g_km ?? 0,
+                        df: result.DF_HC,
+                        limit: +(1.15 * 1.25).toFixed(3),
+                        ok: result.r103DFCompliance.HC,
+                      },
+                      {
+                        sp: "NOx",
+                        fresh: result.freshNOx_g_km,
+                        aged: result.homologation.find((h) => h.species === "NOx")?.cumulative_g_km ?? 0,
+                        df: result.DF_NOx,
+                        limit: +(1.15 * 1.20).toFixed(3),
+                        ok: result.r103DFCompliance.NOx,
+                      },
+                    ].map((row) => (
+                      <TableRow key={row.sp}>
+                        <TableCell className="font-medium">{row.sp}</TableCell>
+                        <TableCell className="text-right font-mono text-xs">{row.fresh.toFixed(4)}</TableCell>
+                        <TableCell className="text-right font-mono text-xs">{row.aged.toFixed(4)}</TableCell>
+                        <TableCell className={`text-right font-mono text-xs font-semibold ${row.ok ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
+                          {row.df.toFixed(2)}
+                        </TableCell>
+                        <TableCell className="text-right font-mono text-xs text-muted-foreground">≤ {row.limit.toFixed(2)}</TableCell>
+                        <TableCell className="text-center">
+                          {row.ok ? (
+                            <Badge variant="outline" className="text-green-700 border-green-300 bg-green-50 dark:bg-green-950/30 text-xs">PASS</Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-red-700 border-red-300 bg-red-50 dark:bg-red-950/30 text-xs">FAIL</Badge>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+                <p className="text-xs text-muted-foreground mt-2">
+                  A high DF means the catalyst degrades too much during aging — reduce Ce% or increase OSC g/L in Step 4 to improve thermal stability.
+                </p>
+              </CardContent>
+            </Card>
+          )}
+
+          <Step6WltpSimulation wiz={wiz} />
+        </TabsContent>
+
+        <TabsContent value="obd" className="mt-3">
+          <Step7ObdValidation wiz={wiz} />
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+/* ================================================================== */
+/*  NEW STEP 6 — Business Case (alias for Step8Economics)             */
+/* ================================================================== */
+
+export function Step6BusinessCase({ wiz }: { wiz: Wiz }) {
+  return <Step8Economics wiz={wiz} />;
+}
+
+/* ================================================================== */
+/*  NEW STEP 7 — R103 Package (alias for Step9SpecCard)               */
+/* ================================================================== */
+
+export function Step7R103Package({ wiz }: { wiz: Wiz }) {
+  return <Step9SpecCard wiz={wiz} />;
 }
