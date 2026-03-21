@@ -21,3 +21,5 @@ export * from "./depollution-engine";
 export * from "./reformer-engine";
 export * from "./rfq-generator";
 export * from "./oem-database";
+export * from "./composition-optimizer";
+export * from "./step-intelligence";

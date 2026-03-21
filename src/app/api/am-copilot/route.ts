@@ -7,6 +7,11 @@ import {
   type CopilotAnswerFocus,
 } from "@/lib/catsizer/oem-database";
 import { AM_HOMOLOGATION_COPILOT_SYSTEM } from "@/lib/catsizer/oem-database/prompt";
+import {
+  buildStepAwareSystemPrompt,
+  wizardStepNumberToKey,
+  type WizardStep,
+} from "@/lib/catsizer/step-intelligence";
 
 const DEFAULT_MODEL = "gpt-4o";
 
@@ -62,9 +67,30 @@ export async function POST(request: NextRequest) {
       : "balanced";
   const focusBlock = copilotFocusInstruction(focus);
 
-  const wizardHint = typeof body.wizardStep === "string" && body.wizardStep
-    ? `\n## Wizard step context: ${body.wizardStep}\nTailor your response for this specific phase of the AM product development wizard.\n`
-    : "";
+  // Build step-aware system prompt if wizard step is provided
+  let systemPrompt = AM_HOMOLOGATION_COPILOT_SYSTEM;
+  let resolvedWizardStep: WizardStep | null = null;
+
+  if (typeof body.wizardStep === "string" && body.wizardStep) {
+    // Accept both "vehicle-scope" format and step numbers like "1"
+    const stepNum = parseInt(body.wizardStep, 10);
+    resolvedWizardStep = !isNaN(stepNum)
+      ? wizardStepNumberToKey(stepNum)
+      : (body.wizardStep as WizardStep);
+
+    if (resolvedWizardStep) {
+      systemPrompt = buildStepAwareSystemPrompt(
+        AM_HOMOLOGATION_COPILOT_SYSTEM,
+        resolvedWizardStep,
+      );
+    }
+  }
+
+  const wizardHint = resolvedWizardStep
+    ? "" // Step intelligence is now in the system prompt — no need for user-side hint
+    : typeof body.wizardStep === "string" && body.wizardStep
+      ? `\n## Wizard step context: ${body.wizardStep}\nTailor your response for this specific phase of the AM product development wizard.\n`
+      : "";
 
   const userContent = `${focusBlock ? `${focusBlock}\n\n` : ""}${wizardHint}## Retrieved OEM database context\n\n${context}\n\n---\n\n## Engineer question\n\n${message}`;
 
@@ -78,7 +104,7 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify({
         model: DEFAULT_MODEL,
         messages: [
-          { role: "system", content: AM_HOMOLOGATION_COPILOT_SYSTEM },
+          { role: "system", content: systemPrompt },
           { role: "user", content: userContent },
         ],
         temperature: 0.25,
