@@ -17,6 +17,9 @@ import {
   ShieldCheck,
   ShieldAlert,
   XCircle,
+  Plus,
+  Trash2,
+  TrendingDown,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -172,6 +175,18 @@ export function Step1VehicleScope({ wiz }: { wiz: Wiz }) {
               <SelectContent>
                 <SelectItem value="all">All standards</SelectItem>
                 {standards.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label className="text-xs text-muted-foreground">Fuel type</Label>
+            <Select value={local.fuelType} onValueChange={(v) => setLocal((p) => ({ ...p, fuelType: v as VehicleScopeInput["fuelType"] }))}>
+              <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All fuels</SelectItem>
+                <SelectItem value="gasoline">Gasoline / Petrol</SelectItem>
+                <SelectItem value="diesel">Diesel</SelectItem>
+                <SelectItem value="hybrid">Hybrid (HEV / PHEV)</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -375,12 +390,42 @@ export function Step3SystemDesign({ wiz }: { wiz: Wiz }) {
         <CardHeader>
           <CardTitle className="text-lg">Step 3 — System design</CardTitle>
           <CardDescription>
-            Multi-brick coordinated architecture: {wiz.vehicleScope.systemArchitecture}. Backpressure budget and per-brick allocation.
+            Multi-brick coordinated architecture: {wiz.vehicleScope.systemArchitecture}. Adjust exhaust flow and OEM backpressure limit before computing.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {/* Engineer controls — always visible so engineer can tune before re-running */}
+          <div className="grid gap-4 sm:grid-cols-2 rounded-lg border bg-muted/20 p-3">
+            <div>
+              <Label className="text-xs text-muted-foreground">Rated exhaust flow (kg/h)</Label>
+              <div className="flex items-center gap-2 mt-1">
+                <Input
+                  type="number" min={30} max={600} step={5}
+                  value={wiz.systemDesign.exhaustFlowKgPerH}
+                  onChange={(e) => wiz.setSystemDesignParam("exhaustFlowKgPerH", +e.target.value)}
+                  className="h-7 font-mono text-xs w-28"
+                />
+                <span className="text-xs text-muted-foreground">Affects GHSV and BP</span>
+              </div>
+            </div>
+            <div>
+              <Label className="text-xs text-muted-foreground">OEM backpressure limit (kPa)</Label>
+              <div className="flex items-center gap-2 mt-1">
+                <Input
+                  type="number" min={1} max={50} step={0.5}
+                  value={wiz.systemDesign.oemBackpressureKPa}
+                  onChange={(e) => wiz.setSystemDesignParam("oemBackpressureKPa", +e.target.value)}
+                  className="h-7 font-mono text-xs w-28"
+                />
+                <span className="text-xs text-muted-foreground">AM must stay within +10%</span>
+              </div>
+            </div>
+          </div>
+          <Button size="sm" variant="secondary" onClick={wiz.proceedToSystemDesign} className="gap-1.5">
+            Recompute system design
+          </Button>
           {!sd ? (
-            <p className="text-sm text-muted-foreground">System design not yet computed.</p>
+            <p className="text-sm text-muted-foreground">Click &quot;Recompute system design&quot; to generate the initial allocation.</p>
           ) : (
             <>
               <div className="grid gap-3 sm:grid-cols-3">
@@ -687,7 +732,7 @@ export function Step4Variants({ wiz }: { wiz: Wiz }) {
                 {/* Substrate */}
                 <div>
                   <p className="text-xs font-semibold text-muted-foreground mb-2">Substrate</p>
-                  <div className="grid gap-3 sm:grid-cols-4">
+                  <div className="grid gap-3 sm:grid-cols-3">
                     <div>
                       <Label className="text-xs">Diameter (mm)</Label>
                       <Select
@@ -726,6 +771,37 @@ export function Step4Variants({ wiz }: { wiz: Wiz }) {
                           {[400, 600, 900].map((c) => (
                             <SelectItem key={c} value={String(c)} className="text-xs">{c} CPSI</SelectItem>
                           ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-xs">Wall thickness (mil)</Label>
+                      <Select
+                        value={String(editingVariant.substrate.wallMil)}
+                        onValueChange={(v) => wiz.updateVariantSubstrate(editingTier, "wallMil", +v)}
+                      >
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {[3.5, 4, 6, 8].map((w) => (
+                            <SelectItem key={w} value={String(w)} className="text-xs">{w} mil</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-xs">Material</Label>
+                      <Select
+                        value={editingVariant.substrate.material}
+                        onValueChange={(v) => wiz.updateVariantSubstrate(editingTier, "material", v)}
+                      >
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="ceramic" className="text-xs">Ceramic</SelectItem>
+                          <SelectItem value="metallic" className="text-xs">Metallic</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -887,6 +963,50 @@ export function Step5Chemistry({ wiz }: { wiz: Wiz }) {
             <span className="text-muted-foreground">OSC formulation:</span>
             <span className="font-mono text-xs">{c.oscFormulation}</span>
           </div>
+
+          {/* Live WLTP pass/fail verdict strip — auto-updates as chemistry changes */}
+          {wiz.wltpSim.result && (
+            <div className={`rounded-lg border px-4 py-2 flex items-center gap-4 ${
+              wiz.wltpSim.isStale
+                ? "bg-yellow-50 border-yellow-300 dark:bg-yellow-900/20 dark:border-yellow-700"
+                : wiz.wltpSim.result.overallVerdict === "green"
+                ? "bg-green-50 border-green-300 dark:bg-green-900/20 dark:border-green-700"
+                : wiz.wltpSim.result.overallVerdict === "amber"
+                ? "bg-yellow-50 border-yellow-300 dark:bg-yellow-900/20 dark:border-yellow-700"
+                : "bg-red-50 border-red-300 dark:bg-red-900/20 dark:border-red-700"
+            }`}>
+              {wiz.wltpSim.isStale || wiz.wltpSim.isRunning ? (
+                <Loader2 className="size-4 animate-spin text-yellow-600" />
+              ) : wiz.wltpSim.result.overallVerdict === "green" ? (
+                <ShieldCheck className="size-4 text-green-600" />
+              ) : wiz.wltpSim.result.overallVerdict === "amber" ? (
+                <AlertTriangle className="size-4 text-yellow-600" />
+              ) : (
+                <XCircle className="size-4 text-red-600" />
+              )}
+              <div className="flex flex-col">
+                <span className="text-xs font-semibold">
+                  {wiz.wltpSim.isStale || wiz.wltpSim.isRunning
+                    ? "WLTP — recalculating…"
+                    : `WLTP ${wiz.wltpSim.result.overallVerdict.toUpperCase()} — ${wiz.wltpSim.emissionStandard}`}
+                </span>
+                {!wiz.wltpSim.isStale && !wiz.wltpSim.isRunning && (
+                  <span className="text-xs text-muted-foreground">
+                    CO {(wiz.wltpSim.result.homologation.find((h) => h.species === "CO")?.cumulative_g_km ?? 0).toFixed(3)} /
+                    HC {(wiz.wltpSim.result.homologation.find((h) => h.species === "HC" || h.species === "THC")?.cumulative_g_km ?? 0).toFixed(3)} /
+                    NOx {(wiz.wltpSim.result.homologation.find((h) => h.species === "NOx")?.cumulative_g_km ?? 0).toFixed(3)} g/km
+                  </span>
+                )}
+              </div>
+              <span className="ml-auto text-xs text-muted-foreground">Changes auto-rerun</span>
+            </div>
+          )}
+          {!wiz.wltpSim.result && wiz.variants.selectedTier !== null && (
+            <div className="rounded-lg border bg-muted/20 px-4 py-2 flex items-center gap-3 text-xs text-muted-foreground">
+              <AlertTriangle className="size-4" />
+              Run WLTP simulation in Step 6 to see live pass/fail updates here as you adjust chemistry.
+            </div>
+          )}
 
           {selected?.agingPrediction && (
             <Card>
@@ -1092,6 +1212,51 @@ export function Step6WltpSimulation({ wiz }: { wiz: Wiz }) {
             </div>
           </div>
 
+          {/* Test conditions */}
+          <div className="rounded-lg border bg-muted/20 p-3">
+            <p className="text-xs font-semibold text-muted-foreground mb-3">Test conditions</p>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div>
+                <Label className="text-xs">Fuel sulfur (ppm)</Label>
+                <Select
+                  value={String(wiz.wltpSim.fuelSulfurPpm)}
+                  onValueChange={(v) => wiz.setWltpFuelSulfur(Number(v))}
+                >
+                  <SelectTrigger className="h-8 text-xs mt-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="10" className="text-xs">10 ppm — EU Std (EN228/590)</SelectItem>
+                    <SelectItem value="50" className="text-xs">50 ppm — Higher sulfur</SelectItem>
+                    <SelectItem value="150" className="text-xs">150 ppm — Developing market</SelectItem>
+                    <SelectItem value="500" className="text-xs">500 ppm — Poor quality</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs">Ambient / cold-start temp (°C)</Label>
+                <Select
+                  value={String(wiz.wltpSim.ambientTempC)}
+                  onValueChange={(v) => wiz.setWltpAmbientTemp(Number(v))}
+                >
+                  <SelectTrigger className="h-8 text-xs mt-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="23" className="text-xs">23°C — Standard (Type 1)</SelectItem>
+                    <SelectItem value="14" className="text-xs">14°C — Medium cold (Type 6)</SelectItem>
+                    <SelectItem value="-7" className="text-xs">-7°C — Cold weather</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col justify-end">
+                <p className="text-xs text-muted-foreground">
+                  Sulfur poisoning factor applied to OSC and PGM dispersion for the aged simulation.
+                </p>
+              </div>
+            </div>
+          </div>
+
           <Button
             className="w-full gap-2"
             onClick={wiz.runWltpSim}
@@ -1278,6 +1443,26 @@ export function Step7ObdValidation({ wiz }: { wiz: Wiz }) {
                 />
                 <p className="text-xs text-muted-foreground mt-1">
                   Higher flow = shorter residence time = weaker OSC buffering = harder OBD.
+                </p>
+              </div>
+              <div>
+                <Label className="text-xs">λ oscillation frequency (Hz)</Label>
+                <Select
+                  value={String(obd.lambdaFreqHz)}
+                  onValueChange={(v) => wiz.updateLambdaFreq(Number(v))}
+                >
+                  <SelectTrigger className="h-8 text-xs mt-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="0.5" className="text-xs">0.5 Hz — Slow (type approval default)</SelectItem>
+                    <SelectItem value="1.0" className="text-xs">1.0 Hz — Standard (most OEMs)</SelectItem>
+                    <SelectItem value="2.0" className="text-xs">2.0 Hz — Fast (high-flow engines)</SelectItem>
+                    <SelectItem value="3.0" className="text-xs">3.0 Hz — Very fast (stressed condition)</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Faster λ = smaller OSC buffer needed = easier for amplitude strategy, harder for delay.
                 </p>
               </div>
             </div>
@@ -1885,12 +2070,307 @@ export function Step9SpecCard({ wiz }: { wiz: Wiz }) {
         </CardContent>
       </Card>
 
+      {/* MOT/MOP Engine Family Builder */}
+      <MotMopBuilder wiz={wiz} />
+
+      
+
       <div className="flex justify-between">
         <Button variant="outline" onClick={wiz.prev} className="gap-1.5">
           <ArrowLeft className="size-4" /> Back
         </Button>
       </div>
     </div>
+  );
+}
+
+/* ================================================================== */
+/*  MOT/MOP Engine Family Builder                                     */
+/* ================================================================== */
+
+const EMPTY_MOT = { engineCode: "", displacementCc: 1400, powerKw: 70, maxExhaustTempC: 850, inertiaClassKg: 1360, vehicleModel: "" };
+
+function MotMopBuilder({ wiz }: { wiz: Wiz }) {
+  const { familyMembers, familyExpansion, familyExpansionLoading } = wiz.specCardData;
+  const [newMot, setNewMot] = useState({ ...EMPTY_MOT });
+  const [editingCode, setEditingCode] = useState<string | null>(null);
+
+  const expResult = familyExpansion;
+  const selected = wiz.variants.variants.find((v) => v.tier === wiz.variants.selectedTier);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">MOT / MOP Engine Family Builder</CardTitle>
+        <CardDescription className="text-xs space-y-1">
+          <span className="block">
+            <strong>MOT</strong> (Master Original Type) = each OEM application / engine variant this AM part must replace.
+          </span>
+          <span className="block">
+            <strong>MOP</strong> (Master Original Part) = Bosal AM part number covering one or more MOTs under the same R103 type approval.
+          </span>
+          <span className="block text-muted-foreground">
+            Build the family below, then run Family Expansion to see how many R103 tests are needed and how much is saved versus testing each MOT individually.
+          </span>
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+
+        {/* MOT table */}
+        {familyMembers.length > 0 ? (
+          <div className="overflow-auto rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Engine code (MOT)</TableHead>
+                  <TableHead className="text-right">Disp (cc)</TableHead>
+                  <TableHead className="text-right">Power (kW)</TableHead>
+                  <TableHead className="text-right">Max T exh (°C)</TableHead>
+                  <TableHead className="text-right">Inertia (kg)</TableHead>
+                  <TableHead>Vehicle model</TableHead>
+                  <TableHead />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {familyMembers.map((m, idx) => (
+                  <TableRow key={m.engineCode + idx}>
+                    {editingCode === m.engineCode ? (
+                      <>
+                        <TableCell>
+                          <Input
+                            value={m.engineCode}
+                            onChange={(e) => wiz.updateFamilyMember(m.engineCode, "engineCode", e.target.value)}
+                            className="h-7 font-mono text-xs w-28"
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Input type="number" value={m.displacementCc} min={500} max={8000} step={100}
+                            onChange={(e) => wiz.updateFamilyMember(m.engineCode, "displacementCc", +e.target.value)}
+                            className="h-7 font-mono text-xs w-24" />
+                        </TableCell>
+                        <TableCell>
+                          <Input type="number" value={m.powerKw} min={20} max={500} step={5}
+                            onChange={(e) => wiz.updateFamilyMember(m.engineCode, "powerKw", +e.target.value)}
+                            className="h-7 font-mono text-xs w-20" />
+                        </TableCell>
+                        <TableCell>
+                          <Input type="number" value={m.maxExhaustTempC} min={600} max={1200} step={25}
+                            onChange={(e) => wiz.updateFamilyMember(m.engineCode, "maxExhaustTempC", +e.target.value)}
+                            className="h-7 font-mono text-xs w-20" />
+                        </TableCell>
+                        <TableCell>
+                          <Input type="number" value={m.inertiaClassKg} min={500} max={3000} step={50}
+                            onChange={(e) => wiz.updateFamilyMember(m.engineCode, "inertiaClassKg", +e.target.value)}
+                            className="h-7 font-mono text-xs w-24" />
+                        </TableCell>
+                        <TableCell>
+                          <Input value={m.vehicleModel ?? ""} placeholder="e.g. Golf VII, 208"
+                            onChange={(e) => wiz.updateFamilyMember(m.engineCode, "vehicleModel", e.target.value)}
+                            className="h-7 text-xs" />
+                        </TableCell>
+                        <TableCell>
+                          <Button size="sm" variant="secondary" className="h-7 text-xs" onClick={() => setEditingCode(null)}>Done</Button>
+                        </TableCell>
+                      </>
+                    ) : (
+                      <>
+                        <TableCell className="font-mono text-xs">{m.engineCode} {idx === 0 ? <Badge className="text-[10px] ml-1">Base MOP</Badge> : ""}</TableCell>
+                        <TableCell className="text-right font-mono text-xs">{m.displacementCc}</TableCell>
+                        <TableCell className="text-right font-mono text-xs">{m.powerKw}</TableCell>
+                        <TableCell className="text-right font-mono text-xs">{m.maxExhaustTempC}</TableCell>
+                        <TableCell className="text-right font-mono text-xs">{m.inertiaClassKg}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{m.vehicleModel ?? "—"}</TableCell>
+                        <TableCell>
+                          <div className="flex gap-1">
+                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setEditingCode(m.engineCode)}>
+                              <span className="text-xs">✎</span>
+                            </Button>
+                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive" onClick={() => wiz.removeFamilyMember(m.engineCode)}>
+                              <Trash2 className="size-3" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </>
+                    )}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            No MOTs defined yet. The OEM pinned records have been pre-loaded below — or add MOTs manually.
+          </p>
+        )}
+
+        {/* Add new MOT form */}
+        <div className="rounded-lg border bg-muted/20 p-3 space-y-2">
+          <p className="text-xs font-semibold text-muted-foreground">Add MOT to family</p>
+          <div className="grid gap-2 sm:grid-cols-3">
+            <div>
+              <Label className="text-xs">Engine code</Label>
+              <Input placeholder="e.g. EA211 1.0 TSI" value={newMot.engineCode}
+                onChange={(e) => setNewMot((p) => ({ ...p, engineCode: e.target.value }))}
+                className="h-8 font-mono text-xs mt-0.5" />
+            </div>
+            <div>
+              <Label className="text-xs">Displacement (cc)</Label>
+              <Input type="number" min={500} max={8000} step={100} value={newMot.displacementCc}
+                onChange={(e) => setNewMot((p) => ({ ...p, displacementCc: +e.target.value }))}
+                className="h-8 font-mono text-xs mt-0.5" />
+            </div>
+            <div>
+              <Label className="text-xs">Power (kW)</Label>
+              <Input type="number" min={20} max={500} step={5} value={newMot.powerKw}
+                onChange={(e) => setNewMot((p) => ({ ...p, powerKw: +e.target.value }))}
+                className="h-8 font-mono text-xs mt-0.5" />
+            </div>
+            <div>
+              <Label className="text-xs">Max exhaust temp (°C)</Label>
+              <Input type="number" min={600} max={1200} step={25} value={newMot.maxExhaustTempC}
+                onChange={(e) => setNewMot((p) => ({ ...p, maxExhaustTempC: +e.target.value }))}
+                className="h-8 font-mono text-xs mt-0.5" />
+            </div>
+            <div>
+              <Label className="text-xs">Inertia class (kg)</Label>
+              <Input type="number" min={500} max={3000} step={50} value={newMot.inertiaClassKg}
+                onChange={(e) => setNewMot((p) => ({ ...p, inertiaClassKg: +e.target.value }))}
+                className="h-8 font-mono text-xs mt-0.5" />
+            </div>
+            <div>
+              <Label className="text-xs">Vehicle model (optional)</Label>
+              <Input placeholder="e.g. Golf VII 1.0 TSI" value={newMot.vehicleModel}
+                onChange={(e) => setNewMot((p) => ({ ...p, vehicleModel: e.target.value }))}
+                className="h-8 text-xs mt-0.5" />
+            </div>
+          </div>
+          <Button
+            size="sm"
+            className="gap-1.5 mt-1"
+            disabled={!newMot.engineCode.trim()}
+            onClick={() => {
+              wiz.addFamilyMember({ ...newMot });
+              setNewMot({ ...EMPTY_MOT });
+            }}
+          >
+            <Plus className="size-3.5" /> Add MOT
+          </Button>
+        </div>
+
+        {/* Run expansion */}
+        <Button
+          onClick={wiz.runFamilyExpansion}
+          disabled={familyExpansionLoading || familyMembers.length < 2 || !selected}
+          className="gap-1.5"
+          variant="secondary"
+        >
+          {familyExpansionLoading ? <Loader2 className="size-4 animate-spin" /> : <TrendingDown className="size-4" />}
+          Run family expansion &amp; compute economics
+        </Button>
+        {familyMembers.length < 2 && (
+          <p className="text-xs text-muted-foreground">Add at least 2 MOTs to enable family expansion.</p>
+        )}
+
+        {/* Results */}
+        {expResult && (
+          <div className="space-y-4">
+            <Separator />
+            <h3 className="text-sm font-semibold">Family Expansion Results</h3>
+
+            {/* Economics KPIs */}
+            <div className="grid gap-3 sm:grid-cols-4">
+              <InfoCard label="Total MOTs" value={String(expResult.totalMotCount)} />
+              <InfoCard label="MOPs (unique parts)" value={String(expResult.uniquePartNumbers + 1)} />
+              <InfoCard label="R103 tests required" value={String(expResult.r103TestsRequired)} />
+              <InfoCard
+                label="R103 cost saving"
+                value={`€${expResult.r103TestCostSavingEur.toLocaleString()}`}
+                variant={expResult.r103TestCostSavingEur > 0 ? "success" : "warning"}
+              />
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-3">
+              <InfoCard label="Tests avoided" value={String(expResult.r103TestsWithout - expResult.r103TestsRequired)} />
+              <InfoCard label="Engineering hours saved" value={`${expResult.engineeringHoursSaved} h`} />
+              <InfoCard label="Parts sharing base" value={String(expResult.sharedPartNumbers)} />
+            </div>
+
+            {/* Savings explanation */}
+            <div className="rounded-lg border border-green-300 bg-green-50 dark:bg-green-900/20 dark:border-green-700 p-3 text-xs space-y-1">
+              <p className="font-semibold text-green-800 dark:text-green-300">
+                Family approval economics
+              </p>
+              <p className="text-green-700 dark:text-green-400">
+                {expResult.r103TestsWithout} MOTs would require {expResult.r103TestsWithout} individual R103 tests
+                (€{(expResult.r103TestsWithout * 6500).toLocaleString()}).
+                Family approach needs only {expResult.r103TestsRequired} test{expResult.r103TestsRequired !== 1 ? "s" : ""}
+                — saving approximately <strong>€{expResult.r103TestCostSavingEur.toLocaleString()}</strong> and{" "}
+                <strong>{expResult.engineeringHoursSaved} engineering hours</strong>.
+              </p>
+            </div>
+
+            {/* Per-variant scaling table */}
+            <div className="overflow-auto rounded-md border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Engine (MOT)</TableHead>
+                    <TableHead className="text-right">Disp (cc)</TableHead>
+                    <TableHead className="text-right">PGM g/brick</TableHead>
+                    <TableHead className="text-right">Vol (L)</TableHead>
+                    <TableHead className="text-right">PGM scale</TableHead>
+                    <TableHead className="text-right">Vol scale</TableHead>
+                    <TableHead>Part sharing</TableHead>
+                    <TableHead>Notes</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {/* Base row */}
+                  <TableRow className="bg-muted/20">
+                    <TableCell className="font-medium text-xs">
+                      {expResult.baseDesign.engineCode}
+                      <Badge variant="default" className="text-[10px] ml-1">Base MOP</Badge>
+                    </TableCell>
+                    <TableCell className="text-right font-mono text-xs">{expResult.baseDesign.displacementCc}</TableCell>
+                    <TableCell className="text-right font-mono text-xs">{expResult.basePgmGPerBrick.toFixed(3)}</TableCell>
+                    <TableCell className="text-right font-mono text-xs">{expResult.baseVolumeL.toFixed(3)}</TableCell>
+                    <TableCell className="text-right font-mono text-xs">1.000</TableCell>
+                    <TableCell className="text-right font-mono text-xs">1.000</TableCell>
+                    <TableCell className="text-xs">—</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">Reference design</TableCell>
+                  </TableRow>
+                  {expResult.variants.map((v) => (
+                    <TableRow key={v.member.engineCode}>
+                      <TableCell className="font-medium text-xs">{v.member.engineCode}</TableCell>
+                      <TableCell className="text-right font-mono text-xs">{v.member.displacementCc}</TableCell>
+                      <TableCell className="text-right font-mono text-xs">{v.pgmGPerBrick.toFixed(3)}</TableCell>
+                      <TableCell className="text-right font-mono text-xs">{v.substrateVolumeL.toFixed(3)}</TableCell>
+                      <TableCell className="text-right font-mono text-xs">
+                        <span className={v.pgmScaleFactor > 1.1 ? "text-amber-600" : v.pgmScaleFactor < 0.9 ? "text-blue-600" : ""}>
+                          {v.pgmScaleFactor.toFixed(3)}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-xs">{v.volumeScaleFactor.toFixed(3)}</TableCell>
+                      <TableCell>
+                        <Badge
+                          variant={v.sharedWithBase ? "secondary" : "outline"}
+                          className="text-[10px]"
+                        >
+                          {v.sharedWithBase ? "Shares base MOP" : "Unique MOP"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground max-w-[200px]">
+                        {v.notes.length > 0 ? v.notes.join(" · ") : "—"}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

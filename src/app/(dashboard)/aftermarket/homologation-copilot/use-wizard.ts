@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   ECS_COMPONENTS,
@@ -16,7 +16,7 @@ import { verifyObdMultiCycle } from "@/lib/catsizer/obd-simulation";
 import { validateDesign } from "@/lib/catsizer/design-rules";
 import { generateTestPlan } from "@/lib/catsizer/test-plan-generator";
 import { benchmarkVsCompetitors } from "@/lib/catsizer/competitor-bench";
-import { optimizeR103Scope, type EngineFamilyMember } from "@/lib/catsizer/family-expansion";
+import { optimizeR103Scope, expandEngineFamily, type EngineFamilyMember } from "@/lib/catsizer/family-expansion";
 import {
   runTransientWLTPSim,
   LIGHT_DUTY_PRESETS,
@@ -64,6 +64,7 @@ function initialVehicleScope(): VehicleScopeInput {
     targetMarket: "EU-West",
     packagingConstraints: "",
     systemArchitecture: "CC-TWC-only",
+    fuelType: "all",
   };
 }
 
@@ -72,7 +73,7 @@ function initialOemRef(): OemReferenceSelection {
 }
 
 function initialSystemDesign(): SystemDesignData {
-  return { result: null };
+  return { result: null, exhaustFlowKgPerH: 120, oemBackpressureKPa: 8 };
 }
 
 function initialVariants(): VariantSelection {
@@ -95,13 +96,17 @@ function initialWltpSim(): WltpSimulationData {
   return {
     result: null,
     isRunning: false,
-    enginePresetIndex: 4, // first gasoline preset
+    isStale: false,
+    enginePresetIndex: 4,
     emissionStandard: "euro_6d_gasoline",
+    fuelSulfurPpm: 10,
+    ambientTempC: 23,
+    lambdaFreqHz: 1.0,
   };
 }
 
 function initialObdValidation(): ObdValidationData {
-  return { obdStrategy: "amplitude", multiCycleResult: null, designValidation: null, exhaustFlowKgPerH: 120 };
+  return { obdStrategy: "amplitude", multiCycleResult: null, designValidation: null, exhaustFlowKgPerH: 120, lambdaFreqHz: 1.0 };
 }
 
 function initialAgingParams(): AgingParams {
@@ -118,7 +123,7 @@ function initialEconomics(): EconomicsData {
 }
 
 function initialSpecCardData(): SpecCardData {
-  return { testPlan: null, familyExpansion: null, r103Scope: null, familyMembers: [] };
+  return { testPlan: null, familyExpansion: null, r103Scope: null, familyMembers: [], familyExpansionLoading: false };
 }
 
 export function useWizard() {
@@ -139,11 +144,11 @@ export function useWizard() {
     () =>
       filterEcsWithGlobalIndices({
         search: vehicleScope.engineSearch,
-        fuel: "all",
+        fuel: vehicleScope.fuelType === "hybrid" ? "all" : vehicleScope.fuelType,
         emissionStandard: vehicleScope.emissionStandard,
         brand: vehicleScope.brand,
       }),
-    [vehicleScope.engineSearch, vehicleScope.emissionStandard, vehicleScope.brand],
+    [vehicleScope.engineSearch, vehicleScope.emissionStandard, vehicleScope.brand, vehicleScope.fuelType],
   );
 
   /* ---- OEM baseline from pinned rows ---- */
@@ -184,7 +189,7 @@ export function useWizard() {
       setVehicleScope(scope);
       const rows = filterEcsWithGlobalIndices({
         search: scope.engineSearch,
-        fuel: "all",
+        fuel: scope.fuelType === "hybrid" ? "all" : scope.fuelType,
         emissionStandard: scope.emissionStandard,
         brand: scope.brand,
       });
@@ -224,19 +229,27 @@ export function useWizard() {
     }
   }, [oemRef.pinnedIndices]);
 
-  /* ---- Step 2 → 3: compute system design ---- */
+  /* ---- Step 3: update a system design parameter (exhaust flow, OEM BP) ---- */
+  const setSystemDesignParam = useCallback(
+    (field: "exhaustFlowKgPerH" | "oemBackpressureKPa", value: number) => {
+      setSystemDesign((prev) => ({ ...prev, [field]: value }));
+    },
+    [],
+  );
+
+  /* ---- Step 2 → 3: compute system design (reads exhaust flow + OEM BP from state) ---- */
   const proceedToSystemDesign = useCallback(() => {
     const arch = vehicleScope.systemArchitecture;
     const result = designSystem({
       architecture: arch,
       totalPgmBudgetGPerL: oemBaseline.totalPgmGPerL * 0.60,
       totalOscBudgetGPerL: oemBaseline.totalOscGPerL * 0.65,
-      ratedExhaustFlowKgPerH: 120,
-      oemBackpressureKPa: 8,
+      ratedExhaustFlowKgPerH: systemDesign.exhaustFlowKgPerH,
+      oemBackpressureKPa: systemDesign.oemBackpressureKPa,
     });
-    setSystemDesign({ result });
+    setSystemDesign((prev) => ({ ...prev, result }));
     next();
-  }, [vehicleScope.systemArchitecture, oemBaseline, next]);
+  }, [vehicleScope.systemArchitecture, oemBaseline, systemDesign.exhaustFlowKgPerH, systemDesign.oemBackpressureKPa, next]);
 
   /* ---- Step 3 → 4: generate variants ---- */
   const generateAmVariants = useCallback(() => {
@@ -323,6 +336,7 @@ export function useWizard() {
         });
         return { ...prev, variants: updated };
       });
+      setWltpSim((p) => ({ ...p, isStale: true }));
     },
     [chemistry.cePercent, agingParams],
   );
@@ -339,6 +353,7 @@ export function useWizard() {
         });
         return { ...prev, variants: updated };
       });
+      setWltpSim((p) => ({ ...p, isStale: true }));
     },
     [oemBaseline.totalOscGPerL, chemistry.cePercent, agingParams],
   );
@@ -360,6 +375,7 @@ export function useWizard() {
         });
         return { ...prev, variants: updated };
       });
+      setWltpSim((p) => ({ ...p, isStale: true }));
     },
     [chemistry.cePercent, agingParams],
   );
@@ -395,6 +411,8 @@ export function useWizard() {
         }
         return newChem;
       });
+      // Chemistry change invalidates any existing WLTP result
+      setWltpSim((p) => ({ ...p, isStale: true }));
     },
     [],
   );
@@ -423,7 +441,7 @@ export function useWizard() {
       vehicleScope.componentScope.includes("CC-TWC") ||
       vehicleScope.componentScope.includes("UF-TWC");
 
-    setWltpSim((prev) => ({ ...prev, isRunning: true, result: null }));
+    setWltpSim((prev) => ({ ...prev, isRunning: true, isStale: false }));
 
     setTimeout(() => {
       try {
@@ -452,7 +470,7 @@ export function useWizard() {
           emissionStandard: wltpSim.emissionStandard,
           agingHours: agingParams.agingHours,
           maxTemp_C: agingParams.agingTempC,
-          fuelSulfur_ppm: 10,
+          fuelSulfur_ppm: wltpSim.fuelSulfurPpm,
         };
         const cycle = WLTP_CYCLE.map((p) => ({
           time: p.time,
@@ -460,17 +478,48 @@ export function useWizard() {
           phase: p.phase ?? "Low",
         }));
         const result = runTransientWLTPSim(cycle, simConfig);
-        setWltpSim((prev) => ({ ...prev, result, isRunning: false }));
+        setWltpSim((prev) => ({ ...prev, result, isRunning: false, isStale: false }));
       } catch (e) {
         toast.error("Simulation error: " + (e instanceof Error ? e.message : String(e)));
         setWltpSim((prev) => ({ ...prev, isRunning: false }));
       }
     }, 80);
-  }, [variants, vehicleScope, wltpSim.enginePresetIndex, wltpSim.emissionStandard, agingParams]);
+  }, [variants, vehicleScope, wltpSim.enginePresetIndex, wltpSim.emissionStandard, wltpSim.fuelSulfurPpm, agingParams]);
+
+  /* ---- Step 6: WLTP fuel sulfur ppm ---- */
+  const setWltpFuelSulfur = useCallback((ppm: number) => {
+    setWltpSim((prev) => ({ ...prev, fuelSulfurPpm: ppm, isStale: prev.result !== null }));
+  }, []);
+
+  /* ---- Step 6: WLTP ambient temperature ---- */
+  const setWltpAmbientTemp = useCallback((tempC: number) => {
+    setWltpSim((prev) => ({ ...prev, ambientTempC: tempC, isStale: prev.result !== null }));
+  }, []);
+
+  /* ---- Debounced auto-run: when WLTP result is stale and we already have a result ---- */
+  const autoRunTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!wltpSim.isStale || wltpSim.isRunning || wltpSim.result === null) return;
+    if (variants.selectedTier === null) return;
+    if (autoRunTimerRef.current) clearTimeout(autoRunTimerRef.current);
+    autoRunTimerRef.current = setTimeout(() => {
+      runWltpSim();
+    }, 600);
+    return () => {
+      if (autoRunTimerRef.current) clearTimeout(autoRunTimerRef.current);
+    };
+  }, [wltpSim.isStale, wltpSim.isRunning, wltpSim.result, variants.selectedTier, runWltpSim]);
 
   /* ---- Step 7: update OBD strategy ---- */
   const updateObdStrategy = useCallback((strategy: ObdValidationData["obdStrategy"]) => {
     setObdValidation((prev) => ({ ...prev, obdStrategy: strategy }));
+  }, []);
+
+  /* ---- Step 7: update lambda oscillation frequency ---- */
+  const updateLambdaFreq = useCallback((hz: number) => {
+    setObdValidation((prev) => ({ ...prev, lambdaFreqHz: hz }));
+    // Also keep wltp lambdaFreqHz in sync for the OBD coupling display
+    setWltpSim((prev) => ({ ...prev, lambdaFreqHz: hz }));
   }, []);
 
   /* ---- Step 7: update exhaust flow ---- */
@@ -532,6 +581,8 @@ export function useWizard() {
       ...vPrev,
       variants: recomputeAllAging(vPrev.variants, ce, agingParams),
     }));
+    // Ce% change affects OSC capacity → invalidate WLTP result
+    setWltpSim((p) => ({ ...p, isStale: true }));
   }, [agingParams, recomputeAllAging]);
 
   /* ---- Step 5: AI chemistry notes ---- */
@@ -597,7 +648,7 @@ export function useWizard() {
       },
     );
 
-    setObdValidation({ obdStrategy: obdValidation.obdStrategy, multiCycleResult: mc, designValidation: dv, exhaustFlowKgPerH: obdValidation.exhaustFlowKgPerH });
+    setObdValidation({ obdStrategy: obdValidation.obdStrategy, multiCycleResult: mc, designValidation: dv, exhaustFlowKgPerH: obdValidation.exhaustFlowKgPerH, lambdaFreqHz: obdValidation.lambdaFreqHz });
     next();
   }, [variants, oemBaseline, chemistry.totalWashcoatGPerL, obdValidation.obdStrategy, obdValidation.exhaustFlowKgPerH, next]);
 
@@ -639,14 +690,29 @@ export function useWizard() {
         ? ref?.emissionStandard ?? "Euro 6d"
         : vehicleScope.emissionStandard;
 
-      const familyMembers: EngineFamilyMember[] = pinnedRecords.slice(0, 5).map((r) => ({
-        engineCode: String(r.engineCodes ?? r.engineFamily ?? "Unknown"),
-        displacementCc: (parseFloat(String(r.displacementL ?? "1.0")) || 1.0) * 1000,
-        powerKw: parseFloat(String(r.powerKw ?? "100")) || 100,
-        maxExhaustTempC: 850,
-        inertiaClassKg: 1500,
-        vehicleModel: String(r.vehicleExamples ?? ""),
-      }));
+      const fuelType = vehicleScope.fuelType === "all" || vehicleScope.fuelType === "hybrid"
+        ? "gasoline"
+        : vehicleScope.fuelType;
+
+      const familyMembers: EngineFamilyMember[] = pinnedRecords.slice(0, 5).map((r) => {
+        const disp = (parseFloat(String(r.displacementL ?? "1.0")) || 1.0) * 1000;
+        const power = parseFloat(String(r.powerKw ?? "100")) || 100;
+        // Estimate exhaust temp from displacement and power density
+        const powerDensity = power / Math.max(disp / 1000, 0.5); // kW/L
+        const estExhaustTemp = Math.min(1050, 750 + powerDensity * 3);
+        // Estimate inertia class from vehicle examples text (light hatch vs SUV)
+        const modelStr = String(r.vehicleExamples ?? "").toLowerCase();
+        const isHeavy = modelStr.includes("suv") || modelStr.includes("mpv") || modelStr.includes("van");
+        const estInertia = isHeavy ? 1700 : 1360;
+        return {
+          engineCode: String(r.engineCodes ?? r.engineFamily ?? "Unknown"),
+          displacementCc: disp,
+          powerKw: power,
+          maxExhaustTempC: Math.round(estExhaustTemp),
+          inertiaClassKg: estInertia,
+          vehicleModel: String(r.vehicleExamples ?? ""),
+        };
+      });
 
       let r103Scope = null;
       if (familyMembers.length > 0) {
@@ -674,15 +740,15 @@ export function useWizard() {
         testVehicleModel: r103Scope?.testVehicle.vehicleModel ?? familyMembers[0]?.vehicleModel ?? "TBD",
         testVehicleEngineCode: r103Scope?.testVehicle.engineCode ?? familyMembers[0]?.engineCode ?? "TBD",
         testVehicleInertiaKg: r103Scope?.testVehicle.inertiaClassKg ?? 1500,
-        agingProtocol: "RAT-A (EU standard)",
-        agingTempC: 1050,
-        agingHours: 12,
+        agingProtocol: agingParams.protocol === "Custom" ? "Custom" : `${agingParams.protocol} (${agingParams.agingTempC}°C, ${agingParams.agingHours}h)`,
+        agingTempC: agingParams.agingTempC,
+        agingHours: agingParams.agingHours,
         targetMileageKm: 160_000,
-        fuelType: "gasoline",
+        fuelType: fuelType as "gasoline" | "diesel",
         type6Required: vehicleScope.componentScope.includes("CC-TWC"),
       });
 
-      setSpecCardData({ testPlan, familyExpansion: null, r103Scope, familyMembers });
+      setSpecCardData({ testPlan, familyExpansion: null, r103Scope, familyMembers, familyExpansionLoading: false });
       next();
     },
     [variants.variants, variants.selectedTier, oemBaseline, pinnedRecords, vehicleScope, next],
@@ -720,6 +786,66 @@ export function useWizard() {
     [variants.variants, variants.selectedTier, oemBaseline],
   );
 
+  /* ---- Step 9: MOT/MOP — add a family member ---- */
+  const addFamilyMember = useCallback((member: EngineFamilyMember) => {
+    setSpecCardData((prev) => ({
+      ...prev,
+      familyMembers: [...prev.familyMembers, member],
+      familyExpansion: null, // invalidate previous result
+    }));
+  }, []);
+
+  /* ---- Step 9: MOT/MOP — remove a family member ---- */
+  const removeFamilyMember = useCallback((engineCode: string) => {
+    setSpecCardData((prev) => ({
+      ...prev,
+      familyMembers: prev.familyMembers.filter((m) => m.engineCode !== engineCode),
+      familyExpansion: null,
+    }));
+  }, []);
+
+  /* ---- Step 9: MOT/MOP — edit a family member field ---- */
+  const updateFamilyMember = useCallback(
+    (engineCode: string, field: keyof EngineFamilyMember, value: string | number) => {
+      setSpecCardData((prev) => ({
+        ...prev,
+        familyMembers: prev.familyMembers.map((m) =>
+          m.engineCode === engineCode ? { ...m, [field]: value } : m,
+        ),
+        familyExpansion: null,
+      }));
+    },
+    [],
+  );
+
+  /* ---- Step 9: MOT/MOP — run expandEngineFamily ---- */
+  const runFamilyExpansion = useCallback(() => {
+    const { familyMembers } = specCardData;
+    if (familyMembers.length < 2) {
+      toast.error("Add at least 2 MOTs to run family expansion");
+      return;
+    }
+    const selected = variants.variants.find((v) => v.tier === variants.selectedTier);
+    if (!selected) {
+      toast.error("Select a variant first");
+      return;
+    }
+    setSpecCardData((prev) => ({ ...prev, familyExpansionLoading: true }));
+    const [baseDesign, ...rest] = familyMembers;
+    try {
+      const result = expandEngineFamily({
+        baseDesign,
+        basePgmGPerBrick: selected.pgm.pdGPerBrick + selected.pgm.rhGPerBrick + selected.pgm.ptGPerBrick,
+        baseVolumeL: selected.substrate.volumeL,
+        familyMembers: rest,
+      });
+      setSpecCardData((prev) => ({ ...prev, familyExpansion: result, familyExpansionLoading: false }));
+    } catch (e) {
+      toast.error("Family expansion failed: " + (e instanceof Error ? e.message : String(e)));
+      setSpecCardData((prev) => ({ ...prev, familyExpansionLoading: false }));
+    }
+  }, [specCardData, variants]);
+
   /* ---- Reset ---- */
   const resetWizard = useCallback(() => {
     setStep(0);
@@ -749,6 +875,7 @@ export function useWizard() {
     pinnedRecords,
     oemBaseline,
     systemDesign,
+    setSystemDesignParam,
     variants,
     selectVariant,
     updateVariantPgm,
@@ -764,12 +891,19 @@ export function useWizard() {
     runWltpSim,
     setWltpEnginePreset,
     setWltpEmissionStandard,
+    setWltpFuelSulfur,
+    setWltpAmbientTemp,
     obdValidation,
     updateObdStrategy,
     updateExhaustFlow,
+    updateLambdaFreq,
     economics,
     setEconomics,
     specCardData,
+    addFamilyMember,
+    removeFamilyMember,
+    updateFamilyMember,
+    runFamilyExpansion,
     submitVehicleScope,
     requestBaselineSummary,
     proceedToSystemDesign,

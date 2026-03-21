@@ -36,6 +36,8 @@ export interface VehicleScopeInput {
   packagingConstraints: string;
   /** L3: selected system architecture */
   systemArchitecture: SystemArchitecture;
+  /** Fuel type filter for OEM database matching */
+  fuelType: "gasoline" | "diesel" | "hybrid" | "all";
 }
 
 /* ------------------------------------------------------------------ */
@@ -54,6 +56,10 @@ export interface OemReferenceSelection {
 
 export interface SystemDesignData {
   result: SystemDesignResult | null;
+  /** Rated exhaust flow used for BP and SV calculations (kg/h) */
+  exhaustFlowKgPerH: number;
+  /** OEM system backpressure limit (kPa) */
+  oemBackpressureKPa: number;
 }
 
 /* ------------------------------------------------------------------ */
@@ -152,9 +158,17 @@ export interface AgingParams {
 export interface WltpSimulationData {
   result: TransientSimResult | null;
   isRunning: boolean;
+  /** True when chemistry/variants changed after last run — triggers auto re-run */
+  isStale: boolean;
   /** Index into LIGHT_DUTY_PRESETS */
   enginePresetIndex: number;
   emissionStandard: WLTPEmissionStandard;
+  /** Fuel sulfur content (ppm). EU standard = 10. */
+  fuelSulfurPpm: number;
+  /** Ambient / cold-start temperature (°C). Standard = 23, medium = 14, cold = -7. */
+  ambientTempC: number;
+  /** Lambda oscillation frequency for OBD coupling (Hz) */
+  lambdaFreqHz: number;
 }
 
 /* ------------------------------------------------------------------ */
@@ -166,6 +180,8 @@ export interface ObdValidationData {
   multiCycleResult: MultiCycleResult | null;
   designValidation: ValidationResult | null;
   exhaustFlowKgPerH: number;
+  /** Lambda oscillation frequency for OBD simulation (Hz) */
+  lambdaFreqHz: number;
 }
 
 /* ------------------------------------------------------------------ */
@@ -231,12 +247,14 @@ export interface SpecCard {
 export interface SpecCardData {
   /** L3: R103 test plan */
   testPlan: TestPlanResult | null;
-  /** L3: engine family expansion */
+  /** L3: engine family expansion result (wired from expandEngineFamily) */
   familyExpansion: FamilyExpansionResult | null;
   /** L3: R103 scope optimization */
   r103Scope: R103ScopeResult | null;
-  /** L3: engine family members (user-editable) */
+  /** L3: engine family members — user-editable MOT list */
   familyMembers: EngineFamilyMember[];
+  /** True while expandEngineFamily is computing */
+  familyExpansionLoading: boolean;
 }
 
 /* ------------------------------------------------------------------ */

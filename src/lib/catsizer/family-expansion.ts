@@ -40,10 +40,26 @@ export interface FamilyExpansionResult {
   basePgmGPerBrick: number;
   baseVolumeL: number;
   variants: FamilyVariantSpec[];
-  /** Number of unique AM part numbers needed */
+  /** Number of unique AM part numbers needed (MOPs) */
   uniquePartNumbers: number;
-  /** Number of shared (same as base) */
+  /** Number of members sharing the base part number */
   sharedPartNumbers: number;
+  /** Total MOTs (base + all variants) */
+  totalMotCount: number;
+  /**
+   * Estimated R103 test cost saving vs. testing each MOT individually.
+   * Assumes €6,500 per test avoided.
+   */
+  r103TestCostSavingEur: number;
+  /**
+   * Estimated engineering hours saved by part consolidation.
+   * Assumes 40 h/part number avoided.
+   */
+  engineeringHoursSaved: number;
+  /** Number of R103 tests required under family approach */
+  r103TestsRequired: number;
+  /** Number of R103 tests that would be required without family approach */
+  r103TestsWithout: number;
 }
 
 /* ================================================================== */
@@ -113,6 +129,16 @@ export function expandEngineFamily(params: {
 
   const uniquePartNumbers = variants.filter((v) => !v.sharedWithBase).length;
   const sharedPartNumbers = variants.filter((v) => v.sharedWithBase).length;
+  const totalMotCount = 1 + variants.length; // base + all members
+
+  // Economics: with family approach you need (1 + uniquePartNumbers) R103 tests
+  // (one for the base MOP, one per unique additional MOP).
+  // Without family approach you would need one test per MOT.
+  const r103TestsRequired = 1 + uniquePartNumbers;
+  const r103TestsWithout = totalMotCount;
+  const testsSaved = r103TestsWithout - r103TestsRequired;
+  const r103TestCostSavingEur = Math.max(0, testsSaved) * 6500;
+  const engineeringHoursSaved = Math.max(0, testsSaved) * 40;
 
   return {
     baseDesign,
@@ -121,6 +147,11 @@ export function expandEngineFamily(params: {
     variants,
     uniquePartNumbers,
     sharedPartNumbers,
+    totalMotCount,
+    r103TestCostSavingEur,
+    engineeringHoursSaved,
+    r103TestsRequired,
+    r103TestsWithout,
   };
 }
 
