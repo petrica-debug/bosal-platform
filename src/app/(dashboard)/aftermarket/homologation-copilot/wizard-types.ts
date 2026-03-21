@@ -6,7 +6,7 @@ import type { FamilyExpansionResult, R103ScopeResult, EngineFamilyMember } from 
 import type { ValidationResult } from "@/lib/catsizer/design-rules";
 import type { TestPlanResult } from "@/lib/catsizer/test-plan-generator";
 import type { BenchmarkResult } from "@/lib/catsizer/competitor-bench";
-import type { TransientSimResult, WLTPEmissionStandard } from "@/lib/catsizer/wltp-transient-engine";
+import type { TransientSimResult, WLTPEmissionStandard, WltpPassSuggestion } from "@/lib/catsizer/wltp-transient-engine";
 
 /* ------------------------------------------------------------------ */
 /*  Step 1 — Vehicle & Scope                                          */
@@ -169,6 +169,10 @@ export interface WltpSimulationData {
   ambientTempC: number;
   /** Lambda oscillation frequency for OBD coupling (Hz) */
   lambdaFreqHz: number;
+  /** Pass suggestion from binary search (populated on FAIL/MARGINAL) */
+  suggestion: WltpPassSuggestion | null;
+  /** True while the suggestion engine is searching */
+  isSuggesting: boolean;
 }
 
 /* ------------------------------------------------------------------ */

@@ -19,6 +19,7 @@ import { benchmarkVsCompetitors } from "@/lib/catsizer/competitor-bench";
 import { optimizeR103Scope, expandEngineFamily, type EngineFamilyMember } from "@/lib/catsizer/family-expansion";
 import {
   runTransientWLTPSim,
+  suggestPassingConfig,
   LIGHT_DUTY_PRESETS,
   type WLTPEmissionStandard,
 } from "@/lib/catsizer/wltp-transient-engine";
@@ -102,6 +103,8 @@ function initialWltpSim(): WltpSimulationData {
     fuelSulfurPpm: 10,
     ambientTempC: 23,
     lambdaFreqHz: 1.0,
+    suggestion: null,
+    isSuggesting: false,
   };
 }
 
@@ -510,6 +513,118 @@ export function useWizard() {
     };
   }, [wltpSim.isStale, wltpSim.isRunning, wltpSim.result, variants.selectedTier, runWltpSim]);
 
+  /* ---- Step 6: suggest a passing configuration when WLTP fails ---- */
+  const suggestWltpFix = useCallback(() => {
+    const selected =
+      variants.variants.find((v) => v.tier === variants.selectedTier) ??
+      variants.variants[0];
+    if (!selected) return;
+    const preset = LIGHT_DUTY_PRESETS[wltpSim.enginePresetIndex] ?? LIGHT_DUTY_PRESETS[0];
+    const isGasoline =
+      vehicleScope.componentScope.includes("CC-TWC") ||
+      vehicleScope.componentScope.includes("UF-TWC");
+
+    setWltpSim((prev) => ({ ...prev, isSuggesting: true, suggestion: null }));
+
+    setTimeout(() => {
+      try {
+        const baseConfig = {
+          engine: {
+            displacement_L: preset.displacement_L,
+            ratedPower_kW: preset.power_kW,
+            fuelType: preset.fuelType,
+            numberOfCylinders: preset.cylinders,
+            rawCO_ppm: preset.rawCO_ppm,
+            rawHC_ppm: preset.rawHC_ppm,
+            rawNOx_ppm: preset.rawNOx_ppm,
+            rawPM_mg_Nm3: preset.rawPM_mg_Nm3,
+          },
+          catalyst: {
+            cpsi: selected.substrate.cpsi,
+            wallThickness_mil: selected.substrate.wallMil,
+            washcoatType: isGasoline ? ("ceria" as const) : ("oxidation" as const),
+            pgmLoading_g_ft3: selected.pgm.totalGPerFt3,
+            diameter_mm: selected.substrate.diameterMm,
+            length_mm: selected.substrate.lengthMm,
+            splitConfig: "single" as const,
+          },
+          emissionStandard: wltpSim.emissionStandard,
+          agingHours: agingParams.agingHours,
+          maxTemp_C: agingParams.agingTempC,
+          fuelSulfur_ppm: wltpSim.fuelSulfurPpm,
+        };
+        const cycle = WLTP_CYCLE.map((p) => ({
+          time: p.time,
+          speed: p.speed,
+          phase: p.phase ?? "Low",
+        }));
+        // OEM baseline PGM in g/ft3 for the search ceiling
+        const oemPgm = oemBaseline.totalPgmGPerL > 0
+          ? oemBaseline.totalPgmGPerL / 0.0353147
+          : selected.pgm.totalGPerFt3 * 2;
+        const suggestion = suggestPassingConfig(cycle, baseConfig, oemPgm);
+        setWltpSim((prev) => ({ ...prev, suggestion, isSuggesting: false }));
+      } catch (e) {
+        toast.error("Suggestion search failed: " + (e instanceof Error ? e.message : String(e)));
+        setWltpSim((prev) => ({ ...prev, isSuggesting: false }));
+      }
+    }, 50);
+  }, [variants, vehicleScope, wltpSim.enginePresetIndex, wltpSim.emissionStandard, wltpSim.fuelSulfurPpm, agingParams, oemBaseline]);
+
+  /* ---- Step 6: apply the suggestion back to the selected variant ---- */
+  const applySuggestion = useCallback(() => {
+    const suggestion = wltpSim.suggestion;
+    if (!suggestion?.found) return;
+    const tier = variants.selectedTier ?? variants.variants[0]?.tier;
+    if (!tier) return;
+
+    // Convert suggested g/ft3 back to g/L for the variant PGM split
+    const G_PER_FT3 = 0.0353147;
+    const newTotalGPerL = +(suggestion.pgmLoading_g_ft3 * G_PER_FT3).toFixed(3);
+
+    setVariants((prev) => {
+      const updated = prev.variants.map((v) => {
+        if (v.tier !== tier) return v;
+        // Scale each PGM metal proportionally
+        const oldTotal = v.pgm.totalGPerL || 1;
+        const scale = newTotalGPerL / oldTotal;
+        const newPgm = {
+          ...v.pgm,
+          pdGPerL: +(v.pgm.pdGPerL * scale).toFixed(3),
+          rhGPerL: +(v.pgm.rhGPerL * scale).toFixed(3),
+          ptGPerL: +(v.pgm.ptGPerL * scale).toFixed(3),
+          totalGPerL: newTotalGPerL,
+          totalGPerFt3: +suggestion.pgmLoading_g_ft3.toFixed(1),
+        };
+        const vol = v.substrate.volumeL || 1;
+        newPgm.pdGPerBrick = +(newPgm.pdGPerL * vol).toFixed(3);
+        newPgm.rhGPerBrick = +(newPgm.rhGPerL * vol).toFixed(3);
+        newPgm.ptGPerBrick = +(newPgm.ptGPerL * vol).toFixed(3);
+        newPgm.pdRhRatio = newPgm.rhGPerL > 0 ? +((newPgm.pdGPerL / newPgm.rhGPerL).toFixed(1)) : 0;
+
+        const newSub = { ...v.substrate };
+        if (suggestion.diameter_mm !== v.substrate.diameterMm || suggestion.length_mm !== v.substrate.lengthMm) {
+          newSub.diameterMm = suggestion.diameter_mm;
+          newSub.lengthMm = suggestion.length_mm;
+          newSub.volumeL = +((Math.PI * (suggestion.diameter_mm / 2) ** 2 * suggestion.length_mm) / 1e6).toFixed(3);
+          // Recalc per-brick with new volume
+          const nv = newSub.volumeL;
+          newPgm.pdGPerBrick = +(newPgm.pdGPerL * nv).toFixed(3);
+          newPgm.rhGPerBrick = +(newPgm.rhGPerL * nv).toFixed(3);
+          newPgm.ptGPerBrick = +(newPgm.ptGPerL * nv).toFixed(3);
+        }
+
+        const aging = computeVariantAging(newPgm, v.oscTargetGPerL, newSub, chemistry.cePercent, agingParams.agingTempC, agingParams.agingHours, agingParams.exhaustFlowKgPerH);
+        return { ...v, pgm: newPgm, substrate: newSub, agingPrediction: aging };
+      });
+      return { ...prev, variants: updated };
+    });
+
+    // Clear suggestion and mark stale so auto-run fires
+    setWltpSim((prev) => ({ ...prev, suggestion: null, isStale: true }));
+    toast.success("Applied suggested configuration — WLTP will re-run automatically");
+  }, [wltpSim.suggestion, variants, chemistry.cePercent, agingParams]);
+
   /* ---- Step 7: update OBD strategy ---- */
   const updateObdStrategy = useCallback((strategy: ObdValidationData["obdStrategy"]) => {
     setObdValidation((prev) => ({ ...prev, obdStrategy: strategy }));
@@ -893,6 +1008,8 @@ export function useWizard() {
     setWltpEmissionStandard,
     setWltpFuelSulfur,
     setWltpAmbientTemp,
+    suggestWltpFix,
+    applySuggestion,
     obdValidation,
     updateObdStrategy,
     updateExhaustFlow,

@@ -650,3 +650,168 @@ export function runTransientWLTPSim(
     },
   };
 }
+
+// ============================================================
+// PASS-SUGGESTION ENGINE
+// ============================================================
+
+export interface WltpPassSuggestion {
+  found: boolean;
+  pgmLoading_g_ft3: number;
+  diameter_mm: number;
+  length_mm: number;
+  verdict: RAGVerdict;
+  emissions: { species: string; g_km: number; limit: number; margin: number }[];
+  /** What was changed to achieve the pass */
+  changes: string[];
+  /** PGM delta vs current in g/ft3 */
+  pgmDelta_g_ft3: number;
+  /** Volume delta vs current in L */
+  volumeDelta_L: number;
+}
+
+const SUGGESTION_DIAMETERS = [
+  93.0, 101.6, 105.7, 118.4, 127.0, 132.0, 143.0, 152.4, 170.0,
+];
+
+/**
+ * Binary-search for the minimum catalyst configuration that passes WLTP.
+ *
+ * Strategy:
+ * 1. Increase PGM loading from current up to oemPgm (then 1.5x OEM) via binary search.
+ * 2. If PGM alone can't fix it, step up substrate diameter to the next tooling size and repeat.
+ * 3. Returns the minimum-cost passing configuration, or { found: false } if nothing works.
+ */
+export function suggestPassingConfig(
+  cycle: Array<{ time: number; speed: number; phase?: string }>,
+  baseConfig: TransientSimConfig,
+  oemPgm_g_ft3: number,
+): WltpPassSuggestion {
+  const currentPgm = baseConfig.catalyst.pgmLoading_g_ft3;
+  const currentDia = baseConfig.catalyst.diameter_mm;
+  const currentLen = baseConfig.catalyst.length_mm;
+  const currentVol =
+    Math.PI * Math.pow(currentDia / 2000, 2) * (currentLen / 1000) * 1000;
+
+  // Upper bound for PGM search: max of 1.5x OEM or 2x current (whichever is higher)
+  const pgmCeiling = Math.max(oemPgm_g_ft3 * 1.5, currentPgm * 2.5, 120);
+
+  // Candidate substrate sizes: current + larger tooling diameters
+  const substrateCandidates: { dia: number; len: number }[] = [
+    { dia: currentDia, len: currentLen },
+  ];
+  for (const d of SUGGESTION_DIAMETERS) {
+    if (d > currentDia + 1) {
+      substrateCandidates.push({ dia: d, len: currentLen });
+    }
+  }
+  // Also try longer substrate at current diameter
+  for (const extraLen of [20, 40]) {
+    if (currentLen + extraLen <= 305) {
+      substrateCandidates.push({ dia: currentDia, len: currentLen + extraLen });
+    }
+  }
+
+  function tryConfig(pgm: number, dia: number, len: number): TransientSimResult {
+    const cfg: TransientSimConfig = {
+      ...baseConfig,
+      catalyst: { ...baseConfig.catalyst, pgmLoading_g_ft3: pgm, diameter_mm: dia, length_mm: len },
+    };
+    return runTransientWLTPSim(cycle, cfg);
+  }
+
+  function passes(result: TransientSimResult): boolean {
+    return result.overallVerdict === "green";
+  }
+
+  // For each substrate candidate, binary-search PGM
+  for (const sub of substrateCandidates) {
+    // Quick check: does max PGM at this substrate pass?
+    const maxResult = tryConfig(pgmCeiling, sub.dia, sub.len);
+    if (!passes(maxResult)) continue; // even max PGM can't save this substrate size
+
+    // Binary search for minimum PGM that passes
+    let lo = Math.max(currentPgm, 5);
+    let hi = pgmCeiling;
+    let bestPgm = hi;
+    let bestResult = maxResult;
+
+    for (let iter = 0; iter < 12; iter++) {
+      const mid = (lo + hi) / 2;
+      const midResult = tryConfig(mid, sub.dia, sub.len);
+      if (passes(midResult)) {
+        bestPgm = mid;
+        bestResult = midResult;
+        hi = mid;
+      } else {
+        lo = mid;
+      }
+      if (hi - lo < 0.5) break;
+    }
+
+    // Round up to nearest 0.5 g/ft3 for practical manufacturing
+    bestPgm = Math.ceil(bestPgm * 2) / 2;
+    // Verify the rounded value still passes
+    const verifyResult = tryConfig(bestPgm, sub.dia, sub.len);
+    if (!passes(verifyResult)) {
+      bestPgm += 0.5;
+      const reVerify = tryConfig(bestPgm, sub.dia, sub.len);
+      if (passes(reVerify)) {
+        bestResult = reVerify;
+      } else {
+        bestResult = verifyResult;
+      }
+    } else {
+      bestResult = verifyResult;
+    }
+
+    const newVol =
+      Math.PI * Math.pow(sub.dia / 2000, 2) * (sub.len / 1000) * 1000;
+
+    const changes: string[] = [];
+    const pgmDelta = bestPgm - currentPgm;
+    const volDelta = newVol - currentVol;
+    if (Math.abs(pgmDelta) > 0.3) {
+      changes.push(`PGM ${pgmDelta > 0 ? "+" : ""}${pgmDelta.toFixed(1)} g/ft³`);
+    }
+    if (sub.dia !== currentDia) {
+      changes.push(`Diameter ${currentDia} → ${sub.dia} mm`);
+    }
+    if (sub.len !== currentLen) {
+      changes.push(`Length ${currentLen} → ${sub.len} mm`);
+    }
+    if (Math.abs(volDelta) > 0.01) {
+      changes.push(`Volume ${currentVol.toFixed(2)} → ${newVol.toFixed(2)} L`);
+    }
+
+    return {
+      found: true,
+      pgmLoading_g_ft3: bestPgm,
+      diameter_mm: sub.dia,
+      length_mm: sub.len,
+      verdict: bestResult.overallVerdict,
+      emissions: bestResult.homologation.map((h) => ({
+        species: h.species,
+        g_km: h.cumulative_g_km,
+        limit: h.limit_g_km,
+        margin: h.margin_percent,
+      })),
+      changes,
+      pgmDelta_g_ft3: pgmDelta,
+      volumeDelta_L: volDelta,
+    };
+  }
+
+  // Nothing worked
+  return {
+    found: false,
+    pgmLoading_g_ft3: currentPgm,
+    diameter_mm: currentDia,
+    length_mm: currentLen,
+    verdict: "red",
+    emissions: [],
+    changes: [],
+    pgmDelta_g_ft3: 0,
+    volumeDelta_L: 0,
+  };
+}

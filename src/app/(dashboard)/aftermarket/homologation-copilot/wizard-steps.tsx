@@ -1367,6 +1367,110 @@ export function Step6WltpSimulation({ wiz }: { wiz: Wiz }) {
                 open the full WLTP Simulator →
               </a>
             </p>
+
+            {/* Pass suggestion — appears when result is FAIL or MARGINAL */}
+            {(result.overallVerdict === "red" || result.overallVerdict === "amber") && (
+              <div className="rounded-lg border border-blue-300 bg-blue-50 dark:bg-blue-950/30 dark:border-blue-800 p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-semibold text-blue-800 dark:text-blue-300">
+                      Catalyst not sufficient — need a stronger design to pass
+                    </p>
+                    <p className="text-xs text-blue-600 dark:text-blue-400 mt-0.5">
+                      The suggestion engine will search for the minimum PGM loading and substrate size that achieves a PASS, using the OEM database as an upper bound.
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="gap-1.5 shrink-0"
+                    onClick={wiz.suggestWltpFix}
+                    disabled={wiz.wltpSim.isSuggesting}
+                  >
+                    {wiz.wltpSim.isSuggesting ? (
+                      <><Loader2 className="size-3.5 animate-spin" /> Searching…</>
+                    ) : (
+                      <><Sparkles className="size-3.5" /> Suggest passing config</>
+                    )}
+                  </Button>
+                </div>
+
+                {/* Suggestion result */}
+                {wiz.wltpSim.suggestion && (
+                  wiz.wltpSim.suggestion.found ? (
+                    <div className="space-y-3 pt-2 border-t border-blue-200 dark:border-blue-800">
+                      <p className="text-xs font-semibold text-green-700 dark:text-green-400">
+                        Found a passing configuration with minimum changes:
+                      </p>
+
+                      {/* Changes summary */}
+                      <div className="flex flex-wrap gap-2">
+                        {wiz.wltpSim.suggestion.changes.map((ch, i) => (
+                          <Badge key={i} variant="secondary" className="text-xs font-mono">
+                            {ch}
+                          </Badge>
+                        ))}
+                      </div>
+
+                      {/* Suggested emissions vs limits */}
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                        {wiz.wltpSim.suggestion.emissions.map((em) => (
+                          <div key={em.species} className="rounded border bg-white dark:bg-muted/30 p-2 text-center">
+                            <p className="text-[10px] text-muted-foreground">{em.species}</p>
+                            <p className="text-sm font-bold text-green-700 dark:text-green-400">
+                              {em.g_km.toFixed(3)}
+                            </p>
+                            <p className="text-[10px] text-muted-foreground">
+                              limit {em.limit.toFixed(3)} · margin {em.margin > 0 ? "+" : ""}{em.margin.toFixed(1)}%
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Current vs suggested comparison */}
+                      <div className="grid gap-2 sm:grid-cols-2 text-xs">
+                        <div className="rounded border p-2">
+                          <p className="text-muted-foreground">Current PGM</p>
+                          <p className="font-mono font-semibold">{selected?.pgm.totalGPerFt3.toFixed(1)} g/ft³</p>
+                        </div>
+                        <div className="rounded border border-green-300 dark:border-green-700 bg-green-50 dark:bg-green-950/20 p-2">
+                          <p className="text-muted-foreground">Suggested PGM</p>
+                          <p className="font-mono font-semibold text-green-700 dark:text-green-400">
+                            {wiz.wltpSim.suggestion.pgmLoading_g_ft3.toFixed(1)} g/ft³
+                            {wiz.wltpSim.suggestion.pgmDelta_g_ft3 > 0 && (
+                              <span className="text-xs text-muted-foreground ml-1">
+                                (+{wiz.wltpSim.suggestion.pgmDelta_g_ft3.toFixed(1)})
+                              </span>
+                            )}
+                          </p>
+                        </div>
+                      </div>
+
+                      <Button
+                        className="w-full gap-2"
+                        onClick={wiz.applySuggestion}
+                      >
+                        <ShieldCheck className="size-4" />
+                        Apply suggested configuration &amp; re-run WLTP
+                      </Button>
+                      <p className="text-[10px] text-muted-foreground text-center">
+                        This will update PGM loading{wiz.wltpSim.suggestion.volumeDelta_L !== 0 ? " and substrate size" : ""} in your selected variant (Step 4) and automatically re-run the simulation.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="pt-2 border-t border-blue-200 dark:border-blue-800">
+                      <p className="text-xs text-red-600 dark:text-red-400 font-semibold">
+                        No passing configuration found within the search range.
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Even with 1.5× OEM PGM loading and larger substrates, this engine/emission standard combination cannot pass.
+                        Consider changing the engine preset, emission standard, or system architecture (e.g. adding a second brick).
+                      </p>
+                    </div>
+                  )
+                )}
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
