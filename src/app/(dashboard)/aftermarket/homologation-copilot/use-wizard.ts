@@ -505,7 +505,29 @@ export function useWizard() {
 
   /* ---- Step 5: Ce% slider ---- */
   const setCePercent = useCallback((ce: number) => {
-    setChemistry((p) => ({ ...p, cePercent: ce }));
+    setChemistry((p) => {
+      // Propagate slider value to both layer oscCePercent fields.
+      // L1 (inner, higher OSC) matches the slider; L2 (outer, Rh-rich) is ~5% lower.
+      const l1Ce = ce;
+      const l2Ce = Math.max(20, ce - 5);
+      const l1 = {
+        ...p.layer1,
+        oscCePercent: l1Ce,
+        totalGPerL: +(p.layer1.aluminaGPerL + p.layer1.oscGPerL + p.layer1.baoGPerL + p.layer1.la2o3GPerL + p.layer1.nd2o3GPerL).toFixed(1),
+      };
+      const l2 = {
+        ...p.layer2,
+        oscCePercent: l2Ce,
+        totalGPerL: +(p.layer2.aluminaGPerL + p.layer2.oscGPerL + p.layer2.baoGPerL + p.layer2.la2o3GPerL + p.layer2.nd2o3GPerL).toFixed(1),
+      };
+      return {
+        ...p,
+        cePercent: ce,
+        layer1: l1,
+        layer2: l2,
+        totalWashcoatGPerL: +(l1.totalGPerL + l2.totalGPerL).toFixed(1),
+      };
+    });
     setVariants((vPrev) => ({
       ...vPrev,
       variants: recomputeAllAging(vPrev.variants, ce, agingParams),
