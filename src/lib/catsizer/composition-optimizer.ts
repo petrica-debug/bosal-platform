@@ -348,12 +348,19 @@ function computeAmAgingForCandidate(
 /*  Helper: OBD risk assessment                                        */
 /* ================================================================== */
 
+/**
+ * OBD P0420 risk assessment.
+ *
+ * The ECU is calibrated against the AGED OE catalyst, so the correct comparison
+ * is AM-aged vs OE-aged oxygen storage capacity (µmol O₂/brick), not fresh g/L.
+ */
 function assessObdRisk(
-  amOscGPerL: number,
-  oeFreshOscGPerL: number,
+  amAgedOscUmol: number,
+  oeAgedOscUmol: number,
   obdSensitivity?: "tight" | "moderate" | "tolerant",
 ): ObdRiskAssessment {
-  const oscRatio = amOscGPerL / oeFreshOscGPerL;
+  // Guard: avoid NaN/Infinity when reference is missing
+  const oscRatio = oeAgedOscUmol > 0 ? amAgedOscUmol / oeAgedOscUmol : 1.0;
 
   // Tighten thresholds for sensitive platforms (VAG MQB etc.)
   const tightFactor = obdSensitivity === "tight" ? 0.03 : obdSensitivity === "tolerant" ? -0.03 : 0;
@@ -363,22 +370,22 @@ function assessObdRisk(
 
   if (oscRatio < 0.55 + tightFactor) {
     riskLevel = "BLOCK";
-    riskDescription = `OSC ratio ${(oscRatio * 100).toFixed(1)}% is critically low — rear O₂ sensor will detect insufficient oxygen buffering, causing P0420/P0430.`;
+    riskDescription = `Aged OSC ratio ${(oscRatio * 100).toFixed(1)}% vs OE aged — critically low oxygen buffering, P0420/P0430 expected.`;
   } else if (oscRatio < 0.62 + tightFactor) {
     riskLevel = "HIGH";
-    riskDescription = `OSC ratio ${(oscRatio * 100).toFixed(1)}% is in the danger zone — marginal OBD pass, high risk of field returns on sensitive vehicles.`;
+    riskDescription = `Aged OSC ratio ${(oscRatio * 100).toFixed(1)}% vs OE aged — danger zone, high P0420 risk on sensitive platforms.`;
   } else if (oscRatio > 0.80 - tightFactor) {
     riskLevel = "HIGH";
-    riskDescription = `OSC ratio ${(oscRatio * 100).toFixed(1)}% is too high — catalyst appears "too new", OBD may flag excessive storage vs. expected aged behavior.`;
+    riskDescription = `Aged OSC ratio ${(oscRatio * 100).toFixed(1)}% vs OE aged — may exceed expected degradation envelope; some ECUs flag this.`;
   } else if (oscRatio > 0.75 - tightFactor) {
     riskLevel = "MEDIUM";
-    riskDescription = `OSC ratio ${(oscRatio * 100).toFixed(1)}% is on the upper edge of the safe window — acceptable but monitor during R103 testing.`;
+    riskDescription = `Aged OSC ratio ${(oscRatio * 100).toFixed(1)}% vs OE aged — upper edge of safe window, monitor during R103.`;
   } else if (oscRatio < 0.65 + tightFactor) {
     riskLevel = "MEDIUM";
-    riskDescription = `OSC ratio ${(oscRatio * 100).toFixed(1)}% is on the lower edge — should pass but validate with OBD bench test.`;
+    riskDescription = `Aged OSC ratio ${(oscRatio * 100).toFixed(1)}% vs OE aged — lower edge, should pass but OBD bench test recommended.`;
   } else {
     riskLevel = "LOW";
-    riskDescription = `OSC ratio ${(oscRatio * 100).toFixed(1)}% is in the sweet spot (62–75%). Minimal OBD risk.`;
+    riskDescription = `Aged OSC ratio ${(oscRatio * 100).toFixed(1)}% vs OE aged — in sweet spot (62–75%). Minimal P0420 risk.`;
   }
 
   const platformNotes =
@@ -508,10 +515,12 @@ export function optimizeComposition(
         let rhGPerL: number;
 
         if (allowPt && prices.pt < prices.pd * 0.8) {
-          // Pt substitution is cost-effective — replace up to maxPtFrac of Pd
+          // Pt substitution — Pt requires ~1.5× more mass than Pd to match TWC activity
+          // at light-off temperatures. Allocate Pt from the budget at 1.5:1 equivalence.
           const ptFrac = Math.min(maxPtFrac, 1 - 1 / (pdRhRatio + 1));
-          ptGPerL = totalPgm * ptFrac * 0.5; // Pt at 0.5:1 mass equivalence to Pd
-          const remaining = totalPgm - ptGPerL;
+          // Pt mass = ptFrac of (Pd portion of budget) × 1.5 activity ratio
+          ptGPerL = totalPgm * (ptFrac / (pdRhRatio + 1)) * 1.5;
+          const remaining = Math.max(0, totalPgm - ptGPerL);
           rhGPerL = remaining / (pdRhRatio + 1);
           pdGPerL = remaining - rhGPerL;
         } else {
@@ -519,9 +528,11 @@ export function optimizeComposition(
           pdGPerL = totalPgm - rhGPerL;
         }
 
-        // Ce% for recommended OSC — stay with OE base or reduce slightly
-        const cePercent = oeReference.oeCePercent * (oscGPerL / oeReference.oeFreshOscGPerL);
-        const clampedCe = Math.max(30, Math.min(55, cePercent));
+        // Ce% is the stoichiometric composition of the CeO₂-ZrO₂ material,
+        // not a loading quantity — it must NOT scale with how much OSC is used.
+        // Use the OE composition directly; an AM engineer selects the material grade
+        // independently of how many g/L they apply.
+        const clampedCe = Math.max(30, Math.min(55, oeReference.oeCePercent));
 
         // Washcoat: scale proportionally to OSC change
         const washcoatRatio = oscGPerL / oeReference.oeFreshOscGPerL;
@@ -571,19 +582,19 @@ export function optimizeComposition(
           continue; // Skip candidates that violate BLOCK rules
         }
 
-        // OBD check (pre-filter)
+        // Full aging simulation (needed for aged OSC comparison in OBD check)
+        const amAging = computeAmAgingForCandidate(formulation, oeReference, agingProtocol);
+
+        // OBD check using AGED OSC ratio (AM aged vs OE aged) — correct reference state
         const obdRisk = assessObdRisk(
-          formulation.oscGPerL,
-          oeReference.oeFreshOscGPerL,
+          amAging.osc.agedUmolO2PerBrick,
+          oeAging.osc.agedUmolO2PerBrick,
           oeReference.obdSensitivity,
         );
         if (obdRisk.riskLevel === "BLOCK") {
           blockedCount++;
           continue;
         }
-
-        // Full aging simulation
-        const amAging = computeAmAgingForCandidate(formulation, oeReference, agingProtocol);
 
         // THE RELATIVE TEST: compare AM aged vs OE aged
         const t50DeltaCo = amAging.predictedT50CoC - oeAgedT50Co;

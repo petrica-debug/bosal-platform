@@ -180,7 +180,10 @@ export function predictP0420(params: {
       metricValue = signal.delayS;
       break;
     case "ratio":
-      metricValue = signal.amplitudeRatio;
+      // Toyota/Honda/Hyundai ratio strategy: rear peak-to-peak / front peak-to-peak.
+      // Front peak-to-peak = 0.8 V (fixed square wave ±0.4 V around 0.5 V).
+      // Rear peak-to-peak = amplitudeV from signal. Scale to [0,1].
+      metricValue = signal.amplitudeV / 0.8;
       break;
   }
 
@@ -202,9 +205,20 @@ export function predictP0420(params: {
 
   // Back-calculate minimum OSC for guaranteed pass with 15% margin
   const targetMetric = strategy === "delay" ? threshold * 1.15 : threshold * 0.85;
-  const targetTau = strategy === "delay"
-    ? Math.tan(targetMetric * 2 * Math.PI) / (2 * Math.PI)
-    : Math.sqrt((1 / targetMetric) ** 2 - 1) / (2 * Math.PI);
+  let targetTau: number;
+  if (strategy === "delay") {
+    // Phase delay of first-order filter: delay = atan(ω·τ) / ω → τ = tan(delay·ω) / ω
+    // Maximum possible delay = π/(2ω). Cap the argument to avoid tan(≥π/2) → ±Infinity.
+    const omega = 2 * Math.PI * 1.0; // lambdaFreqHz assumed 1.0 Hz for back-calc
+    const maxDelay = (Math.PI / 2 - 0.01) / omega; // just below π/(2ω)
+    const safeTarget = Math.min(targetMetric, maxDelay);
+    targetTau = Math.tan(safeTarget * omega) / omega;
+  } else {
+    // amplitude/ratio: attenuation = 1/√(1+(ωτ)²) → τ = √(1/a²-1) / ω
+    const omega = 2 * Math.PI * 1.0;
+    const safeTarget = Math.max(targetMetric, 0.01); // prevent division by zero
+    targetTau = Math.sqrt(Math.max(0, (1 / safeTarget) ** 2 - 1)) / omega;
+  }
   const exhaustFlowKgPerS = exhaustFlowKgPerH / 3600;
   const o2FlowSwing = (0.03 / 0.01) * 0.0005 / 0.032 * exhaustFlowKgPerS;
   const recommendedMinOscUmol = Math.max(

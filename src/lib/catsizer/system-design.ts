@@ -121,10 +121,14 @@ export function designSystem(input: SystemDesignInput): SystemDesignResult {
 
   // Compute backpressure
   const totalBp = bricks.reduce((sum, b) => sum + b.backpressureKPa, 0);
-  const bpMargin = +((oemBackpressureKPa * 1.1 - totalBp) / (oemBackpressureKPa * 1.1) * 100).toFixed(1);
+  const bpLimit = oemBackpressureKPa * 1.1;
+  // Guard against division by zero when OEM backpressure is unknown (0)
+  const bpMargin = bpLimit > 0
+    ? +((bpLimit - totalBp) / bpLimit * 100).toFixed(1)
+    : 0;
 
-  if (bpMargin < 0) {
-    notes.push(`WARNING: System backpressure ${totalBp.toFixed(1)} kPa exceeds OEM+10% limit of ${(oemBackpressureKPa * 1.1).toFixed(1)} kPa`);
+  if (bpLimit > 0 && bpMargin < 0) {
+    notes.push(`WARNING: System backpressure ${totalBp.toFixed(1)} kPa exceeds OEM+10% limit of ${bpLimit.toFixed(1)} kPa`);
   }
 
   const totalPgmG = +bricks.reduce((sum, b) => sum + b.pgmGPerL * b.volumeL, 0).toFixed(2);
@@ -270,9 +274,11 @@ function computeBrickBackpressure(
   const isWallFlow = role === "GPF" || role === "SDPF" || role === "DPF";
 
   if (isWallFlow) {
-    // Darcy: ΔP_wall = (mu * v * L_wall) / permeability + channel friction
-    const permeability = 1e-13; // m² — typical SiC wall
-    const wallDp = (mu * velocity * wallM * 2) / permeability; // through 2 walls
+    // Darcy flow: gas enters inlet channel, permeates through ONE wall into outlet channel.
+    // Filtration velocity << channel velocity: v_wall ≈ v_channel × (OFA × channelM) / (4 × lengthM)
+    const permeability = 1e-13; // m² — typical SiC/cordierite wall
+    const v_wall = velocity * (openFrontalArea * channelM) / (4 * Math.max(lengthM, 0.001));
+    const wallDp = (mu * v_wall * wallM) / permeability; // one-wall Darcy
     const channelDp = (32 * mu * velocity * lengthM) / (channelM ** 2);
     return (wallDp + channelDp) / 1000; // Pa to kPa
   }

@@ -43,7 +43,9 @@ export function computeOscCapacity(params: {
   const { cePercent, agingTempC, agingHours, oscLoadingGPerL, substrateVolumeL } = params;
 
   const ceFrac = cePercent / 100;
-  const freshOsc = 1200 * ceFrac * (1 - 0.4 * ceFrac); // µmol O2/g — peaks ~600 at Ce50%
+  // Ce₀.₅Zr₀.₅O₂ has maximum OSC (~600 µmol O₂/g) due to optimal lattice oxygen mobility.
+  // Above ~60% Ce, CeO₂ segregation reduces OSC. Use concave parabola peaking at Ce=50%.
+  const freshOsc = 2400 * ceFrac * (1 - ceFrac); // µmol O2/g — peaks at 600 at Ce=50%
 
   const Ea = 130_000; // J/mol — activation energy for OSC degradation
   const T = agingTempC + 273.15;
@@ -54,11 +56,12 @@ export function computeOscCapacity(params: {
   const retentionFrac = Math.max(0.25, Math.exp(-k * agingHours));
   const agedOsc = freshOsc * retentionFrac;
 
-  // Crystallite growth: Ostwald ripening d^4 - d0^4 = K*t
+  // Crystallite growth: volume-diffusion Ostwald ripening d³ - d0³ = K(T)·t (n=3 for CeO₂-ZrO₂)
+  // Literature: Koltsakis 1997, Ozawa Appl.Cat.B 2002 — n=3 for CeO₂-based OSC
   const d0 = 5; // nm fresh
-  const Kref = 50; // nm^4/h at 1050°C
+  const Kref = 7; // nm³/h at 1050°C (calibrated to give ~5.9 nm after RAT-A 12h)
   const K = Kref * Math.exp((Ea / R_GAS) * (1 / Tref - 1 / T));
-  const d = Math.pow(d0 ** 4 + K * agingHours, 0.25);
+  const d = Math.pow(d0 ** 3 + K * agingHours, 1 / 3);
 
   const massPerBrick = oscLoadingGPerL * substrateVolumeL;
 
@@ -95,9 +98,10 @@ const PGM_PARAMS: Record<PgmMetal, {
   kRef: number;
   t50K: number;
 }> = {
-  Pd: { freshDisp: 0.40, d0Nm: 2.5, sinterN: 5, Ea: 125_000, kRef: 200, t50K: 18 },
-  Rh: { freshDisp: 0.50, d0Nm: 2.0, sinterN: 7, Ea: 145_000, kRef: 80, t50K: 22 },
-  Pt: { freshDisp: 0.32, d0Nm: 3.0, sinterN: 4, Ea: 115_000, kRef: 350, t50K: 15 },
+  // freshDisp derived from 1.1/d0 so the sintering model is active from t=0 onward
+  Pd: { freshDisp: 0.44, d0Nm: 2.5, sinterN: 5, Ea: 125_000, kRef: 200, t50K: 18 },
+  Rh: { freshDisp: 0.55, d0Nm: 2.0, sinterN: 7, Ea: 145_000, kRef: 80, t50K: 22 },
+  Pt: { freshDisp: 0.37, d0Nm: 3.0, sinterN: 4, Ea: 115_000, kRef: 350, t50K: 15 },
 };
 
 /**
@@ -178,8 +182,9 @@ export function computePoisonLoading(params: {
   // Zn co-deposits with P at ~1:1 molar ratio (Zn:P ≈ 1.05 mass ratio)
   const znMass = pMass * 1.05;
 
-  // P penetration depth: exponential decay, ~80% in front 20% of brick
-  const pDepthFraction = Math.min(0.5, 0.15 + 0.0001 * (mileageKm / 1000));
+  // P penetration depth: exponential decay profile.
+  // Field data (MECA 2004, SAE 2005-01-1113): ~30-35% depth at 160 000 km.
+  const pDepthFraction = Math.min(0.5, 0.15 + 0.001 * (mileageKm / 1000));
 
   // GSA loss: P covers geometric surface area
   const totalGsa = substrateGsaM2PerL * substrateVolumeL * 1e4; // cm²
@@ -317,9 +322,9 @@ export function computeLightOffCurve(params: {
     exhaustFlowKgPerH = 120, agingTempC = 1050, agingHours = 12, cePercent = 45,
   } = params;
 
-  // Space velocity: SV (h⁻¹) = exhaust flow (L/h) / catalyst volume (L)
-  // Exhaust density ≈ 0.45 kg/m³ at 500°C → ~2222 L/kg
-  const exhaustFlowLPerH = exhaustFlowKgPerH * 2222;
+  // GHSV at STP (0°C, 1 atm) — industry-standard reference so values are temperature-independent.
+  // ρ_STP = pM/(RT) = (101325 × 0.0288) / (8.314 × 273.15) ≈ 1.285 kg/m³ → 778 NL/kg
+  const exhaustFlowLPerH = exhaustFlowKgPerH * 778; // NL/h at STP
   const svH = exhaustFlowLPerH / Math.max(substrateVolumeL, 0.01);
 
   // Base T50 from PGM: empirical correlation (lower PGM → higher T50)

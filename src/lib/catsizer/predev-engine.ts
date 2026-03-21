@@ -263,8 +263,10 @@ export function pgmLoadingFactor(
   actualLoading_g_ft3: number,
   baselineLoading_g_ft3: number
 ): number {
-  const ratio = actualLoading_g_ft3 / baselineLoading_g_ft3;
-  return Math.pow(ratio, 0.85);
+  // Guard: if baseline is 0 (missing profile data), assume neutral factor = 1.0
+  if (baselineLoading_g_ft3 <= 0) return 1.0;
+  const ratio = actualLoading_g_ft3 / Math.max(actualLoading_g_ft3 > 0 ? 0.001 : baselineLoading_g_ft3, baselineLoading_g_ft3);
+  return Math.pow(Math.max(0.01, ratio), 0.85);
 }
 
 // ============================================================
@@ -357,20 +359,36 @@ function generateLightOffCurve(
   isLeanBurn: boolean = true,
   exhaustFlow_kg_h: number = 900
 ): LightOffPoint[] {
+  // Aging model: real catalyst aging shifts T50 upward by ΔT50 and lowers max conversion plateau.
+  // A flat multiplier on the whole curve is physically wrong — at high T (>>T50) a properly
+  // aged catalyst still achieves >95% conversion. The T50 shift correctly captures the
+  // delayed light-off that drives cold-start emissions.
+  //
+  // ΔT50 = 40°C × (1 - agingActivity)  e.g. agingActivity=0.80 → ΔT50 = 8°C
+  // maxConv plateau drops by ~(1 - agingActivity) × 5%  e.g. 0.80 → -1%
+  const t50Shift = 40 * (1 - Math.min(1, Math.max(0, agingActivity)));
+  const maxConvLoss = 5 * (1 - Math.min(1, Math.max(0, agingActivity))); // percentage points
+
   const points: LightOffPoint[] = [];
   for (let T = 100; T <= 650; T += 10) {
     const co_f = predictConversion(profile, "CO", T, catalystVolume_L, flows.CO_mol_s, pgmFactor, gsaFactor, splitFactor, isLeanBurn, exhaustFlow_kg_h);
     const hc_f = predictConversion(profile, "HC", T, catalystVolume_L, flows.HC_mol_s, pgmFactor, gsaFactor, splitFactor, isLeanBurn, exhaustFlow_kg_h);
     const nox_f = predictConversion(profile, "NOx", T, catalystVolume_L, flows.NOx_mol_s, pgmFactor, gsaFactor, splitFactor, isLeanBurn, exhaustFlow_kg_h);
 
+    // Aged conversions: evaluate fresh curve at (T − ΔT50) to simulate the rightward T50 shift,
+    // then apply the small max-conversion plateau reduction.
+    const co_a_shifted = predictConversion(profile, "CO", T - t50Shift, catalystVolume_L, flows.CO_mol_s, pgmFactor, gsaFactor, splitFactor, isLeanBurn, exhaustFlow_kg_h);
+    const hc_a_shifted = predictConversion(profile, "HC", T - t50Shift, catalystVolume_L, flows.HC_mol_s, pgmFactor, gsaFactor, splitFactor, isLeanBurn, exhaustFlow_kg_h);
+    const nox_a_shifted = predictConversion(profile, "NOx", T - t50Shift, catalystVolume_L, flows.NOx_mol_s, pgmFactor, gsaFactor, splitFactor, isLeanBurn, exhaustFlow_kg_h);
+
     points.push({
       temperature_C: T,
       CO_conversion_fresh: co_f,
       HC_conversion_fresh: hc_f,
       NOx_conversion_fresh: nox_f,
-      CO_conversion_aged: co_f * agingActivity,
-      HC_conversion_aged: hc_f * agingActivity,
-      NOx_conversion_aged: nox_f * agingActivity,
+      CO_conversion_aged: Math.max(0, co_a_shifted - maxConvLoss),
+      HC_conversion_aged: Math.max(0, hc_a_shifted - maxConvLoss),
+      NOx_conversion_aged: Math.max(0, nox_a_shifted - maxConvLoss),
     });
   }
   return points;

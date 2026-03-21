@@ -423,9 +423,10 @@ export function runTransientWLTPSim(
   const catVolume_L =
     Math.PI * Math.pow(catalyst.diameter_mm / 2000, 2) * (catalyst.length_mm / 1000) * 1000;
 
-  // Deactivation
+  // Deactivation — map washcoatType to correct deactivation model
+  const catalystTypeForDeact = catalyst.washcoatType === "ceria" ? "TWC" : "DOC";
   const deactInput: DeactivationInputs = {
-    catalystType: "DOC",
+    catalystType: catalystTypeForDeact,
     SO2_ppm: 5,
     operatingTemp_C: 350,
     maxTemp_C,
@@ -517,12 +518,15 @@ export function runTransientWLTPSim(
       pgmFac, gsaFac, split.factor, isLean, exhaustFlow_kg_h
     );
 
-    const convCO_aged = convCO_fresh * agingActivity;
-    const convHC_aged = convHC_fresh * agingActivity;
-    const convNOx_aged = convNOx_fresh * agingActivity;
+    // Clamp aged conversion to [0, 100] to prevent negative tailpipe values
+    const convCO_aged = Math.min(100, Math.max(0, convCO_fresh * agingActivity));
+    const convHC_aged = Math.min(100, Math.max(0, convHC_fresh * agingActivity));
+    const convNOx_aged = Math.min(100, Math.max(0, convNOx_fresh * agingActivity));
 
-    // DPF PM filtration (simplified)
-    const convPM = engine.fuelType === "diesel" ? 99.5 * agingActivity : 50 * agingActivity;
+    // DPF/GPF PM filtration is a mechanical process (wall-flow inertial/diffusion capture),
+    // NOT governed by chemical aging activity — an aged DPF retains >97% FE.
+    // Gasoline/TWC catalysts have no particulate filter → lower inherent PM reduction.
+    const convPM = engine.fuelType === "diesel" ? 97.5 : 20;
 
     // Tailpipe (aged)
     const tailpipeCO = eo.CO_g_s * (1 - convCO_aged / 100);
@@ -612,14 +616,14 @@ export function runTransientWLTPSim(
   const overallVerdict: RAGVerdict = homologation.some((h) => h.verdict === "red")
     ? "red" : homologation.some((h) => h.verdict === "amber") ? "amber" : "green";
 
-  // Cold start penalty (emissions in first 60s vs rest)
+  // Cold start penalty — actual g/km in first 60s (the highest-emission window)
   const first60 = steps.filter((s) => s.time <= 60);
-  const rest = steps.filter((s) => s.time > 60);
-  const coldCO = first60.reduce((a, s) => a + s.tailpipeCO_g_s, 0);
-  const restCO = rest.length > 0 ? rest.reduce((a, s) => a + s.tailpipeCO_g_s, 0) : 0;
-  const totalCO_all = coldCO + restCO;
-  const coldHC = first60.reduce((a, s) => a + s.tailpipeHC_g_s, 0);
-  const coldNOx = first60.reduce((a, s) => a + s.tailpipeNOx_g_s, 0);
+  const coldDistance_km = first60.reduce((a, s) => a + (cycle[0]?.speed ?? 0 / 3600), 0.001);
+  // Sum g/s × 1s = total g, then normalise to the full-cycle distance for comparability
+  const coldCO_g = first60.reduce((a, s) => a + s.tailpipeCO_g_s, 0);
+  const coldHC_g = first60.reduce((a, s) => a + s.tailpipeHC_g_s, 0);
+  const coldNOx_g = first60.reduce((a, s) => a + s.tailpipeNOx_g_s, 0);
+  const fullDist = Math.max(cumDistance, 0.001);
 
   return {
     steps,
@@ -628,10 +632,12 @@ export function runTransientWLTPSim(
     overallVerdict,
     totalDistance_km: cumDistance,
     totalDuration_s: cycle.length,
+    // coldStartPenalty_g_km: cold-start mass (g) divided by full-cycle distance
+    // so the value is in true g/km units, comparable to the homologation limits.
     coldStartPenalty_g_km: {
-      CO: totalCO_all > 0 ? (coldCO / totalCO_all) * 100 : 0,
-      HC: (coldHC + rest.reduce((a, s) => a + s.tailpipeHC_g_s, 0)) > 0 ? (coldHC / (coldHC + rest.reduce((a, s) => a + s.tailpipeHC_g_s, 0))) * 100 : 0,
-      NOx: (coldNOx + rest.reduce((a, s) => a + s.tailpipeNOx_g_s, 0)) > 0 ? (coldNOx / (coldNOx + rest.reduce((a, s) => a + s.tailpipeNOx_g_s, 0))) * 100 : 0,
+      CO: +(coldCO_g / fullDist).toFixed(4),
+      HC: +(coldHC_g / fullDist).toFixed(4),
+      NOx: +(coldNOx_g / fullDist).toFixed(4),
     },
     agingFactor: agingActivity,
     catalystVolume_L: catVolume_L,
