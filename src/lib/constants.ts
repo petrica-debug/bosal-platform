@@ -208,6 +208,16 @@ export const NAV_ITEMS: readonly NavItem[] = [
 
   // -- Aftermarket --
   {
+    title: 'OE Catalyst Database',
+    href: '/oe-database',
+    icon: 'Database',
+    phase: 'P0',
+    description:
+      'EU 2015–2024 OE catalyst database — 330 vehicles, 514 compositions, exhaust system diagrams, MOT/MOP builder, AM proposals',
+    requiredRoles: ALL_ROLES,
+    group: 'Aftermarket',
+  },
+  {
     title: 'AM Product Development',
     href: '/aftermarket/homologation-copilot',
     icon: 'FlaskConical',

@@ -78,6 +78,14 @@ import {
   uniqueFuels,
   type CopilotAnswerFocus,
 } from "@/lib/catsizer/oem-database";
+import {
+  EU_VEHICLES,
+  EU_OEM_GROUPS,
+  EU_BRANDS as EU_BRAND_LIST,
+  EU_FUELS,
+  EU_STANDARDS,
+  type EuVehicle,
+} from "@/lib/catsizer/eu-vehicle-db";
 
 import { useWizard } from "./use-wizard";
 import { WIZARD_STEPS } from "./wizard-types";
@@ -358,14 +366,23 @@ function OemSidebar({
   const [brand, setBrand] = useState("all");
   const [tablePage, setTablePage] = useState(0);
 
-  const fuels = useMemo(() => uniqueFuels(), []);
-  const brands = useMemo(() => uniqueBrands(), []);
-  const standards = useMemo(() => uniqueEmissionStandards(), []);
+  const filteredRows = useMemo(() => {
+    return EU_VEHICLES.filter((v) => {
+      if (fuel !== "all" && v.fuel !== fuel) return false;
+      if (emStd !== "all" && v.emStd !== emStd) return false;
+      if (brand !== "all" && v.brand !== brand) return false;
+      if (search) {
+        const q = search.toLowerCase();
+        return (
+          v.vehicle.toLowerCase().includes(q) ||
+          v.engineFamily.toLowerCase().includes(q) ||
+          v.brand.toLowerCase().includes(q)
+        );
+      }
+      return true;
+    });
+  }, [search, fuel, emStd, brand]);
 
-  const filteredRows = useMemo(
-    () => filterEcsWithGlobalIndices({ search, fuel, emissionStandard: emStd, brand }),
-    [search, fuel, emStd, brand],
-  );
   useEffect(() => { setTablePage(0); }, [search, fuel, emStd, brand]);
 
   const pageCount = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
@@ -375,7 +392,7 @@ function OemSidebar({
     [filteredRows, safePage],
   );
 
-  const pinnedRecords = pinned.map((i) => ECS_COMPONENTS[i]).filter(Boolean);
+  const pinnedVehicles = pinned.map((id) => EU_VEHICLES.find((v) => v.id === id)).filter(Boolean) as EuVehicle[];
 
   return (
     <div className="flex flex-col h-full gap-0 overflow-hidden">
@@ -383,40 +400,38 @@ function OemSidebar({
       <div className="p-3 border-b shrink-0">
         <div className="flex items-center gap-2 mb-2">
           <Database className="size-4 text-muted-foreground" />
-          <span className="text-sm font-semibold">OEM Reference</span>
-          <span className="text-xs text-muted-foreground ml-auto">{OEM_DB_MANIFEST.counts.ecsComponents} records</span>
+          <span className="text-sm font-semibold">EU OE Reference</span>
+          <span className="text-xs text-muted-foreground ml-auto">{EU_VEHICLES.length} vehicles</span>
         </div>
-        {/* Search */}
         <div className="relative mb-2">
           <Search className="absolute left-2.5 top-2.5 size-3.5 text-muted-foreground" />
           <Input
             className="pl-8 h-8 text-xs"
-            placeholder="Engine, brand, vehicle…"
+            placeholder="Vehicle, engine, brand…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
-        {/* Compact filters */}
         <div className="grid grid-cols-3 gap-1">
           <Select value={fuel} onValueChange={setFuel}>
             <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Fuel" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All fuels</SelectItem>
-              {fuels.map((f) => <SelectItem key={f} value={f}>{f}</SelectItem>)}
+              {EU_FUELS.map((f) => <SelectItem key={f} value={f}>{f}</SelectItem>)}
             </SelectContent>
           </Select>
           <Select value={emStd} onValueChange={setEmStd}>
             <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Std" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All std.</SelectItem>
-              {standards.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+              {EU_STANDARDS.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
             </SelectContent>
           </Select>
           <Select value={brand} onValueChange={setBrand}>
             <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Brand" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All brands</SelectItem>
-              {brands.map((b) => <SelectItem key={b} value={b}>{b}</SelectItem>)}
+              {EU_BRAND_LIST.map((b) => <SelectItem key={b} value={b}>{b}</SelectItem>)}
             </SelectContent>
           </Select>
         </div>
@@ -428,7 +443,7 @@ function OemSidebar({
           <thead className="sticky top-0 bg-muted/80 backdrop-blur-sm">
             <tr>
               <th className="w-8 px-2 py-1.5"></th>
-              <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">Brand / Engine</th>
+              <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">Vehicle / Engine</th>
               <th className="px-2 py-1.5 text-right font-medium text-muted-foreground">PGM</th>
             </tr>
           </thead>
@@ -436,17 +451,17 @@ function OemSidebar({
             {pageRows.length === 0 ? (
               <tr><td colSpan={3} className="text-center text-muted-foreground py-6">No results</td></tr>
             ) : (
-              pageRows.map(({ record: rec, globalIndex: gi }) => {
-                const isPinned = pinned.includes(gi);
+              pageRows.map((v) => {
+                const isPinned = pinned.includes(v.id);
                 return (
                   <tr
-                    key={gi}
+                    key={v.id}
                     className={`cursor-pointer hover:bg-muted/40 transition-colors ${isPinned ? "bg-primary/5" : ""}`}
                   >
                     <td className="px-1 py-1">
                       <button
                         type="button"
-                        onClick={() => togglePin(gi)}
+                        onClick={() => togglePin(v.id)}
                         className="p-1 rounded hover:bg-muted"
                       >
                         {isPinned
@@ -454,13 +469,13 @@ function OemSidebar({
                           : <Bookmark className="size-3.5 text-muted-foreground" />}
                       </button>
                     </td>
-                    <td className="px-2 py-1.5" onClick={() => onDetail(gi)}>
-                      <div className="font-medium truncate max-w-[130px]" title={rec.brand ?? ""}>{rec.brand}</div>
-                      <div className="text-muted-foreground truncate max-w-[130px]" title={rec.engineFamily ?? ""}>{rec.engineFamily}</div>
-                      <div className="text-muted-foreground opacity-70">{rec.emissionStandard}</div>
+                    <td className="px-2 py-1.5" onClick={() => onDetail(v.id)}>
+                      <div className="font-medium truncate max-w-[130px]" title={v.vehicle}>{v.vehicle}</div>
+                      <div className="text-muted-foreground truncate max-w-[130px]" title={v.engineFamily}>{v.engineFamily}</div>
+                      <div className="text-muted-foreground opacity-70">{v.emStd} · {v.fuel}</div>
                     </td>
-                    <td className="px-2 py-1.5 text-right font-mono" onClick={() => onDetail(gi)}>
-                      {rec.totalPgmGPerL ?? "—"} g/L
+                    <td className="px-2 py-1.5 text-right font-mono" onClick={() => onDetail(v.id)}>
+                      {v.totalPgmGPerL} g/L
                     </td>
                   </tr>
                 );
@@ -468,7 +483,6 @@ function OemSidebar({
             )}
           </tbody>
         </table>
-        {/* Pagination */}
         <div className="flex items-center justify-between px-2 py-1.5 border-t text-xs text-muted-foreground bg-muted/30 sticky bottom-0">
           <span>{filteredRows.length} found</span>
           <div className="flex gap-1">
@@ -494,26 +508,26 @@ function OemSidebar({
       </div>
 
       {/* Pinned references */}
-      {pinnedRecords.length > 0 && (
+      {pinnedVehicles.length > 0 && (
         <div className="border-t shrink-0 max-h-[280px] overflow-y-auto">
           <div className="px-3 py-2 bg-primary/5 border-b">
-            <p className="text-xs font-semibold text-primary">Pinned OEM Reference ({pinnedRecords.length})</p>
+            <p className="text-xs font-semibold text-primary">Pinned OE Reference ({pinnedVehicles.length})</p>
           </div>
-          {pinnedRecords.map((rec, idx) => (
-            <div key={idx} className="px-3 py-2 border-b last:border-0 text-xs">
-              <p className="font-medium">{rec.brand} — {rec.engineFamily}</p>
+          {pinnedVehicles.map((v) => (
+            <div key={v.id} className="px-3 py-2 border-b last:border-0 text-xs">
+              <p className="font-medium">{v.vehicle}</p>
               <div className="text-muted-foreground space-y-0.5 mt-0.5">
-                <p>{rec.emissionStandard} · {rec.componentType}</p>
+                <p>{v.brand} · {v.oemGroup} · {v.emStd}</p>
                 <p className="font-mono">
-                  ⌀{rec.diameterMm}×{rec.lengthMm}mm · {rec.cpsi} CPSI
+                  ⌀{v.diameterMm}×{v.lengthMm}mm · {v.cpsi} CPSI · {v.ccVolL}L
                 </p>
                 <p className="font-mono">
-                  Pt {rec.ptGPerL} · Pd {rec.pdGPerL} · Rh {rec.rhGPerL} g/L
-                  <span className="font-semibold ml-1">(∑ {rec.totalPgmGPerL})</span>
+                  Pd {v.pdGPerL} · Rh {v.rhGPerL} · Pt {v.ptGPerL} g/L
+                  <span className="font-semibold ml-1">(∑ {v.totalPgmGPerL})</span>
                 </p>
-                {rec.t50CoC && (
+                {v.t50Co && (
                   <p className="font-mono text-[10px]">
-                    T50: CO {rec.t50CoC}°C · HC {rec.t50HcC ?? "—"}°C · NOx {rec.t50NoxC ?? "—"}°C
+                    T50: CO {v.t50Co}°C · HC {v.t50Hc ?? "—"}°C · NOx {v.t50Nox ?? "—"}°C
                   </p>
                 )}
               </div>
@@ -650,10 +664,8 @@ export default function HomologationCopilotPage() {
     });
   }, []);
 
-  const detailRecord =
-    detailIndex !== null && detailIndex >= 0 && detailIndex < ECS_COMPONENTS.length
-      ? ECS_COMPONENTS[detailIndex]
-      : null;
+  const detailVehicle =
+    detailIndex !== null ? EU_VEHICLES.find((v) => v.id === detailIndex) ?? null : null;
 
   // Engineering rules — live checks on current formulation
   const engineeringRules = useMemo(() => computeEngineeringRules(wiz), [wiz]);
@@ -831,24 +843,24 @@ export default function HomologationCopilotPage() {
         </main>
       </div>
 
-      {/* ── ECS component detail sheet ───────────────────────────── */}
+      {/* ── Vehicle detail sheet ───────────────────────────── */}
       <Sheet open={detailIndex !== null} onOpenChange={(o) => !o && setDetailIndex(null)}>
         <SheetContent className="w-full sm:max-w-lg overflow-y-auto">
           <SheetHeader>
-            <SheetTitle>ECS component detail</SheetTitle>
+            <SheetTitle>OE Vehicle Detail</SheetTitle>
             <SheetDescription>
-              {detailRecord ? `${detailRecord.brand} — ${detailRecord.engineFamily}` : ""}
+              {detailVehicle ? `${detailVehicle.vehicle} — ${detailVehicle.brand}` : ""}
             </SheetDescription>
           </SheetHeader>
-          {detailRecord && (
+          {detailVehicle && (
             <div className="mt-6 space-y-4 text-sm">
-              <DetailGrid record={detailRecord} />
+              <EuVehicleDetailGrid vehicle={detailVehicle} />
               <Button
                 className="w-full"
                 variant={pinned.includes(detailIndex!) ? "secondary" : "default"}
                 onClick={() => detailIndex !== null && togglePin(detailIndex)}
               >
-                {pinned.includes(detailIndex!) ? "Remove from reference" : "Pin as OEM reference"}
+                {pinned.includes(detailIndex!) ? "Remove from reference" : "Pin as OE reference"}
               </Button>
             </div>
           )}
@@ -1067,6 +1079,43 @@ function DetailGrid({ record: r }: { record: EcsComponentRecord }) {
         <div key={k} className="space-y-0.5">
           <p className="text-xs text-muted-foreground">{k}</p>
           <p className="text-sm font-medium break-words">{v}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function EuVehicleDetailGrid({ vehicle: v }: { vehicle: EuVehicle }) {
+  const pairs: [string, string][] = [
+    ["Vehicle", v.vehicle],
+    ["Brand", v.brand],
+    ["OEM Group", v.oemGroup],
+    ["Segment", v.segment],
+    ["Years", v.years],
+    ["Engine Family", v.engineFamily],
+    ["Fuel", v.fuel],
+    ["Emission Standard", v.emStd],
+    ["CC Volume (L)", String(v.ccVolL ?? "—")],
+    ["CPSI", String(v.cpsi ?? "—")],
+    ["Ø × L (mm)", `${v.diameterMm ?? "—"} × ${v.lengthMm ?? "—"}`],
+    ["Pd / Rh / Pt (g/L)", `${v.pdGPerL} / ${v.rhGPerL} / ${v.ptGPerL}`],
+    ["Total PGM (g/L)", String(v.totalPgmGPerL)],
+    ["OSC (g/L)", String(v.oscGPerL ?? "—")],
+    ["WC (g/L)", String(v.wcGPerL ?? "—")],
+    ["T50 CO / HC / NOx (°C)", `${v.t50Co ?? "—"} / ${v.t50Hc ?? "—"} / ${v.t50Nox ?? "—"}`],
+    ["OBD Sensitivity", v.obdSense ?? "—"],
+    ["EU Volume (est)", v.euVol?.toLocaleString() ?? "—"],
+    ["AM Score", String(v.amScore ?? "—")],
+    ["GPF", v.gpf ?? "—"],
+    ["UF-TWC", v.ufTwc ?? "—"],
+  ];
+  if (v.notes) pairs.push(["Notes", v.notes]);
+  return (
+    <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
+      {pairs.map(([k, val]) => (
+        <div key={k} className="space-y-0.5">
+          <p className="text-xs text-muted-foreground">{k}</p>
+          <p className="text-sm font-medium break-words">{val}</p>
         </div>
       ))}
     </div>
